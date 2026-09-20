@@ -140,7 +140,7 @@ const nativeOfflineCases: NativeOfflineCase[] = [
     runtime: "stopped",
     loaded: true,
     enabled: false,
-    offline: true,
+    offline: false,
   },
   {
     platform: "darwin",
@@ -148,7 +148,7 @@ const nativeOfflineCases: NativeOfflineCase[] = [
     runtime: "stopped",
     loaded: true,
     enabled: false,
-    offline: true,
+    offline: false,
     phase: "prepare",
   },
   {

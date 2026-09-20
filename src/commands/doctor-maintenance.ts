@@ -77,6 +77,7 @@ export async function beginDoctorMaintenance(params: {
   root: string | null;
   runtime: RuntimeEnv;
   runId?: string;
+  assertCurrent?: () => void;
 }): Promise<
   | {
       run<T>(operation: () => T): T;
@@ -134,9 +135,13 @@ export async function beginDoctorMaintenance(params: {
     if (resources) {
       return;
     }
+    params.assertCurrent?.();
     const owner = acquireGatewayMaintenanceCoordinator({ databasePath, busyTimeoutMs: 0 });
     coordinators.push(owner);
-    resources = createOpenClawDatabaseMaintenanceScope(owner.createSchemaFenceDelegate);
+    resources = createOpenClawDatabaseMaintenanceScope(
+      owner.createSchemaFenceDelegate,
+      params.assertCurrent,
+    );
     coordinators.push(acquireStateDatabaseCoordinator({ databasePath, busyTimeoutMs: 250 }));
   };
   const releaseState = async () => {

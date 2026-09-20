@@ -1,10 +1,17 @@
 import { readConfigFileSnapshot } from "../../config/config.js";
 import type { PluginInstallRecord } from "../../config/types.plugins.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { resolveOpenClawPackageRootSync } from "../../infra/openclaw-root.js";
 import { normalizeUpdateChannel, type UpdateChannel } from "../../infra/update-channels.js";
-import { UPDATE_RUN_ID_ENV } from "../../infra/update-control-plane-sentinel.js";
+import {
+  UPDATE_RUN_ID_ENV,
+  readControlPlaneUpdateSentinelMeta,
+} from "../../infra/update-control-plane-sentinel.js";
 import { hasDeferredUpdateModelRetirement } from "../../infra/update-deferred-model-retirement.js";
 import { writeUpdateRunReportArtifact } from "../../infra/update-failure-report-artifact.js";
+import { resolveUpdateInstallRoot } from "../../infra/update-install-root.js";
+import { createManagedHandoffProcessIdentityReader } from "../../infra/update-managed-service-handoff-process.js";
+import type { HandoffProcessIdentity } from "../../infra/update-managed-service-handoff-schema.js";
 import {
   POST_CORE_UPDATE_REQUESTED_CHANNEL_ENV,
   POST_CORE_UPDATE_ENV,
@@ -14,7 +21,12 @@ import {
   POST_CORE_UPDATE_SOURCE_CONFIG_PATH_ENV,
   type PreUpdateConfigRestoreInput,
 } from "../../infra/update-post-core-context.js";
+import {
+  createManagedUpdateRequesterAuthority,
+  resolveManagedUpdateRequester,
+} from "../../infra/update-requester-authority.js";
 import { recordPostCoreUpdateEvidence } from "../../infra/update-run-interruption.js";
+import { getUpdateRun } from "../../infra/update-run-ledger.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
 import { readPersistedInstalledPluginIndex } from "../../plugins/installed-plugin-index-store.js";
@@ -22,13 +34,16 @@ import { withPluginLifecycleLease } from "../../plugins/plugin-lifecycle-lease.j
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { withCommandProcessScope } from "../../process/exec-spawn.js";
 import { defaultRuntime } from "../../runtime.js";
+import { isUnfencedUpdateDriver } from "../../state/openclaw-state-schema-publication.js";
 import { VERSION } from "../../version.js";
 import { parseUpdateTimeoutMs, readPackageVersion, type UpdateCommandOptions } from "./shared.js";
+import { createUpdateCommandAuthority } from "./update-command-authority.js";
 import {
   preparePostCorePluginConfig,
   persistValidatedDowngradeConfig,
   readPostCorePreUpdateSourceConfig,
 } from "./update-command-config.js";
+import { withUpdateCommandExecutor } from "./update-command-executor.js";
 import {
   completePostCorePluginUpdate,
   runUpdateFinalizationDoctorInFreshProcess,
@@ -47,6 +62,7 @@ import {
   writePostCorePluginUpdateResultFile,
   writePostCoreUpdateFailureFile,
 } from "./update-command-post-core.js";
+import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
 import { completeSourceUpdateRuntime } from "./update-command-runtime.js";
 
 type ResumePostCoreUpdateParams = {
@@ -58,11 +74,128 @@ type ResumePostCoreUpdateParams = {
 
 export async function resumePostCoreUpdate(params: ResumePostCoreUpdateParams): Promise<void> {
   try {
+    const env = { ...process.env };
+    const runId = env[UPDATE_RUN_ID_ENV]?.trim();
+    // Capture before the first await, but identity is required only by legacy
+    // child-owned completion; a modern parent's unchanged path needs no probe.
+    let parent: HandoffProcessIdentity | undefined;
+    let parentError: unknown;
+    if (runId && !params.opts.run) {
+      try {
+        parent = createManagedHandoffProcessIdentityReader({ env }).processIdentity(process.ppid);
+      } catch (error) {
+        parentError = error;
+      }
+    }
     const opts = await resolvePostCoreUpdateOperatorOptions({
       opts: params.opts,
       resultPath: process.env[POST_CORE_UPDATE_RESULT_PATH_ENV],
     });
-    await resumePostCoreUpdateInternal({ ...params, opts });
+    const resumed = { ...params, opts };
+    const parentOwnsCompletion = await postCoreUpdateParentOwnsCompletion(
+      process.env[POST_CORE_UPDATE_RESULT_PATH_ENV],
+    );
+    const record =
+      runId && !params.opts.run && !parentOwnsCompletion ? getUpdateRun(runId, { env }) : undefined;
+    let completed: Awaited<ReturnType<typeof resumePostCoreUpdateInternal>>;
+    if (runId && record && isUnfencedUpdateDriver(record.before.version)) {
+      if (!parent) {
+        throw new UpdateCommandRecoveryPendingError(
+          "Legacy package parent identity is unavailable.",
+          { cause: parentError },
+        );
+      }
+      const inPostCore = (current: ReturnType<typeof getUpdateRun>) =>
+        current?.status === "running" &&
+        current.steps.findLast((entry) => entry.step === "openclaw doctor")?.status ===
+          "completed" &&
+        current.steps.findLast((entry) => entry.step === "post-update verification")?.status ===
+          "in_progress";
+      const root = resolveUpdateInstallRoot(params.root);
+      const executingRoot = resolveOpenClawPackageRootSync({ moduleUrl: import.meta.url });
+      if (
+        !inPostCore(record) ||
+        !executingRoot ||
+        resolveUpdateInstallRoot(executingRoot) !== root
+      ) {
+        throw new UpdateCommandRecoveryPendingError(
+          "Legacy post-core update does not match its running installation.",
+        );
+      }
+      const meta = await readControlPlaneUpdateSentinelMeta(env);
+      const managedHandoff =
+        env.OPENCLAW_UPDATE_RUN_HANDOFF === "1" || Boolean(meta?.handoffId || meta?.root);
+      if (
+        (meta?.runId && meta.runId !== runId) ||
+        (managedHandoff && (!meta?.runId || !meta.handoffId || !meta.root))
+      ) {
+        throw new UpdateCommandRecoveryPendingError(
+          "Legacy managed post-core handoff is incomplete or names another update run.",
+        );
+      }
+      if (meta?.handoffId && meta.root) {
+        const { assertManagedServiceUpdateHandoffRoot } =
+          await import("../../infra/update-managed-service-handoff.js");
+        await assertManagedServiceUpdateHandoffRoot({
+          expectedRoot: meta.root,
+          root,
+          executingRoot,
+          postCore: true,
+        });
+      }
+      completed = await withUpdateCommandExecutor(
+        runId,
+        async (executor) => {
+          const fence = await executor.enter(root);
+          const requester = resolveManagedUpdateRequester(record.origin.requester);
+          const requesterAuthority = requester
+            ? await createManagedUpdateRequesterAuthority(requester, env)
+            : undefined;
+          fence.assertCurrent();
+          const current = getUpdateRun(runId, { env });
+          if (!inPostCore(current) || current?.createdAtMs !== record.createdAtMs) {
+            throw new UpdateCommandRecoveryPendingError(
+              "Legacy post-core update changed during admission.",
+            );
+          }
+          // Reuse the parent's row without admitting, adopting, or terminalizing another run.
+          return await resumePostCoreUpdateInternal({
+            ...resumed,
+            opts: {
+              ...opts,
+              run: {
+                runId,
+                env,
+                executorFence: fence,
+                ...(requesterAuthority ? { requesterAuthority } : {}),
+              },
+            },
+          });
+        },
+        {
+          legacyPackageParent: parent,
+          // Metadata correlates the shipped handoff, never substitutes for its
+          // unchanged lease row and the captured live package parent's identity.
+          ...(meta?.handoffId && meta.root
+            ? { legacyPackageHandoff: { handoffId: meta.handoffId, root: meta.root } }
+            : {}),
+        },
+      );
+    } else {
+      completed = await resumePostCoreUpdateInternal(resumed);
+    }
+    const { pluginUpdate, result } = completed;
+    // Shipped parents may stop this child as soon as this file appears. Publish
+    // only after the executor has joined its Doctor and released native custody.
+    if (process.env[POST_CORE_UPDATE_RESULT_PATH_ENV]) {
+      await writePostCorePluginUpdateResultFile(
+        process.env[POST_CORE_UPDATE_RESULT_PATH_ENV],
+        pluginUpdate,
+      );
+    }
+    if (params.opts.json && !process.env[POST_CORE_UPDATE_RESULT_PATH_ENV]) {
+      defaultRuntime.writeJson(result);
+    }
   } catch (error) {
     // Publish only after phase cleanup releases its leases. The parent owns
     // recovery and triage; inherited TTY output cannot serve as its error record.
@@ -74,10 +207,13 @@ export async function resumePostCoreUpdate(params: ResumePostCoreUpdateParams): 
     );
     throw error;
   }
+  defaultRuntime.exit(0);
 }
 
-async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams): Promise<void> {
-  const assertCurrent = params.opts.run?.executorFence?.assertCurrent;
+async function resumePostCoreUpdateInternal(
+  params: ResumePostCoreUpdateParams,
+): Promise<{ pluginUpdate: PostCorePluginUpdateResult; result: UpdateRunResult }> {
+  const { assertCurrent } = createUpdateCommandAuthority({ opts: params.opts }, "Post-core update");
   assertCurrent?.();
   if (
     params.channel !== "stable" &&
@@ -85,9 +221,7 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
     params.channel !== "beta" &&
     params.channel !== "dev"
   ) {
-    defaultRuntime.error("Missing post-core update channel context.");
-    defaultRuntime.exit(1);
-    return;
+    throw new Error("Missing post-core update channel context.");
   }
   const channel = params.channel;
 
@@ -96,9 +230,7 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
     ? normalizeUpdateChannel(requestedChannelInput)
     : null;
   if (requestedChannelInput && !requestedChannel) {
-    defaultRuntime.error("Invalid post-core requested update channel context.");
-    defaultRuntime.exit(1);
-    return;
+    throw new Error("Invalid post-core requested update channel context.");
   }
 
   process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION =
@@ -259,17 +391,7 @@ async function resumePostCoreUpdateInternal(params: ResumePostCoreUpdateParams):
     }
   }
   assertCurrent?.();
-  if (process.env[POST_CORE_UPDATE_RESULT_PATH_ENV]) {
-    await writePostCorePluginUpdateResultFile(
-      process.env[POST_CORE_UPDATE_RESULT_PATH_ENV],
-      pluginUpdate,
-    );
-  }
-  assertCurrent?.();
-  if (params.opts.json && !process.env[POST_CORE_UPDATE_RESULT_PATH_ENV]) {
-    defaultRuntime.writeJson(result);
-  }
-  defaultRuntime.exit(0);
+  return { pluginUpdate, result };
 }
 
 /** Candidate code owns this phase whether reached by CLI resume or migrated finalization. */
@@ -285,6 +407,8 @@ export async function convergePostCoreUpdatePlugins(params: {
   updateStartedAtMs?: number;
   /** Modern parents finalize after consuming the result; legacy children finalize before publication. */
   parentOwnsCompletion?: boolean;
+  beforeDoctor?: () => Promise<void>;
+  onWarnings?: (warnings: string[]) => void;
   assertCurrent?: () => void;
 }) {
   const { assertCurrent } = params;
@@ -338,6 +462,8 @@ export async function convergePostCoreUpdatePlugins(params: {
             opts: params.opts,
             pluginUpdate: producedPluginUpdate,
             freshDoctorRequired: producedPluginUpdate.changed,
+            beforeDoctor: params.beforeDoctor,
+            onWarnings: params.onWarnings,
             assertCurrent,
             yes: params.opts.yes === true,
             json: params.opts.json === true,

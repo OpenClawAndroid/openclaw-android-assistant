@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => ({
   stopAllowances: [] as Array<string | undefined>,
   command: vi.fn<typeof import("../../daemon/systemd.js").readSystemdServiceExecStart>(),
   restart: vi.fn(async () => {
+    await servingOwner.restart();
     mocks.events.push("native restart");
     mocks.running = true;
     return { outcome: "completed" as const };
@@ -249,13 +250,14 @@ let root: string;
 let configPath: string;
 let run: NonNullable<UpdateCommandOptions["run"]>;
 let envSnapshot: Awaited<ReturnType<typeof createServiceActivationFixture>>["envSnapshot"];
+let servingOwner: Awaited<ReturnType<typeof createServiceActivationFixture>>["servingOwner"];
 const writeConfig = (version: string) => writeRecoveryConfig(configPath, version);
 
 beforeEach(async () => {
   vi.clearAllMocks();
   mocks.exit.mockReset();
   mockProcessPlatform("linux");
-  ({ root, configPath, envSnapshot } = await createServiceActivationFixture());
+  ({ root, configPath, envSnapshot, servingOwner } = await createServiceActivationFixture());
   const runEnv = { ...process.env };
   run = { runId: createUpdateRun({ trigger: "cli" }, { env: runEnv }).runId, env: runEnv };
   mocks.ports.mockImplementation(async (port) => ({
@@ -316,6 +318,7 @@ beforeEach(async () => {
     .mockRejectedValue(new Error("Unexpected config snapshot during preserved activation"));
 });
 afterEach(async () => {
+  await servingOwner.release();
   await closeOpenClawStateDatabaseAsync();
   envSnapshot.restore();
   clearConfigCache();
@@ -325,7 +328,7 @@ afterEach(async () => {
 });
 
 describe("preserved update activation with real version guards", () => {
-  registerRestartOutcomeTests(() => ({ root, run, mocks }));
+  registerRestartOutcomeTests(() => ({ root, run, mocks, servingOwner }));
 
   it.each([
     ...(
@@ -428,6 +431,9 @@ describe("preserved update activation with real version guards", () => {
             killed: false,
             termination: "exit",
           };
+        }
+        if (mocks.running) {
+          await servingOwner.publish();
         }
         const program = new Command().exitOverride();
         addGatewayServiceCommands(program.command("gateway"));
@@ -718,6 +724,7 @@ describe("preserved update activation with real version guards", () => {
       mocks.capability.mockResolvedValue(
         kind === "sealed" ? { kind, reason: "foreign-owner" } : { kind },
       );
+      await servingOwner.publish();
       await expect(runDaemonRestart({ json: true, preserveDefinition: true })).resolves.toBe(true);
       expect(mocks.restart).toHaveBeenCalledOnce();
       expect(mocks.install).not.toHaveBeenCalled();
@@ -836,6 +843,13 @@ describe("preserved update activation with real version guards", () => {
     mocks.inLaunchd = scenario === "handoff";
     let loaded = ["loaded", "handoff", "stale retry"].includes(scenario);
     let nativeRunning = loaded;
+    if (loaded) {
+      await servingOwner.publish("launchd");
+    }
+    mocks.handoff.mockImplementation(() => ({
+      ok: true,
+      value: servingOwner.restart().then(() => true),
+    }));
     mocks.launchctl.mockImplementation(async (args) => {
       if (args[0] === "bootstrap") {
         if (scenario === "bootstrap denied" || scenario === "parent recovery refusal") {
@@ -848,6 +862,7 @@ describe("preserved update activation with real version guards", () => {
         return { code: 113, stdout: "", stderr: "Could not find service", termination: "exit" };
       }
       if (args[0] === "kickstart") {
+        await servingOwner.restart();
         nativeRunning = true;
       }
       const state = nativeRunning ? "running" : "stopped";

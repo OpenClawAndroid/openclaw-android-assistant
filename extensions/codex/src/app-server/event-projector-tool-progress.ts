@@ -72,6 +72,8 @@ export type ToolTranscriptResultInput = {
   name: string;
   text?: string;
   isError: boolean;
+  outcomeUnknown?: true;
+  captureTruncated?: true;
   details?: unknown;
   resultContentSource?: "network";
 };
@@ -108,6 +110,10 @@ export class CodexToolProgressProjection {
 
   get outputTextByItem(): ReadonlyMap<string, string> {
     return this.output.textByItem;
+  }
+
+  isOutputTruncated(itemId: string): boolean {
+    return this.output.isTruncated(itemId);
   }
 
   get toolMetas(): EmbeddedRunAttemptResult["toolMetas"] {

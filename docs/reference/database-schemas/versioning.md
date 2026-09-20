@@ -336,12 +336,31 @@ Update-time Doctor checks shared and registered agent databases before other
 repairs. A state-only migration proceeds with deferred publication and reports
 `schema content applied; version publication deferred until update run <id> finishes`.
 Publication still observes the five-minute grace after that run finishes.
-Doctor keeps the typed `update-schema-bump-unfenced` refusal when deferral cannot
-cover a pending agent-database migration, the required `config_machine_state`
-table is missing, or the state-content migration fails. A failed content
-transaction rolls back. The refusal includes the database versions, driving
-updater version, and [manual update commands](/install/updating#updating-from-2026.9.2-across-a-schema-bump).
-Package rollback cannot reverse a migration that already happened.
+Agent schema versions are not deferred or relabeled. For a supported 2026.9.2
+package update, the early Doctor runs schema repair on private database copies
+while the old driver can still roll back its package installation. It reports
+success only after the private Doctor and its children settle successfully;
+live agent databases remain unchanged. Known pending agent databases without a
+registered canonical backup owner still refuse during this rollback window.
+
+After the shipped driver commits the package and enters its fresh post-core
+phase, the current updater delegates Doctor under its executor and maintenance
+ownership. Doctor creates and verifies a retained recovery archive covering every
+pending agent database before normal live migration. Coverage requires matching
+agent owners and physical file identities, including registered custom paths;
+opaque archived bytes are not a verified SQLite snapshot. Authority and live
+file identities are checked again after backup work and at the versioned schema
+write and commit boundaries. Doctor reports the retained
+archive path; it does not automatically restore that archive on a later failure.
+
+Doctor keeps the typed `update-schema-bump-unfenced` refusal when the phase or
+current owner cannot be verified, recoverable backup coverage is missing, or the
+required `config_machine_state` table is absent. Private rehearsal and backup
+failures leave live agent schemas unchanged. A failed content transaction rolls
+back. The refusal includes the affected database versions, driving updater
+version, and [manual update commands](/install/updating#updating-from-2026.9.2-across-a-schema-bump).
+Package rollback cannot reverse a migration that already happened; recovery
+after live migration requires the verified backup and a matching build.
 
 The driver check requires a valid semantic version and includes 2026.9.2
 rebuilds. Earlier updaters, including 2026.9.1, have no ledger and keep normal

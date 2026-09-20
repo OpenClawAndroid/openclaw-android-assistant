@@ -7,7 +7,10 @@ import {
   type GatewayOwnerSupervisor,
 } from "../../infra/gateway-owner-lease.js";
 import { consumeGatewayRestartIntentPayloadSync } from "../../infra/restart-intent.js";
-import { acquireGatewayLifecycleCoordinator } from "../../infra/state-database-coordinator.js";
+import {
+  acquireGatewayLifecycleCoordinator,
+  tryAcquireGatewayLifecycleCleanupCoordinator,
+} from "../../infra/state-database-coordinator.js";
 import * as processOwners from "../../infra/state-lease-process-owner.js";
 import * as existingWrites from "../../state/openclaw-state-db-existing-write.js";
 import {
@@ -15,6 +18,7 @@ import {
   openOpenClawStateDatabase,
 } from "../../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
+import { createServiceRestartIntent } from "./lifecycle-restart-intent.js";
 import {
   createGatewayServiceRunArgs,
   lifecycleTestRuntime,
@@ -81,6 +85,7 @@ function publishServingOwner(
 
 beforeEach(() => {
   resetLifecycleRuntimeLogs();
+  lifecycleTestRuntime.error.mockClear();
   resetLifecycleServiceMocks();
   vi.stubEnv("OPENCLAW_STATE_DIR", tempDirs.make("openclaw-restart-intent-cli-"));
   vi.stubEnv("OPENCLAW_PROFILE", "default");
@@ -203,10 +208,11 @@ it.each([
   { state: "live", mode: "supervised", name: "another-gateway.service" },
   { state: "live", mode: "supervised", name: null },
 ] as const)(
-  "keeps native targeting for an unrelated or unverifiable owner ($state/$mode/$name)",
+  "refuses restart for an unrelated or unverifiable serving owner ($state/$mode/$name)",
   async ({ state, mode, name }) => {
     vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     vi.spyOn(processOwners, "readStateLeaseProcessOwnerStatus").mockReturnValue(state);
+    const { db } = openOpenClawStateDatabase();
     const coordinator = acquireGatewayLifecycleCoordinator({
       databasePath: resolveOpenClawStateSqlitePath(process.env),
     });
@@ -218,10 +224,13 @@ it.each([
       );
       service.readRuntime.mockResolvedValue({ status: "running", pid: process.pid });
 
-      await expect(runServiceRestart(createGatewayServiceRunArgs())).resolves.toBe(true);
+      await expect(runServiceRestart(createGatewayServiceRunArgs())).rejects.toThrow("__exit__:1");
 
-      expect(consumeGatewayRestartIntentPayloadSync()).toEqual({ reason: "gateway.restart" });
-      expect(service.restart).toHaveBeenCalledOnce();
+      expect(db.prepare("SELECT count(*) AS count FROM gateway_restart_intent").get()).toEqual({
+        count: 0,
+      });
+      expect(service.restart).not.toHaveBeenCalled();
+      expect(lifecycleRuntimeLogs.join("\n")).toContain("live serving Gateway owner");
     } finally {
       coordinator.release();
     }
@@ -229,24 +238,131 @@ it.each([
 );
 
 it.each([true, false])(
-  "warns and preserves native restart when serving ownership cannot be inspected (json=%s)",
+  "refuses a recovered service restart when command inspection fails (json=%s)",
   async (json) => {
     vi.spyOn(process, "platform", "get").mockReturnValue("linux");
-    openOpenClawStateDatabase();
-    service.readRuntime.mockResolvedValue({ status: "running", pid: process.pid });
+    const { db } = openOpenClawStateDatabase();
+    publishServingOwner(process.pid);
+    vi.spyOn(processOwners, "readStateLeaseProcessOwnerStatus").mockReturnValue("live");
+    service.readRuntime.mockResolvedValue({ status: "running", pid: process.pid + 1 });
     service.readCommand.mockRejectedValue(new Error("native command inspection unavailable"));
 
     await expect(
+      createServiceRestartIntent({ serviceNoun: "Gateway", service }).prepare(),
+    ).rejects.toMatchObject({
+      name: "GatewayRestartPreparationError",
+      code: "GATEWAY_RESTART_PREPARATION_REFUSED",
+      reason: "service-command",
+    });
+    await expect(
       runServiceRestart({ ...createGatewayServiceRunArgs(), opts: { json } }),
-    ).resolves.toBe(true);
+    ).rejects.toThrow("__exit__:1");
 
-    expect(consumeGatewayRestartIntentPayloadSync()).toEqual({ reason: "gateway.restart" });
-    expect(lifecycleRuntimeLogs.join("\n")).toContain(
-      "Could not verify the serving Gateway owner; using native service status for restart intent.",
+    expect(db.prepare("SELECT count(*) AS count FROM gateway_restart_intent").get()).toEqual({
+      count: 0,
+    });
+    expect(service.restart).not.toHaveBeenCalled();
+    const output = [...lifecycleRuntimeLogs, ...lifecycleTestRuntime.error.mock.calls.flat()].join(
+      "\n",
     );
-    expect(service.restart).toHaveBeenCalledOnce();
+    expect(output).toContain("GATEWAY_RESTART_PREPARATION_REFUSED");
+    expect(output).toContain("effective service command");
+    expect(output).toContain("Gateway was not signaled");
   },
 );
+
+it("refuses a recovered service restart when its effective command is missing", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  const { db } = openOpenClawStateDatabase();
+  service.readCommand.mockResolvedValue(null);
+
+  await expect(runServiceRestart(createGatewayServiceRunArgs())).rejects.toThrow("__exit__:1");
+
+  expect(service.restart).not.toHaveBeenCalled();
+  expect(db.prepare("SELECT count(*) AS count FROM gateway_restart_intent").get()).toEqual({
+    count: 0,
+  });
+  expect(lifecycleRuntimeLogs.join("\n")).toContain("effective service command");
+});
+
+it("refuses native restart when restart intent cannot be recorded", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  const { db } = openOpenClawStateDatabase();
+  beforeIntentWriteAdmission(() => {
+    throw new Error("write admission unavailable");
+  });
+
+  await expect(runServiceRestart(createGatewayServiceRunArgs())).rejects.toThrow("__exit__:1");
+
+  expect(service.restart).not.toHaveBeenCalled();
+  expect(db.prepare("SELECT count(*) AS count FROM gateway_restart_intent").get()).toEqual({
+    count: 0,
+  });
+  expect(lifecycleRuntimeLogs.join("\n")).toContain("Cannot record restart intent");
+});
+
+it("restarts a verified inactive service without intent and releases startup exclusion", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  const { db } = openOpenClawStateDatabase();
+  service.readRuntime.mockResolvedValue({ status: "stopped" });
+  service.restart.mockImplementationOnce(async () => {
+    const exclusion = tryAcquireGatewayLifecycleCleanupCoordinator({
+      databasePath: resolveOpenClawStateSqlitePath(process.env),
+    });
+    expect(exclusion).not.toBeNull();
+    exclusion?.release();
+    return { outcome: "completed" };
+  });
+
+  await expect(runServiceRestart(createGatewayServiceRunArgs())).resolves.toBe(true);
+
+  expect(service.restart).toHaveBeenCalledOnce();
+  expect(db.prepare("SELECT count(*) AS count FROM gateway_restart_intent").get()).toEqual({
+    count: 0,
+  });
+});
+
+it("refuses stopped native status while unpublished Gateway startup holds authority", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  const { db } = openOpenClawStateDatabase();
+  const coordinator = acquireGatewayLifecycleCoordinator({
+    databasePath: resolveOpenClawStateSqlitePath(process.env),
+  });
+  service.readRuntime.mockResolvedValue({ status: "stopped" });
+  try {
+    await expect(runServiceRestart(createGatewayServiceRunArgs())).rejects.toThrow("__exit__:1");
+
+    expect(service.restart).not.toHaveBeenCalled();
+    expect(db.prepare("SELECT count(*) AS count FROM gateway_restart_intent").get()).toEqual({
+      count: 0,
+    });
+  } finally {
+    coordinator.release();
+  }
+});
+
+it("targets the verified serving child even when native status reports stopped", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  vi.spyOn(processOwners, "readStateLeaseProcessOwnerStatus").mockReturnValue("live");
+  const coordinator = acquireGatewayLifecycleCoordinator({
+    databasePath: resolveOpenClawStateSqlitePath(process.env),
+  });
+  service.readRuntime.mockResolvedValue({ status: "stopped" });
+  try {
+    publishServingOwner(process.pid);
+    let consumed: ReturnType<typeof consumeGatewayRestartIntentPayloadSync> = null;
+    service.restart.mockImplementationOnce(async () => {
+      consumed = consumeGatewayRestartIntentPayloadSync();
+      return { outcome: "completed" };
+    });
+
+    await expect(runServiceRestart(createGatewayServiceRunArgs())).resolves.toBe(true);
+
+    expect(consumed).toEqual({ reason: "gateway.restart" });
+  } finally {
+    coordinator.release();
+  }
+});
 
 it.each(["runtime", "command", "write admission"])(
   "revalidates update authority after native %s inspection before recording intent",

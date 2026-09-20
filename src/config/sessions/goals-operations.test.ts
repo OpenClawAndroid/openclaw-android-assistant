@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { trackSqliteStatementExecutions } from "../../../test/helpers/sqlite-statement-execution-counter.js";
 import { onSessionIdentityMutation } from "../../sessions/session-lifecycle-events.js";
 import {
+  closeOpenClawAgentDatabasesAsync,
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
@@ -237,6 +238,7 @@ describe("typed Goal operation persistence", () => {
     const first = await admit();
     await clearSessionGoal(scope());
     const eventsBefore = await loadTranscriptEvents(scope());
+    await closeOpenClawAgentDatabasesAsync();
     closeOpenClawAgentDatabasesForTest();
     const replay = await admit();
     expect(replay.sessionTurnMutationResult).toEqual({

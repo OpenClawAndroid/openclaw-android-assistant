@@ -137,23 +137,25 @@ describe("memory manager shared agent connection", () => {
     expect(result.error).toMatch(/foreign_key_check/);
   });
 
-  it("retains the borrowed connection through agent-cache eviction until manager close", async () => {
-    const shared = sqliteRuntime.openOpenClawAgentDatabase({ agentId: "main" });
-    const manager = await fixture.getFreshManager(createConfig());
-    // Cross the shared owner's 64-handle LRU cap while the manager is idle.
-    for (let index = 0; index < 65; index += 1) {
-      sqliteRuntime.openOpenClawAgentDatabase({ agentId: `churn-${index}` });
-    }
+  it("retains a borrowed connection until thirty idle minutes after manager close", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const shared = sqliteRuntime.openOpenClawAgentDatabase({ agentId: "main" });
+      const manager = await fixture.getFreshManager(createConfig());
+      vi.advanceTimersByTime(30 * 60_000);
 
-    expect(shared.db.isOpen).toBe(true);
-    expect(managerDatabase(manager) === shared.db).toBe(true);
-    await manager.sync({ reason: "test", force: true });
-    expect((await manager.search("Alpha")).length).toBeGreaterThan(0);
-    await manager.close();
-    for (let index = 0; index < 65; index += 1) {
-      sqliteRuntime.openOpenClawAgentDatabase({ agentId: `released-${index}` });
+      expect(shared.db.isOpen).toBe(true);
+      expect(managerDatabase(manager) === shared.db).toBe(true);
+      await manager.sync({ reason: "test", force: true });
+      expect((await manager.search("Alpha")).length).toBeGreaterThan(0);
+      await manager.close();
+      vi.advanceTimersByTime(30 * 60_000 - 1);
+      expect(shared.db.isOpen).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(shared.db.isOpen).toBe(false);
+    } finally {
+      vi.useRealTimers();
     }
-    expect(shared.db.isOpen).toBe(false);
   });
 
   it("loads vectors on the shared connection with native loading disabled between calls", async () => {
@@ -175,7 +177,7 @@ describe("memory manager shared agent connection", () => {
     );
   });
 
-  it("shares retained manager handles and trims released handles on the next open", async () => {
+  it("shares more than sixty-four manager handles without evicting released handles on open", async () => {
     const cfg = createConfig();
     const agents = Array.from({ length: 65 }, (_, index) => ({
       id: `retained-${index}`,
@@ -202,7 +204,7 @@ describe("memory manager shared agent connection", () => {
     expect({ retained, afterRelease, afterOpen: countOpenHandles() }).toEqual({
       retained: agents.length,
       afterRelease: agents.length,
-      afterOpen: 64,
+      afterOpen: agents.length + 1,
     });
   });
 

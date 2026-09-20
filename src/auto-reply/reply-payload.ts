@@ -425,7 +425,7 @@ export function isReplyPayloadStatusNotice(
   return Boolean(payload.isCompactionNotice || payload.isFallbackNotice || payload.isStatusNotice);
 }
 
-/** Returns whether a payload carries a terminal answer or command result, not a supplemental lane. */
+/** Classifies terminal vs. supplemental reply lanes, not content, sendability, or authority. */
 export const isReplyPayloadTerminalContent = (payload: ReplyPayload): boolean => {
   const supplement = getReplyPayloadTtsSupplement(payload);
   return (

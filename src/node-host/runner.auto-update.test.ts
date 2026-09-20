@@ -167,6 +167,8 @@ describe("node runner auto-update handoff", () => {
       sharing: true,
       commands: ["fixture.list", "fixture.read"],
       forceWorkerRuns: true,
+      desktopSharingEnabled: true,
+      companion: true,
       endpointArgs: ["--host", "2001:db8::10", "--port", "8443"],
       optionArgs: [
         "--tls",
@@ -178,6 +180,9 @@ describe("node runner auto-update handoff", () => {
         "--commands",
         "fixture.list,fixture.read",
         "--session-host",
+        "--desktop-sharing",
+        "--auth-from-env",
+        "--parent-stdin",
       ],
     },
     {
@@ -186,8 +191,10 @@ describe("node runner auto-update handoff", () => {
       sharing: false,
       commands: undefined,
       forceWorkerRuns: false,
+      desktopSharingEnabled: false,
+      companion: false,
       endpointArgs: ["--host", "127.0.0.1", "--port", "18789"],
-      optionArgs: ["--no-tls", "--no-share-installed-apps"],
+      optionArgs: ["--no-tls", "--no-share-installed-apps", "--no-desktop-sharing"],
     },
   ])("restarts with effective options for $label without replaying pairing", async (entry) => {
     const effectiveConfig = {
@@ -206,6 +213,9 @@ describe("node runner auto-update handoff", () => {
         gatewayBootstrapToken: "one-use-bootstrap-token",
         preferGatewayBootstrapToken: true,
         forceWorkerRuns: entry.forceWorkerRuns,
+        desktopSharingEnabled: entry.desktopSharingEnabled,
+        gatewayAuthFromEnv: entry.companion,
+        parentStdin: entry.companion,
         allCommands: entry.commands === undefined,
       },
       async () => {

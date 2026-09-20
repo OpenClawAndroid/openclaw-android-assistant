@@ -56,6 +56,7 @@ type CanaryResult = {
   logTail: string[];
   steps: UpdateStepResult[];
   candidateSchemaVersions?: OpenClawSchemaVersions;
+  gatewayRestartCompletion?: boolean;
   doctorConfigWrites?: boolean;
   doctorConfigChanges?: UpdateDoctorConfigChange[];
   retainedRehearsal?: { rehearsal: UpdateCandidateRehearsal; cleanup: () => Promise<void> };
@@ -119,6 +120,7 @@ export async function validateUpdateCandidateCanary(params: {
     }
   };
   let candidateSchemaVersions: OpenClawSchemaVersions | undefined;
+  let gatewayRestartCompletion = false;
   let doctorConfigWrites = false;
   let doctorConfigChanges: UpdateDoctorConfigChange[] = [];
   let listenerIsolation: CanaryResult["listenerIsolation"];
@@ -450,6 +452,7 @@ export async function validateUpdateCandidateCanary(params: {
           ? undefined
           : JSON.parse(running.stdout());
         candidateSchemaVersions = parseOpenClawSchemaVersions(contract);
+        gatewayRestartCompletion = isRecord(contract) && contract.gatewayRestartCompletion === true;
         doctorConfigWrites = isRecord(contract) && contract.doctorConfigWrites === "pid-start-v1";
         if (!candidateSchemaVersions) {
           code = 1;
@@ -517,9 +520,8 @@ export async function validateUpdateCandidateCanary(params: {
     stepStartedAt = Date.now();
     stepLogTail.length = 0;
     remaining();
-    const args = ["gateway", "run", "--update-canary", "--bind", "loopback", "--port"];
-    args.push(String(port));
-    const running = launch(entry, args);
+    const args = ["gateway", "run", "--update-canary", "--bind", "loopback"];
+    const running = launch(entry, [...args, "--port", String(port)]);
     try {
       const probeFailure = await waitForUpdateCandidateReadiness({
         port,
@@ -562,6 +564,7 @@ export async function validateUpdateCandidateCanary(params: {
       durationMs: Date.now() - started,
       logTail,
       candidateSchemaVersions,
+      gatewayRestartCompletion,
       ...(doctorConfigWrites ? { doctorConfigWrites } : {}),
       ...(doctorConfigChanges.length ? { doctorConfigChanges } : {}),
       listenerIsolation,
@@ -623,6 +626,7 @@ export async function validateUpdateCandidateCanary(params: {
       durationMs: Date.now() - started,
       logTail,
       candidateSchemaVersions,
+      gatewayRestartCompletion,
       ...(doctorConfigChanges.length ? { doctorConfigChanges } : {}),
       ...(retainedRehearsal ? { retainedRehearsal } : {}),
       listenerIsolation,

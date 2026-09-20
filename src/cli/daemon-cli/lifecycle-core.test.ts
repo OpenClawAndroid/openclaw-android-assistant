@@ -53,6 +53,7 @@ vi.mock("../../runtime.js", () => ({
 }));
 
 vi.mock("../../infra/restart-intent.js", () => ({
+  prepareGatewayRestartIntentLegacyProcess: async () => undefined,
   clearGatewayRestartIntentSync: () => clearGatewayRestartIntentSync(),
   writeGatewayRestartIntentSync: (opts: unknown) => writeGatewayRestartIntentSync(opts),
   writeGatewayServiceRestartIntentSync: (opts: unknown) => writeGatewayRestartIntentSync(opts),
@@ -476,7 +477,6 @@ describe("runServiceRestart token drift", () => {
     expect(writeGatewayRestartIntentSync).toHaveBeenCalledWith(
       expect.objectContaining({
         env: expect.any(Object),
-        targetPid: 1234,
         reason: "gateway.restart",
         intent: { waitMs: 2_500 },
       }),
@@ -729,12 +729,12 @@ describe("runServiceRestart token drift", () => {
     expect(writeGatewayRestartIntentSync).toHaveBeenCalledWith(
       expect.objectContaining({
         env: expect.any(Object),
-        targetPid: 1234,
         reason: "gateway.restart",
       }),
     );
     expect(clearGatewayRestartIntentSync).not.toHaveBeenCalled();
     expect(service.restart).toHaveBeenCalledTimes(1);
+    expect(writeGatewayRestartIntentSync).toHaveBeenCalledBefore(service.restart);
   });
 
   it("captures service restart warnings in json restart output", async () => {
@@ -772,7 +772,6 @@ describe("runServiceRestart token drift", () => {
     expect(writeGatewayRestartIntentSync).toHaveBeenCalledWith(
       expect.objectContaining({
         env: expect.any(Object),
-        targetPid: 1234,
         reason: "gateway.restart",
         intent: {
           waitMs: 2_500,
@@ -791,7 +790,6 @@ describe("runServiceRestart token drift", () => {
     expect(writeGatewayRestartIntentSync).toHaveBeenCalledWith(
       expect.objectContaining({
         env: expect.any(Object),
-        targetPid: 1234,
         reason: "gateway.restart",
       }),
     );

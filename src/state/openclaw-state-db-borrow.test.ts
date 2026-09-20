@@ -34,7 +34,13 @@ function fixture(inTransaction = false) {
   );
   const retainer = createStateDatabaseRetainer(
     { borrowers, cachedDatabases: new Map([[database.path, database]]) },
-    { assertOpen() {}, capture: () => ({ assertCurrent() {} }), retire, retainFailed: vi.fn() },
+    {
+      assertOpen() {},
+      capture: () => ({ assertCurrent() {} }),
+      retire,
+      retainFailed: vi.fn(),
+      touch() {},
+    },
   );
   const scope = createOpenClawDatabaseMaintenanceScope(() => undefined);
   scope.own(database.db, "shared-handles", () => database.db.close());

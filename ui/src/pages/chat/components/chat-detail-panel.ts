@@ -26,6 +26,7 @@ import type {
   FileSidebarNavigation,
   AttachmentSidebarRuntime,
   SidebarContent,
+  ChatDetailPanelContent,
 } from "./chat-sidebar-content-types.ts";
 import {
   buildRawContent,
@@ -57,7 +58,7 @@ function saveFileWrapPreference(wrap: boolean): void {
 }
 
 class ChatDetailPanel extends OpenClawLightDomElement {
-  @property({ attribute: false }) content: SidebarContent | null = null;
+  @property({ attribute: false }) content: ChatDetailPanelContent | null = null;
   @property({ attribute: false }) fileNavigation: FileSidebarNavigation | null = null;
   @property({ attribute: false }) execNode: string | null = null;
   @property({ attribute: false }) attachmentRuntime: AttachmentSidebarRuntime = {};
@@ -75,7 +76,7 @@ class ChatDetailPanel extends OpenClawLightDomElement {
   @property({ attribute: false }) onRevealInWorkspace?: ((path: string) => void) | null = null;
   @property({ attribute: false }) onOpenImage?: ((item: ImageLightboxItem) => void) | null = null;
 
-  @state() private visibleContent: SidebarContent | null = null;
+  @state() private visibleContent: ChatDetailPanelContent | null = null;
   @state() private error: Error | null = null;
   @state() private fileSearchOpen = false;
   @state() private fileWrap = loadFileWrapPreference();

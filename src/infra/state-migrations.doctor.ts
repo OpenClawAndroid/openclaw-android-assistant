@@ -1777,7 +1777,7 @@ function buildLegacyStateMigrationSteps(
         },
         sharedStep("pairing-stores", async () => {
           const { migrateDoctorPairingStores } = await import("./state-migrations.pairing.js");
-          return migrateDoctorPairingStores({ stateDir, env });
+          return migrateDoctorPairingStores({ stateDir, env, cfg: params.config });
         }),
         ownerStep("tui-last-session", detected.tuiLastSessions, migrateLegacyTuiLastSessions),
         ...(detected.commitments

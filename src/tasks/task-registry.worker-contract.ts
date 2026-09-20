@@ -59,7 +59,7 @@ export type TaskRegistryWorkerOperations = TaskInitialWorkerOperations &
     };
     "flows.runTask": { input: ManagedTaskInFlowInput; output: ManagedTaskInFlowReceipt };
     "tasks.mutationSnapshot": {
-      input: TaskRegistryMutationScope | undefined;
+      input: TaskRegistryMutationScope | readonly TaskRegistryMutationScope[] | undefined;
       output: TaskRegistryStoreSnapshot;
     };
     "flows.createManaged": {

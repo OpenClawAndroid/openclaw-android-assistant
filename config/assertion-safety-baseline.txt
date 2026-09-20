@@ -2664,7 +2664,6 @@ src/gateway/server-methods/chat-abort-authorization.ts	3
 src/gateway/server-methods/chat-abort-handler.ts	2
 src/gateway/server-methods/chat-assistant-content.ts	1
 src/gateway/server-methods/chat-broadcast.ts	1
-src/gateway/server-methods/chat-history-budget.ts	6
 src/gateway/server-methods/chat-history-handler.ts	1
 src/gateway/server-methods/chat-send-attachments.ts	1
 src/gateway/server-methods/chat-send-reply-dispatch.ts	2
@@ -2859,7 +2858,7 @@ src/infra/fetch.ts	7
 src/infra/file-lock-manager.ts	1
 src/infra/file-lock-sync.ts	1
 src/infra/fs-safe-remove.ts	4
-src/infra/gateway-lock.ts	4
+src/infra/gateway-lock.ts	3
 src/infra/gateway-processes.ts	1
 src/infra/gemini-auth.ts	1
 src/infra/git-commit.ts	1

@@ -434,18 +434,16 @@ async function updateFinalizeCommandInternal(
         if (result.status !== "error" && recoveryRunIds.length) {
           // Publish successful recovery only after convergence and the ledger's
           // transactional inactivity/driver check both finish.
-          reconciledRuns.push(
-            ...reconcileAbandonedUpdateRuns({ explicit: true, runIds: recoveryRunIds }).map(
-              (run) => run.runId,
-            ),
-          );
+          reconcileAbandonedUpdateRuns({ explicit: true, runIds: recoveryRunIds });
           if (recoveryRunIds.some((runId) => getUpdateRun(runId)?.status === "running")) {
             throw new Error(
               "An update resumed while repair was running; wait for that update before retrying repair.",
             );
           }
           for (const runId of recoveryRunIds) {
-            acknowledgeAbandonedUpdateRun(runId);
+            if (acknowledgeAbandonedUpdateRun(runId)) {
+              reconciledRuns.push(runId);
+            }
           }
         }
         if (opts.json) {

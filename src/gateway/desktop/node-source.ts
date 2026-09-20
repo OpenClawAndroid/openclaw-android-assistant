@@ -168,7 +168,7 @@ export function createNodeDesktopService(params: {
         }
         if (!isAuthorized()) {
           throw new Error(
-            "node desktop is not enabled; explicitly allow and approve desktop.stream for this node",
+            "node desktop is unavailable; enable Desktop Sharing on the node, approve its capability request, and check gateway.nodes.commands.deny",
           );
         }
       };

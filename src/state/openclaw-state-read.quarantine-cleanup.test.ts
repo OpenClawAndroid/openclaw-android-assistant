@@ -21,8 +21,8 @@ const mock = vi.hoisted(() => ({
   query: vi.fn<() => []>(),
   databases: [] as FakeDatabase[],
 }));
-vi.mock("../infra/worker-task-pool.js", () => ({
-  serveWorkerTasks: (handler: (input: unknown) => OpenClawStateReadReply) => {
+vi.mock("../infra/worker-task-server.js", () => ({
+  serveOwnedWorkerTasks: (handler: (input: unknown) => OpenClawStateReadReply) => {
     mock.handler.mockImplementation(handler);
   },
 }));
@@ -35,6 +35,7 @@ vi.mock("../fleet/registry.kernel.js", () => ({
   getFleetCellInDatabase: () => undefined,
 }));
 vi.mock("./openclaw-state-db-read-connection.js", () => ({
+  closeRetainedOpenClawStateReadConnections: vi.fn(),
   withOpenClawStateReadOnlyLocation: (operation: (source: { db: object }) => unknown) =>
     operation({ db: {} }),
 }));

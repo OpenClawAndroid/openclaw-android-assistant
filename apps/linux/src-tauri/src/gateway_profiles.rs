@@ -56,6 +56,8 @@ struct Registry {
     selected: Option<String>,
     #[serde(default)]
     keep_computer_awake: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    desktop_sharing_enabled: Option<bool>,
 }
 
 impl Default for Registry {
@@ -65,6 +67,7 @@ impl Default for Registry {
             profiles: Vec::new(),
             selected: None,
             keep_computer_awake: false,
+            desktop_sharing_enabled: None,
         }
     }
 }
@@ -244,6 +247,21 @@ impl GatewayProfiles {
     pub fn selected(&self) -> Result<Option<String>, String> {
         let mut cache = self.registry.lock().map_err(|_| CORRUPT)?;
         Ok(self.load(&mut cache)?.selected.clone())
+    }
+
+    pub fn desktop_sharing_enabled(&self) -> Result<Option<bool>, String> {
+        let mut cache = self.registry.lock().map_err(|_| CORRUPT)?;
+        Ok(self.load(&mut cache)?.desktop_sharing_enabled)
+    }
+
+    pub fn set_desktop_sharing_enabled(&self, enabled: bool) -> Result<(), String> {
+        let mut cache = self.registry.lock().map_err(|_| CORRUPT)?;
+        let mut next = self.load(&mut cache)?.clone();
+        if next.desktop_sharing_enabled == Some(enabled) {
+            return Ok(());
+        }
+        next.desktop_sharing_enabled = Some(enabled);
+        self.commit(&mut cache, next)
     }
 
     pub fn remember(&self, id: Option<&str>) -> Result<(), String> {
@@ -464,6 +482,29 @@ mod tests {
         assert!(profiles.keep_computer_awake().unwrap());
         assert!(store(&vault).keep_computer_awake().unwrap());
         assert_eq!(vault.0.lock().unwrap().value, bytes);
+    }
+
+    #[test]
+    fn desktop_preference_preserves_absence_and_persists_independently_of_keep_awake() {
+        let vault = MemoryCredential::default();
+        vault.0.lock().unwrap().value = Some(
+            br#"{"version":1,"profiles":[],"selected":null,"keep_computer_awake":true}"#.to_vec(),
+        );
+        let profiles = store(&vault);
+        let before = vault.0.lock().unwrap().value.clone();
+        assert_eq!(profiles.desktop_sharing_enabled().unwrap(), None);
+        assert_eq!(vault.0.lock().unwrap().value, before);
+        profiles.set_desktop_sharing_enabled(false).unwrap();
+        let restarted = store(&vault);
+        assert_eq!(restarted.desktop_sharing_enabled().unwrap(), Some(false));
+        assert!(restarted.keep_computer_awake().unwrap());
+        vault.0.lock().unwrap().fail_write = true;
+        assert!(restarted.set_desktop_sharing_enabled(true).is_err());
+        assert_eq!(restarted.desktop_sharing_enabled().unwrap(), Some(false));
+        assert_eq!(
+            store(&vault).desktop_sharing_enabled().unwrap(),
+            Some(false)
+        );
     }
 
     #[cfg(target_os = "macos")]

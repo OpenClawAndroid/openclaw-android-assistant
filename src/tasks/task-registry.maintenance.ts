@@ -1064,15 +1064,15 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
     closeAcpSession,
     read.assertOwnerCurrent,
   );
-  read.assertOwnerCurrent();
   try {
     // Task-registry readiness has already opened the shared state database.
     // Sweep plugin TTL rows even when no plugin namespace was opened this process,
     // so expired state from removed accounts is reclaimed after restart.
-    sweepExpiredPluginStateEntries();
+    await sweepExpiredPluginStateEntries({ assertActive: read.assertOwnerCurrent });
   } catch (error) {
     log.warn("Failed to sweep expired plugin state entries", { error });
   }
+  read.assertOwnerCurrent();
   return { reconciled, recovered, cleanupStamped, pruned };
 }
 

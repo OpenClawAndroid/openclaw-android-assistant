@@ -361,6 +361,26 @@ describe("environment gateway methods", () => {
     }
   });
 
+  it("projects display identity without exposing settings or changing routing", async () => {
+    const service = workerService({
+      readProviderDisplayId: vi.fn((id) => (id === "aws" ? "azure" : undefined)),
+    });
+    const [ok, payload] = await callEnvironmentMethod(
+      "environments.list",
+      { projection: "profiles" },
+      { service },
+    );
+    expect(ok).toBe(true);
+    expect(payload).toEqual({
+      environments: [],
+      profiles: [
+        { id: "aws", providerId: "crabbox", providerDisplayId: "azure" },
+        { id: "zeta", providerId: "static-ssh" },
+      ],
+    });
+    expect(service.create).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, []])(
     "keeps profiles available when machine options are %j",
     async (optionlessMachines) => {

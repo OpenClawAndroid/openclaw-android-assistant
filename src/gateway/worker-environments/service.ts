@@ -666,8 +666,8 @@ export function createWorkerEnvironmentService(options: WorkerEnvironmentService
     },
     supportsNodePortal: async (environmentId: string, ownerEpoch: number) =>
       (await options.nodePortalCarrier?.supports(environmentId, ownerEpoch)) === true,
-    hasPendingNodeEnrollmentSetup: (setupId: string, deviceId: string) =>
-      store.hasPendingNodeEnrollmentSetup(setupId, deviceId),
+    hasPendingNodeEnrollmentSetup: store.hasPendingNodeEnrollmentSetup.bind(store),
+    readProviderDisplayId: providerLifecycle.readProviderDisplayId,
     listMachineOptions: providerLifecycle.listMachineOptions,
     listOperatingSystems: providerLifecycle.listOperatingSystems,
     bindPreparedWorkspace: environmentAccess.bindPreparedWorkspace,

@@ -333,6 +333,15 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   execution and two-worker pins. This adds no jobs and does not promote hosted
   or hybrid tooling. The native two-CPU/8-GB tails require a larger-host timing
   comparison; capacity alone is not a measured speedup.
+- Numbered tooling measurements are collected in `toolingFileSeconds` ahead of
+  planner activation, which remains blocked on hosted/hybrid row capacity. The daily refit samples the
+  newest five successful PR CI runs because main-push plans omit this family.
+  Those measurements describe the PR merge-ref and update only tooling files;
+  main compact and release sampling retain their existing provenance. Preserve
+  independent-run medians, runner profiles and partial-plan history. An explicit
+  `--tooling-run <id>` seed records its source and may use one successful run.
+  Verbose-only case sums are conservative packing costs when cases overlap,
+  not measured file walls. Do not discount them to make row caps pass.
 - The Docker seed job requests `blacksmith-16vcpu-ubuntu-2404`; its weighted
   scheduler and serial declaration compiler policy stay unchanged.
   Canonical PRs and `main` share `resolveChangedDockerSeedLanes` owner-path

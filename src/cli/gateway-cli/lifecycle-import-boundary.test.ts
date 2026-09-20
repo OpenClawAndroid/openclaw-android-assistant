@@ -79,6 +79,7 @@ describe("gateway lifecycle hub import boundaries", () => {
         resolveGatewayRestartDecision: () => ({ mode: "supervised", supervisor: "systemd" }),
         requestGatewayRestartWithSignalAdmission:
           vi.fn<LifecycleRuntime["requestGatewayRestartWithSignalAdmission"]>(),
+        captureForegroundUpdateHandoffStop: () => undefined,
         isGatewayRestartExternallyAllowed: () => false,
         scheduleGatewayRestart: vi.fn<LifecycleRuntime["scheduleGatewayRestart"]>(),
         abortEmbeddedAgentRun: () => false,

@@ -464,9 +464,7 @@ async function stopManagedServiceBeforeMutableUpdate(
     ...(typeof serviceState.runtime?.pid === "number"
       ? { servicePid: serviceState.runtime.pid }
       : {}),
-    offline: await withCommandProcessScope(() =>
-      isManagedGatewayServiceOffline(service, serviceState, params.timeoutMs),
-    ),
+    offline: await withCommandProcessScope(() => isManagedGatewayServiceOffline(serviceState)),
     serviceEnv: serviceState.env,
     serviceDefinitionEnv:
       resolveManagedGatewayServiceCommand(serviceState.command)?.environment ?? {},

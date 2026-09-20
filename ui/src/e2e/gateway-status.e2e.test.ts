@@ -244,6 +244,34 @@ suite.define(() => {
         const menu = page.locator("wa-dropdown.sidebar-identity-menu");
         await menu.getByText("Alex", { exact: true }).waitFor();
         await menu.getByText("Studio Gateway", { exact: true }).waitFor();
+        if (process.env.OPENCLAW_CAPTURE_UI_PROOF === "1") {
+          await page.screenshot({
+            path: path.join(suite.artifactDir, "outbox-account-menu.png"),
+            animations: "disabled",
+          });
+        }
+        expect(await menu.textContent()).toContain("Outgoing messages saved in this browser");
+        expect(await menu.textContent()).toContain("Failed messages need review or retry");
+        expect(await menu.textContent()).toContain("Some may already have arrived");
+        expect(await page.locator(".chat-queue__item").count()).toBe(2);
+        expect(await gateway.getRequests("chat.send")).toHaveLength(0);
+        await page.keyboard.press("Escape");
+        await menu.waitFor({ state: "hidden" });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.getByRole("button", { name: "Expand sidebar" }).click();
+        await footer.locator(".sidebar-identity-card").click();
+        const explanation = menu.locator(".sidebar-identity-menu__outbox");
+        await explanation.waitFor();
+        const bounds = await explanation.boundingBox();
+        expect(bounds).not.toBeNull();
+        expect(bounds!.x).toBeGreaterThanOrEqual(0);
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+        if (process.env.OPENCLAW_CAPTURE_UI_PROOF === "1") {
+          await page.screenshot({
+            path: path.join(suite.artifactDir, "outbox-account-menu-mobile.png"),
+            animations: "disabled",
+          });
+        }
         const socketCount = await gateway.getSocketCount();
         await menu.locator('wa-dropdown-item[value="command:retry-connect"]').click();
         await expect.poll(() => gateway.getSocketCount()).toBeGreaterThan(socketCount);

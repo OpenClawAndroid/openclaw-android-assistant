@@ -686,23 +686,27 @@ export async function runTaskRegistryWorkerMutation<T>(
     ? createTaskRegistryPublicationRecovery(pending, context.recoverPublication)
     : undefined;
   pendingMutations.add(pending);
-  dirtyScopes.add(scope);
-  bumpTaskRegistryRevision();
+  const assertOwner = () => {
+    admission.assertCurrent();
+    if (!isCurrentTaskRegistryDatabase(admission) || getTaskRegistryStore() !== store) {
+      projection.dirty = true;
+      throw new Error("Task registry publication owner is no longer current.");
+    }
+    recovery?.assertCurrent();
+  };
   try {
+    if (context.prepare) {
+      await context.prepare();
+      assertOwner();
+    }
+    dirtyScopes.add(scope);
+    bumpTaskRegistryRevision();
     return await mutate(() => recovery?.begin());
   } finally {
     dirtyScopes.add(scope);
     bumpTaskRegistryRevision();
     try {
       claimTaskRegistryPublication(pending, context.publicationRecords());
-      const assertOwner = () => {
-        admission.assertCurrent();
-        if (!isCurrentTaskRegistryDatabase(admission) || getTaskRegistryStore() !== store) {
-          projection.dirty = true;
-          throw new Error("Task registry publication owner is no longer current.");
-        }
-        recovery?.assertCurrent();
-      };
       const { conflicted } = await reconcileTaskRegistryWorkerSnapshot({
         pending,
         assertCurrent: assertOwner,

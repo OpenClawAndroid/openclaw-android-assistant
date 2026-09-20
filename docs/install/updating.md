@@ -254,11 +254,22 @@ identityless update-history row. The Gateway watcher publishes after the deadlin
 a later database open can also publish it. See the precise timing and residual
 old-CLI limitation in [Database schemas](/reference/database-schemas#schema-bumps-and-older-updaters).
 
-If an agent database also needs migration, required state metadata is missing,
-or the state-content migration fails, Doctor instead reports
-`update-schema-bump-unfenced` with database versions and manual update commands.
-Let the failed update finish restoring the previous package. OpenClaw 2026.9.2
-leaves the Gateway service stopped after failed post-install verification. Run
+When agent databases also need migration, the candidate first rehearses Doctor
+on private copies while the published updater can still roll back its package.
+After package commit, the fresh post-core process acquires current executor
+authority and delegates Doctor. Doctor verifies a retained recovery archive
+covering each agent database before migrating live state. The updater then
+restarts the Gateway.
+
+Missing state metadata or unverified backup coverage can still produce
+`update-schema-bump-unfenced` with database versions and recovery instructions.
+Before package commit, let the failed update finish restoring the previous
+package. OpenClaw 2026.9.2 leaves the Gateway service stopped after failed
+post-install verification. After package commit, the old package backup is gone:
+finish `openclaw doctor --fix` with the installed compatible build, then run
+`openclaw gateway start`. Package rollback cannot undo migrated state.
+
+If the compatible package still needs installation, run
 the manual update from a shell outside the Gateway, replacing `<target>` with
 the exact target version from the refusal:
 

@@ -12,7 +12,10 @@ import {
   resetPluginRuntimeStateForTest,
   setActivePluginRegistry,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
-import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
+import {
+  closeOpenClawStateDatabaseAsync,
+  openOpenClawStateDatabase,
+} from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { matrixPlugin } from "../channel.js";
@@ -22,10 +25,13 @@ import { loadMatrixCredentials, saveMatrixCredentials } from "./credentials.js";
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
   afterEach(async () => {
     vi.restoreAllMocks();
-    await closeOpenClawStateDatabaseAsync();
-    resetPluginStateStoreForTests();
+    resetPluginStateStoreForTests({ closeDatabase: false });
     resetPluginRuntimeStateForTest();
     sessionBindingTesting.resetSessionBindingAdaptersForTests();
+    // Binding reset writes state; close its handle before removing the fixture.
+    const resetDatabase = openOpenClawStateDatabase();
+    await closeOpenClawStateDatabaseAsync();
+    expect(resetDatabase.db.isOpen).toBe(false);
     cleanup();
     vi.unstubAllEnvs();
   });
@@ -125,8 +131,10 @@ describe.each(["per-user", "per-room"] as const)(
   (sessionScope) => {
     let cfg: OpenClawConfig;
     beforeEach(async () => {
+      const stateDir = tempDirs.make("matrix-route-owner-");
+      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
       resetPluginRuntimeStateForTest();
-      resetPluginStateStoreForTests();
+      resetPluginStateStoreForTests({ closeDatabase: false });
       sessionBindingTesting.resetSessionBindingAdaptersForTests();
       setActivePluginRegistry(
         createTestRegistry([{ pluginId: "matrix", source: "test", plugin: matrixPlugin }]),
@@ -175,8 +183,6 @@ describe.each(["per-user", "per-room"] as const)(
           },
         ],
       };
-      const stateDir = tempDirs.make("matrix-route-owner-");
-      vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
       installMatrixTestRuntime({ cfg, stateDir });
       await saveMatrixCredentials(
         {

@@ -5999,7 +5999,7 @@ describe("grouped chat rendering", () => {
 
     expect(container.querySelector(".chat-tool-card__preview-frame")).toBeNull();
     expect(onOpenSidebar).toHaveBeenCalledTimes(1);
-    expect(requireFirstMockArg(onOpenSidebar, "sidebar open").kind).toBe("markdown");
+    expect(requireFirstMockArg(onOpenSidebar, "sidebar open").kind).toBe("tool-output");
   });
 
   function renderAssistantDisclosureActionFixture(

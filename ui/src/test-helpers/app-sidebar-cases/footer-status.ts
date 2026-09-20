@@ -191,6 +191,20 @@ describe("AppSidebar gateway footer subtitle", () => {
     expect(sidebar.querySelector(".sidebar-identity-card__gateway")?.textContent).toContain(
       "Local Gateway",
     );
+    const connectedTooltip = sidebar.querySelector<HTMLElement & { content?: string }>(
+      ".gateway-status-tooltip",
+    );
+    expect(connectedTooltip?.content).toBe("");
+    sidebar.querySelector<HTMLButtonElement>(".sidebar-identity-card")?.click();
+    await sidebar.updateComplete;
+    const outbox = sidebar.querySelector(".sidebar-identity-menu__outbox");
+    expect(outbox?.textContent).toContain("3 in outbox");
+    expect(outbox?.textContent).toContain("Outgoing messages saved in this browser");
+    expect(outbox?.textContent).toContain("Failed messages need review or retry");
+    expect(outbox?.textContent).toContain("Some may already have arrived");
+    sidebar.queuedOutboxCount = 0;
+    await sidebar.updateComplete;
+    expect(sidebar.querySelector(".sidebar-identity-menu__outbox")).toBeNull();
   });
 
   it("updates when the native gateway snapshot changes", async () => {

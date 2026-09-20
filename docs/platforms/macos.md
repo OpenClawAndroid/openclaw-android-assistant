@@ -89,6 +89,14 @@ cookie sync, and permissions. Device voice controls appear under
 **Settings → Updates → This Mac**. These device controls appear only in the
 macOS app's embedded Dashboard, not in an ordinary browser.
 
+**This Mac → Capabilities → Desktop sharing** is enabled by default. It exposes
+this Mac's existing Screen Sharing service in **Systems**, independently of
+**Computer Control** and **Keep computer awake**. Enable Screen Sharing in
+**System Settings → General → Sharing** and approve the node's desktop capability
+when requested. Existing explicit disable settings stay off after an update;
+changing the Mac setting reconnects the node automatically. See
+[paired node desktops](/gateway/config-browser-ui-desktop#paired-node-desktops).
+
 Enabling sensitive capabilities opens a native confirmation with **Cancel** as
 the default. Closing or replacing the Dashboard page cancels pending consent;
 request the change again from the current page.

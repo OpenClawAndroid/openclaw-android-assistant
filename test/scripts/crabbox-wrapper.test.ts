@@ -612,9 +612,13 @@ function normalizeShellLineEndings(value: string): string {
   return value.replace(/\r\n/g, "\n");
 }
 
-async function waitForCondition(predicate: () => boolean, timeoutMs = 8_000): Promise<void> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 8_000,
+  now = Date.now,
+): Promise<void> {
+  const started = now();
+  while (now() - started < timeoutMs) {
     if (predicate()) {
       return;
     }
@@ -851,7 +855,21 @@ if (entry === ${JSON.stringify(implementationPath)}) {
       const readinessTimeoutMs = 8_000;
       const waitForReadiness = async (file: string) => {
         try {
-          await waitForCondition(() => existsSync(file), readinessTimeoutMs);
+          let deliberatelyStalled = false;
+          await waitForCondition(
+            () => {
+              if (proof.kind === "readiness") {
+                const phases: WrapperReadinessPhase[] = JSON.parse(
+                  readFileSync(phasesPath, "utf8"),
+                );
+                deliberatelyStalled = phases.some(({ phase }) => phase === "loading wrapper");
+              }
+              return existsSync(file);
+            },
+            readinessTimeoutMs,
+            // Startup stays real; expire only after the fixture publishes its deliberate hang.
+            () => Date.now() + (deliberatelyStalled ? readinessTimeoutMs : 0),
+          );
         } catch (cause) {
           const phases: WrapperReadinessPhase[] = JSON.parse(readFileSync(phasesPath, "utf8"));
           const startedAt = phases[0]!.at;

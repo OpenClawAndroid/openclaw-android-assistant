@@ -69,7 +69,7 @@ describe("ExecApprovalManager", () => {
     }> = [];
 
     vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, delay) => {
-      const handle = { unref: vi.fn() };
+      const handle = { unref: vi.fn(), refresh: vi.fn().mockReturnThis() };
       timers.push({ callback, delay, handle });
       return handle as unknown as ReturnType<typeof setTimeout>;
     });

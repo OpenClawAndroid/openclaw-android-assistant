@@ -66,9 +66,16 @@ Ordinary CLI commands, including Doctor, remain usable while that Gateway runs.
 Applied content counts as ready; only the owning Gateway, or a writable opener
 when no Gateway owns the state directory, publishes the version after the grace.
 
-Deferral does not cover agent-database migrations. Doctor reports
-`update-schema-bump-unfenced` if one is pending, if the required shared-state
-metadata table is missing, or if the content migration fails. Follow the
+Agent-database migrations are not version-deferred. During the published 2026.9.2
+updater's rollback window, Doctor validates private state copies and leaves the
+live databases and config unchanged. After package rollback is no longer possible,
+the fresh update continuation requires a verified backup covering each pending
+agent database and current update ownership before Doctor migrates the live state.
+Managed updates retain the shipped helper's original handoff record unchanged.
+
+Doctor reports `update-schema-bump-unfenced` when this handoff cannot be verified,
+backup coverage is missing, the required shared-state metadata table is absent,
+or a migration fails. Follow the
 [manual update sequence](/install/updating#updating-from-2026.9.2-across-a-schema-bump)
 from the refusal. See [Database schemas](/reference/database-schemas#schema-bumps-and-older-updaters)
 for the publication contract and the remaining risk for an old CLI stalled

@@ -14,12 +14,13 @@ import { readExecApprovalsConfigRow } from "../infra/exec-approvals-sqlite.js";
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
 import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { withStateDatabaseCoordinatorRuntimeDirectory } from "../infra/state-database-coordinator.js";
-import { serveWorkerTasks } from "../infra/worker-task-pool.js";
+import { serveOwnedWorkerTasks } from "../infra/worker-task-server.js";
 import { readConfigMachineStateRowInDatabase } from "./config-machine-state.js";
 import { readOnboardingRecommendationsInDatabase } from "./onboarding-recommendations.kernel.js";
 import { readRegisteredAgentDatabaseRows } from "./openclaw-agent-db-registry.read.js";
 import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";
 import {
+  closeRetainedOpenClawStateReadConnections,
   readOpenClawStateReadOnlyLocation,
   withOpenClawStateReadOnlyLocation,
 } from "./openclaw-state-db-read-connection.js";
@@ -77,190 +78,195 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
   );
 }
 
-serveWorkerTasks((input): OpenClawStateReadReply => {
-  let sourceAdmitted: true | undefined;
-  let nativeCleanupFailure: OpenClawStateReadReply["nativeCleanupFailure"];
-  try {
-    if (!isReadRequest(input)) {
-      throw new Error("Shared-state reader requires a captured state location and read command");
-    }
-    const reply = runWithSqliteWorkerStateContext(input.context, () =>
-      withStateDatabaseCoordinatorRuntimeDirectory(
-        input.context.coordinatorRuntime,
-        (): OpenClawStateReadReply => {
-          if (input.checkFreshAdmission) {
-            openClawStateDatabaseCache.assertOpenClawStateDatabaseFreshOpenAllowedAtPath(
-              input.databasePath,
-              input.context.environment,
-              (error) => {
-                nativeCleanupFailure = {
-                  error: encodeOpenClawStateWorkerError(error, { includeOrdinary: true }),
-                };
-              },
-            );
-          }
-          const { command } = input;
-          if (command.type === "admit") {
-            return { ok: true, type: "admit" };
-          }
-          if (command.type === "agentDatabaseRegistry.read") {
-            const result = readOpenClawStateReadOnlyLocation(
+serveOwnedWorkerTasks(
+  (input): OpenClawStateReadReply => {
+    let sourceAdmitted: true | undefined;
+    let nativeCleanupFailure: OpenClawStateReadReply["nativeCleanupFailure"];
+    try {
+      if (!isReadRequest(input)) {
+        throw new Error("Shared-state reader requires a captured state location and read command");
+      }
+      const reply = runWithSqliteWorkerStateContext(input.context, () =>
+        withStateDatabaseCoordinatorRuntimeDirectory(
+          input.context.coordinatorRuntime,
+          (): OpenClawStateReadReply => {
+            if (input.checkFreshAdmission) {
+              openClawStateDatabaseCache.assertOpenClawStateDatabaseFreshOpenAllowedAtPath(
+                input.databasePath,
+                input.context.environment,
+                (error) => {
+                  nativeCleanupFailure = {
+                    error: encodeOpenClawStateWorkerError(error, { includeOrdinary: true }),
+                  };
+                },
+              );
+            }
+            const { command } = input;
+            if (command.type === "admit") {
+              return { ok: true, type: "admit" };
+            }
+            if (command.type === "agentDatabaseRegistry.read") {
+              const result = readOpenClawStateReadOnlyLocation(
+                ({ db }) => {
+                  sourceAdmitted = true;
+                  return readRegisteredAgentDatabaseRows(db, input.databasePath, false);
+                },
+                input.databasePath,
+                input.location,
+                undefined,
+                input.expectedIdentity,
+                input.snapshotRoot,
+                true,
+              );
+              return {
+                ok: true,
+                type: command.type,
+                sourceAdmitted,
+                result:
+                  result.status === "available"
+                    ? { status: "available", entries: result.value }
+                    : { status: "unavailable" },
+              };
+            }
+            return withOpenClawStateReadOnlyLocation(
               ({ db }) => {
                 sourceAdmitted = true;
-                return readRegisteredAgentDatabaseRows(db, input.databasePath, false);
+                if (command.type === "exec-approvals.read") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    row: readExecApprovalsConfigRow(db),
+                  };
+                }
+                if (command.type === "onboardingRecommendations.read") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    record: readOnboardingRecommendationsInDatabase(db, command.configKey),
+                  };
+                }
+                if (command.type === "audit.run.inspect") {
+                  try {
+                    return {
+                      ok: true,
+                      type: command.type,
+                      sourceAdmitted,
+                      result: {
+                        status: "inspected",
+                        inspection: inspectExecutionIdentityRunInDatabase(db, command.input),
+                      },
+                    };
+                  } catch (error) {
+                    if (!(error instanceof ExecutionDecisionCursorError)) {
+                      throw error;
+                    }
+                    return {
+                      ok: true,
+                      type: command.type,
+                      sourceAdmitted,
+                      result: { status: "invalid-cursor", message: error.message },
+                    };
+                  }
+                }
+                if (command.type === "nodeHost.config") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    row: readConfigMachineStateRowInDatabase(db, command.type),
+                  };
+                }
+                if (command.type === "workspace.snapshot") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    snapshot: readWorkspaceStateSnapshotForDirectoryInDatabase({
+                      workspaceDir: command.workspaceDir,
+                      database: { db, path: input.databasePath },
+                    }),
+                  };
+                }
+                if (command.type === "userProfiles.avatar.reconcile") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    profile: runSqliteDeferredTransactionSync(
+                      db,
+                      () => selectProfileDisplayEntries(db, [command.profileId])[0]?.[1],
+                    ),
+                  };
+                }
+                if (command.type === "sandboxRegistry.list") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    entries: readSandboxRegistryInDatabase(db),
+                  };
+                }
+                if (command.type === "sandboxRegistry.get") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    entry: readSandboxRegistryEntryInDatabase(db, command.containerName),
+                  };
+                }
+                if (command.type === "sandboxRegistry.runtimeIds") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    runtimeIds: readSandboxRuntimeIdsInDatabase(db, command),
+                  };
+                }
+                if (command.type === "sandboxRegistry.browsers") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    entries: readSandboxBrowserRegistryInDatabase(db),
+                  };
+                }
+                return command.type === "fleet.list"
+                  ? {
+                      ok: true,
+                      type: "fleet.list",
+                      sourceAdmitted,
+                      cells: listFleetCellsInDatabase(db),
+                    }
+                  : {
+                      ok: true,
+                      type: "fleet.get",
+                      sourceAdmitted,
+                      cell: getFleetCellInDatabase(db, command.tenantId),
+                    };
               },
               input.databasePath,
               input.location,
               undefined,
               input.expectedIdentity,
               input.snapshotRoot,
+              true,
             );
-            return {
-              ok: true,
-              type: command.type,
-              sourceAdmitted,
-              result:
-                result.status === "available"
-                  ? { status: "available", entries: result.value }
-                  : { status: "unavailable" },
-            };
-          }
-          return withOpenClawStateReadOnlyLocation(
-            ({ db }) => {
-              sourceAdmitted = true;
-              if (command.type === "exec-approvals.read") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  row: readExecApprovalsConfigRow(db),
-                };
-              }
-              if (command.type === "onboardingRecommendations.read") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  record: readOnboardingRecommendationsInDatabase(db, command.configKey),
-                };
-              }
-              if (command.type === "audit.run.inspect") {
-                try {
-                  return {
-                    ok: true,
-                    type: command.type,
-                    sourceAdmitted,
-                    result: {
-                      status: "inspected",
-                      inspection: inspectExecutionIdentityRunInDatabase(db, command.input),
-                    },
-                  };
-                } catch (error) {
-                  if (!(error instanceof ExecutionDecisionCursorError)) {
-                    throw error;
-                  }
-                  return {
-                    ok: true,
-                    type: command.type,
-                    sourceAdmitted,
-                    result: { status: "invalid-cursor", message: error.message },
-                  };
-                }
-              }
-              if (command.type === "nodeHost.config") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  row: readConfigMachineStateRowInDatabase(db, command.type),
-                };
-              }
-              if (command.type === "workspace.snapshot") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  snapshot: readWorkspaceStateSnapshotForDirectoryInDatabase({
-                    workspaceDir: command.workspaceDir,
-                    database: { db, path: input.databasePath },
-                  }),
-                };
-              }
-              if (command.type === "userProfiles.avatar.reconcile") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  profile: runSqliteDeferredTransactionSync(
-                    db,
-                    () => selectProfileDisplayEntries(db, [command.profileId])[0]?.[1],
-                  ),
-                };
-              }
-              if (command.type === "sandboxRegistry.list") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  entries: readSandboxRegistryInDatabase(db),
-                };
-              }
-              if (command.type === "sandboxRegistry.get") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  entry: readSandboxRegistryEntryInDatabase(db, command.containerName),
-                };
-              }
-              if (command.type === "sandboxRegistry.runtimeIds") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  runtimeIds: readSandboxRuntimeIdsInDatabase(db, command),
-                };
-              }
-              if (command.type === "sandboxRegistry.browsers") {
-                return {
-                  ok: true,
-                  type: command.type,
-                  sourceAdmitted,
-                  entries: readSandboxBrowserRegistryInDatabase(db),
-                };
-              }
-              return command.type === "fleet.list"
-                ? {
-                    ok: true,
-                    type: "fleet.list",
-                    sourceAdmitted,
-                    cells: listFleetCellsInDatabase(db),
-                  }
-                : {
-                    ok: true,
-                    type: "fleet.get",
-                    sourceAdmitted,
-                    cell: getFleetCellInDatabase(db, command.tenantId),
-                  };
-            },
-            input.databasePath,
-            input.location,
-            undefined,
-            input.expectedIdentity,
-            input.snapshotRoot,
-          );
-        },
-      ),
-    );
-    return nativeCleanupFailure ? { ...reply, nativeCleanupFailure } : reply;
-  } catch (value) {
-    const error = toStringifiedError(value);
-    return {
-      ok: false,
-      sourceAdmitted,
-      message: error.message,
-      error: encodeOpenClawStateWorkerError(error, { includeOrdinary: true }),
-      ...(nativeCleanupFailure ? { nativeCleanupFailure } : {}),
-    };
-  }
-});
+          },
+        ),
+      );
+      return nativeCleanupFailure ? { ...reply, nativeCleanupFailure } : reply;
+    } catch (value) {
+      const error = toStringifiedError(value);
+      return {
+        ok: false,
+        sourceAdmitted,
+        message: error.message,
+        error: encodeOpenClawStateWorkerError(error, { includeOrdinary: true }),
+        ...(nativeCleanupFailure ? { nativeCleanupFailure } : {}),
+      };
+    }
+  },
+  { closeResource: closeRetainedOpenClawStateReadConnections },
+);

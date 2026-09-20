@@ -1,12 +1,19 @@
 import { channel as diagnosticsChannel } from "node:diagnostics_channel";
 import type { EventEmitter } from "node:events";
 import { setImmediate as nextTurn } from "node:timers/promises";
+import type { MessagePort } from "node:worker_threads";
 import { expectDefined } from "@openclaw/normalization-core/expect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferredCore } from "../shared/deferred.js";
 import { createOwnedWorkerTaskPool } from "./worker-task-pool.js";
 
-type PostedTask = { input: string; taskId: number; responseId?: number };
+type PostedTask = {
+  input?: string;
+  taskId?: number;
+  responseId?: number;
+  closeResource?: true;
+  resourcePort?: MessagePort;
+};
 type FakeWorker = EventEmitter & {
   postMessage: ReturnType<typeof vi.fn<(message: PostedTask) => void>>;
   terminate: ReturnType<typeof vi.fn<() => Promise<number>>>;
@@ -82,6 +89,42 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await Promise.all(pools.splice(0).map((pool) => pool.close()));
+});
+
+it("rejects a lost cleanup receipt and permits the retained worker's cleanup retry", async () => {
+  const pool = createPool();
+  const task = pool.runTask("read", {});
+  await nextTurn();
+  const worker = workerFor("read");
+  reply(worker, "read");
+  await task.result;
+  await task.close();
+  const cleanup = pool.closeResources("source");
+  const refused = expect(cleanup).rejects.toThrow("Worker resource cleanup failed");
+  expectDefined(worker.postMessage.mock.calls.at(-1)?.[0].resourcePort, "cleanup receipt").close();
+  await refused;
+  expect(worker.terminate).not.toHaveBeenCalled();
+  const retry = pool.closeResources("source");
+  const receipt = expectDefined(
+    worker.postMessage.mock.calls.at(-1)?.[0].resourcePort,
+    "retry receipt",
+  );
+  receipt.postMessage({ ok: true }, []);
+  receipt.close();
+  await retry;
+});
+
+it("accepts confirmed worker exit as native cleanup when its receipt is interrupted", async () => {
+  const pool = createPool();
+  const task = pool.runTask("read", {});
+  await nextTurn();
+  const worker = workerFor("read");
+  reply(worker, "read");
+  await task.result;
+  await task.close();
+  const cleanup = pool.closeResources("source");
+  await pool.close();
+  await cleanup;
 });
 
 describe("owned worker tasks", () => {

@@ -598,6 +598,7 @@ describe("maybeRestartService", () => {
       const result: UpdateRunResult = { status: "ok", mode: "npm", steps: [], durationMs: 0 };
       expect(
         prepareUpdateServiceResult({
+          opts: {},
           result,
           root: "/cli-install",
           shouldRestart: true,

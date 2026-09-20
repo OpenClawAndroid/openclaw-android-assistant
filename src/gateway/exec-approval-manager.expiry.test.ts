@@ -34,7 +34,10 @@ describe("ExecApprovalManager timeout expiry publication", () => {
       callback: TimeoutCallback,
       delay?: number,
     ) => {
-      const handle = { unref: vi.fn() } as unknown as MockTimerHandle;
+      const handle = {
+        unref: vi.fn(),
+        refresh: vi.fn().mockReturnThis(),
+      } as unknown as MockTimerHandle;
       timers.push({ callback, delay, handle });
       return handle;
     }) as unknown as typeof setTimeout);
@@ -68,7 +71,9 @@ describe("ExecApprovalManager timeout expiry publication", () => {
     const decisionPromise = manager.register(record, 60_000);
     vi.mocked(Date.now).mockReturnValue(record.expiresAtMs);
 
-    const timer = timers[0];
+    const deadlines = timers.filter(({ handle }) => handle.unref.mock.calls.length === 0);
+    expect(deadlines).toHaveLength(1);
+    const timer = deadlines[0];
     if (!timer || typeof timer.callback !== "function") {
       throw new Error("expected timer callback");
     }

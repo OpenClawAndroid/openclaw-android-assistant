@@ -497,13 +497,23 @@ const enSettings = {
     },
     installedAgents: {
       title: "Installed agents",
-      description: "Coding apps on the computer that runs OpenClaw. Sign in through each app.",
+      description:
+        "Coding apps on the Gateway computer. Each app manages its own account and permissions. Enabling an app does not sign you in.",
       status: {
         installed: "Installed",
         missing: "Not detected",
         unverified: "Not verified",
+        signIn: "Sign in required",
+        discovering: "Discovering models…",
+        modelsAvailable: "Models available",
       },
-      unverifiedHint: "OpenClaw could not check the launch command set for this app.",
+      unverifiedHint:
+        "Check this app's custom launch command on the Gateway computer, then check again.",
+      installHint: "Install and sign in to {name} on the Gateway computer, then check again.",
+      disabledHint: "Enable this app to include its models in the picker.",
+      signInHint: "Open {name} on the Gateway computer and check its sign-in, then check again.",
+      discoveryHint:
+        "Open {name} on the Gateway computer and check its connection and sign-in, then check again.",
       toggle: "Use {name}",
       check: "Check again",
       checking: "Checking…",
@@ -648,6 +658,8 @@ const enSettings = {
       cameraHint: "Allow the agent to capture a photo or short video via the built-in camera.",
       keepAwake: "Keep awake",
       keepAwakeHint: "Keep the screen awake while OpenClaw is active.",
+      keepAwakeComputerHint:
+        "Prevent idle sleep while OpenClaw is running. Manual sleep and locking remain available.",
       healthSummary: "Health summaries",
       healthSummaryHint: "Allow the agent to request a health summary from this device.",
       device: "Device",
@@ -662,6 +674,18 @@ const enSettings = {
       computerControlHint:
         "Starts enabled. After this Mac is paired and macOS access is granted, the paired Gateway can move the pointer, click, and type without per-action confirmation. High risk.",
       computerControlProvider: "Computer Control provider",
+      desktopSharing: "Desktop sharing",
+      desktopSharingHint:
+        "View and control this Mac from Systems. Enabled by default. Requires Screen Sharing in macOS System Settings → General → Sharing. Changes briefly reconnect this Mac; a new capability may need pairing approval.",
+      desktopSharingComputerHint:
+        "View and control this computer from Systems. Enabled by default. Requires an authenticated local VNC server. Changes briefly reconnect this computer; a new capability may need pairing approval.",
+      desktopSharingStatus: "Desktop sharing status",
+      desktopSharingStates: {
+        off: "Off",
+        starting: "Starting",
+        running: "Running",
+        error: "Unavailable",
+      },
       unattendedDesktop: "Keep computer awake",
       unattendedDesktopHint:
         "Keep this Mac awake between jobs while it is connected and hosting. Manual lock and logout are still respected; OpenClaw never unlocks the Mac.",

@@ -1,19 +1,92 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import fs from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { Worker } from "node:worker_threads";
 import { redactIdentifier } from "@openclaw/normalization-core/node-crypto";
 import { expect, test, vi } from "vitest";
+import { SQLITE_IDLE_HANDLE_TTL_MS } from "../../infra/sqlite-handle-lifecycle.js";
 import { flushLogger, setLoggerOverride } from "../../logging/logger.js";
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import * as sqliteArchive from "./session-accessor.sqlite-archive.js";
+import type { SqliteSessionReclamationDiagnostics } from "./session-accessor.sqlite-contract.js";
 import { loadSessionEntry } from "./session-accessor.sqlite-entry.js";
 import { ensureSessionEntrySync } from "./session-accessor.sqlite-initial-entry.js";
 import {
   createSessionEntryReclamationPlan,
   runSqliteSessionReclamation,
 } from "./session-accessor.sqlite-reclamation.js";
+
+test("reuses the reclamation connection until thirty minutes after its last operation", async () => {
+  await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+    const options = { agentId: "main", env: state.env };
+    const databaseOptions = { ...options, path: openOpenClawAgentDatabase(options).path };
+    const plans = Array.from({ length: 4 }, (_, index) => {
+      const scope = {
+        ...options,
+        sessionId: `synthetic-reclamation-idle-${index}`,
+        sessionKey: `agent:main:synthetic-reclamation-idle-${index}`,
+      };
+      ensureSessionEntrySync(scope, { sessionId: scope.sessionId, updatedAt: 1 });
+      const entry = loadSessionEntry(scope);
+      assert.ok(entry);
+      return createSessionEntryReclamationPlan({
+        databaseOptions,
+        deleteParams: {
+          archiveTranscript: false,
+          storePath: databaseOptions.path,
+          target: { canonicalKey: scope.sessionKey, storeKeys: [scope.sessionKey] },
+        },
+        preparedTargetSnapshot: [{ entry, sessionKey: scope.sessionKey }],
+        materializedPlans: [],
+      });
+    });
+    const workers: Worker[] = [];
+    const spawn = sqliteArchive.createSqliteTranscriptArchiveWorker;
+    vi.spyOn(sqliteArchive, "createSqliteTranscriptArchiveWorker").mockImplementation((data) => {
+      const worker = spawn(data);
+      workers.push(worker);
+      return worker;
+    });
+    const reclaim = async (index: number) => {
+      const diagnostics: SqliteSessionReclamationDiagnostics = {};
+      const plan = plans[index];
+      assert.ok(plan);
+      await runSqliteSessionReclamation({
+        forceInProcess: false,
+        plan,
+        diagnostics,
+      });
+      expect(
+        loadSessionEntry({
+          ...options,
+          sessionKey: `agent:main:synthetic-reclamation-idle-${index}`,
+        }),
+      ).toBeUndefined();
+      return diagnostics.workerThreadId;
+    };
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const firstThread = await reclaim(0);
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(await reclaim(1)).toBe(firstThread);
+      await vi.advanceTimersByTimeAsync(SQLITE_IDLE_HANDLE_TTL_MS - 1);
+      expect(await reclaim(2)).toBe(firstThread);
+      expect(workers).toHaveLength(1);
+      const worker = workers[0];
+      assert.ok(worker);
+      const exited = once(worker, "exit");
+      await vi.advanceTimersByTimeAsync(SQLITE_IDLE_HANDLE_TTL_MS);
+      await exited;
+      expect(await reclaim(3)).not.toBe(firstThread);
+      expect(workers).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+});
 
 test("logs a native reclamation Worker throw with its cause, first frame and hashed session", async () => {
   await withOpenClawTestState(

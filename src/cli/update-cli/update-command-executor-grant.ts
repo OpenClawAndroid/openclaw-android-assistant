@@ -56,7 +56,13 @@ export function resolveUpdateCommandChildBinding(
     existingIdentity: databaseIdentity,
     onProcessIdentityWarning,
   });
-  const parent = store.read(resolveUpdateInstallRoot(root));
+  const parent =
+    grant.parent.version === 1 && grant.parent.key === resolveUpdateInstallRoot(root)
+      ? {
+          kind: "current" as const,
+          lease: store.readLegacyParent(grant.parent.key, grant.parent.executor),
+        }
+      : store.read(resolveUpdateInstallRoot(root));
   const originalChild = store.read(grant.originalChildKey ?? grant.childKey);
   const child = store.read(grant.childKey);
   const retained = retainedFields ? store.read(grant.retainedParent!.key) : undefined;
@@ -96,6 +102,7 @@ export function resolveUpdateCommandChildBinding(
     grant.runId !== runId ||
     grant.root !== resolveUpdateInstallRoot(root) ||
     parent.kind !== "current" ||
+    !parent.lease ||
     !isDeepStrictEqual(parent.lease, grant.parent) ||
     parent.lease.action.kind !== "update" ||
     parent.lease.version === 3 ||

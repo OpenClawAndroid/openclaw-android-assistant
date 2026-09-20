@@ -12,6 +12,7 @@ import { defaultRuntime } from "../../runtime.js";
 import { classifyUpdateOutcome } from "../../shared/update-outcome.js";
 import { convergeUpdatePlugins } from "./update-command-convergence.js";
 import type { FinishUpdateParams } from "./update-command-finish-types.js";
+import { parkForegroundUpdateForActivation } from "./update-command-handoff.js";
 import { appendPluginUpdateWarnings } from "./update-command-plugins-internals.js";
 import { completePostUpdateMaintenance } from "./update-command-post-update-maintenance.js";
 import {
@@ -58,8 +59,6 @@ import {
 } from "./update-command-terminal.js";
 import { recordFailedUpdateGatewayState } from "./update-command-verification.js";
 
-export type { FinishUpdateParams } from "./update-command-finish-types.js";
-
 export async function finishUpdate(
   params: FinishUpdateParams,
   { candidateRuntime = false } = {},
@@ -69,6 +68,8 @@ export async function finishUpdate(
     throw new Error("Deferred native service loading is not supported on this platform.");
   }
   const assertCurrent = createUpdateCommandFinalizationFence(params);
+  const parkForegroundOrigin = () => parkForegroundUpdateForActivation(params, assertCurrent);
+
   // Final publication follows restoration of the caller's environment. Retain
   // the admitted run's state for both notice policy and its matching sentinel.
   const sentinelOptions = {
@@ -130,17 +131,10 @@ export async function finishUpdate(
       pendingRestartAtMs = undefined;
     }
   };
-  const completedResult = (result: UpdateRunResult) => completeUpdateCommandResult(params, result);
-  const recordNextAction = (
-    result: UpdateRunResult,
-    committed?: UpdateCommandTerminalRecord["record"],
-  ) => {
-    assertCurrent();
-    return recordUpdateResultNextAction(params, result, committed);
-  };
   // Restart can let the new Gateway finish the row before CLI finalization resumes.
   // Store the next action before that handoff, and refresh it if recovery changes the outcome.
-  recordNextAction(params.result);
+  assertCurrent();
+  recordUpdateResultNextAction(params, params.result);
 
   let pendingResult = params.result;
   let terminalRecord: UpdateCommandTerminalRecord | undefined;
@@ -276,7 +270,7 @@ export async function finishUpdate(
     );
     assertCurrent();
     let restoreFailure = initialRestoreFailure;
-    const finalResult = completedResult({
+    const finalResult = completeUpdateCommandResult(params, {
       ...result,
       ...(result.status === "error" && !recoverService && !rolledBack
         ? {
@@ -345,7 +339,7 @@ export async function finishUpdate(
       ? await captureUpdateCommandTerminalRecord(params, finalResult, assertCurrent)
       : undefined;
     assertCurrent();
-    recordNextAction(finalResult, completedBeforeCleanup?.record);
+    recordUpdateResultNextAction(params, finalResult, completedBeforeCleanup?.record);
     if (notify && recoverService) {
       pendingNotify = false;
       await writeRestartSentinel(finalResult);
@@ -388,7 +382,7 @@ export async function finishUpdate(
     assertCurrent();
     const cleanupFailure = await recordUpdatePackageCompletion(params, finalResult, assertCurrent);
     assertCurrent();
-    pendingResult = completedResult(cleanupFailure?.result ?? finalResult);
+    pendingResult = completeUpdateCommandResult(params, cleanupFailure?.result ?? finalResult);
     terminalRecord = deferredTerminal
       ? await captureUpdateCommandTerminalRecord(params, pendingResult, assertCurrent)
       : undefined;
@@ -457,7 +451,13 @@ export async function finishUpdate(
 
     const postUpdateRoot = params.result.root ?? params.root;
     const convergePlugins = async (beforeDoctor?: () => Promise<void>) => {
-      const pluginParams = { ...params, beforeDoctor, assertCurrent, candidateRuntime };
+      const pluginParams = {
+        ...params,
+        beforeDoctor: beforeDoctor ?? parkForegroundOrigin,
+        beforeRuntimePublication: parkForegroundOrigin,
+        assertCurrent,
+        candidateRuntime,
+      };
       const convergence = await convergeUpdatePlugins(pluginParams);
       if (convergence.resultWithPostUpdate.status === "error") {
         triageAllowed = !convergence.cancelled;
@@ -554,7 +554,7 @@ export async function finishUpdate(
         }),
       );
       if (restarted !== "failed" && restarted !== "restart-health-failed") {
-        return restarted !== "reconciliation-pending";
+        return restarted === "ok";
       }
       triageAllowed = restartContext.serviceMutationAllowed;
       if (

@@ -499,12 +499,6 @@ export async function runServiceRestart(params: {
       serviceNoun: params.serviceNoun,
       service: params.service,
       intent: restartIntent,
-      warn: (message) => {
-        warnings.push(message);
-        if (!json) {
-          defaultRuntime.log(message);
-        }
-      },
     });
   const emitScheduledRestart = (
     restartStatus: ReturnType<typeof describeGatewayServiceRestart>,

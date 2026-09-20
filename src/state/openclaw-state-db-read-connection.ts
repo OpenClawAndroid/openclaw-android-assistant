@@ -6,10 +6,19 @@ import {
   SqliteCoordinatorError,
   throwSqliteLifecycleErrors,
 } from "../infra/sqlite-coordinator.js";
+import { SQLITE_IDLE_HANDLE_TTL_MS } from "../infra/sqlite-handle-lifecycle.js";
 import type { PreparedSqliteReadOnlyLocation } from "../infra/sqlite-readonly-location.types.js";
 import { acquireSqliteSnapshotReadToken } from "../infra/sqlite-snapshot-staging.js";
 import { assertTransactionUsable } from "../infra/sqlite-transaction.js";
-import { assertExistingDatabaseIdentity } from "../infra/sqlite-worker-identity.js";
+import {
+  registerSqliteCacheExitClose,
+  runInSqliteMaintenanceContext,
+} from "../infra/sqlite-wal.js";
+import {
+  assertExistingDatabaseIdentity,
+  readDatabasePathIdentitySync,
+  type DatabasePathIdentity,
+} from "../infra/sqlite-worker-identity.js";
 import { openClawStateDatabaseCache } from "./openclaw-state-db-cache.js";
 import {
   OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
@@ -24,8 +33,117 @@ import type { OpenClawStateReadOnlyDatabase } from "./openclaw-state-read.types.
 
 export type OpenClawStateReadConnection = {
   database: Pick<OpenClawStateDatabase, "db" | "path">;
-  close: () => boolean;
+  close: (retain?: boolean) => boolean;
 };
+
+type RetainedReader = {
+  connection: OpenClawStateReadConnection;
+  identity: DatabasePathIdentity;
+  retiring: boolean;
+  idleTimer?: ReturnType<typeof setTimeout>;
+};
+const retainedReaders = new Map<string, RetainedReader>();
+let unregisterExitClose: (() => void) | undefined;
+
+function retireReader(reader: RetainedReader): void {
+  clearTimeout(reader.idleTimer);
+  reader.retiring = true;
+  reader.connection.close();
+  retainedReaders.delete(reader.identity.key);
+  if (!retainedReaders.size) {
+    unregisterExitClose?.();
+    unregisterExitClose = undefined;
+  }
+}
+
+function scheduleReaderRetirement(reader: RetainedReader): void {
+  if (retainedReaders.get(reader.identity.key) !== reader) {
+    return;
+  }
+  clearTimeout(reader.idleTimer);
+  reader.idleTimer = runInSqliteMaintenanceContext(() =>
+    setTimeout(() => {
+      try {
+        retireReader(reader);
+      } catch (error) {
+        process.emitWarning(`Idle shared-state reader cleanup failed: ${String(error)}`);
+        scheduleReaderRetirement(reader);
+      }
+    }, SQLITE_IDLE_HANDLE_TTL_MS),
+  );
+  reader.idleTimer.unref?.();
+}
+
+/** The host joins this receipt before allowing replacement or deletion of live state. */
+export function closeRetainedOpenClawStateReadConnections(identity?: string): void {
+  const errors: unknown[] = [];
+  for (const reader of retainedReaders.values()) {
+    if (identity === undefined || reader.identity.key === identity) {
+      try {
+        retireReader(reader);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  }
+  throwSqliteLifecycleErrors(errors, "Retained shared-state reader cleanup failed.");
+}
+
+function borrowStateReadConnection(
+  pathname: string,
+  expectedIdentity?: string,
+): OpenClawStateSettledRead<OpenClawStateReadConnection> {
+  isExistingOpenClawStateSchema(pathname);
+  const identity = readDatabasePathIdentitySync(pathname);
+  if (expectedIdentity !== undefined) {
+    assertExistingDatabaseIdentity(pathname, expectedIdentity);
+  }
+  for (const previous of retainedReaders.values()) {
+    if (
+      previous.identity.canonicalPath === identity.canonicalPath &&
+      previous.identity.key !== identity.key
+    ) {
+      retireReader(previous);
+    }
+  }
+  if (!identity.key.startsWith("file:")) {
+    return openStateReadConnectionResult(pathname, pathname, expectedIdentity);
+  }
+  let reader = retainedReaders.get(identity.key);
+  if (reader?.retiring || (reader && !reader.connection.database.db.isOpen)) {
+    retireReader(reader);
+    reader = undefined;
+  }
+  if (!reader) {
+    const opening = openStateReadConnectionResult(pathname, pathname, identity.key);
+    if (opening.status === "unavailable") {
+      return opening;
+    }
+    reader = { connection: opening.value, identity, retiring: false };
+    retainedReaders.set(identity.key, reader);
+    unregisterExitClose ??= registerSqliteCacheExitClose(closeRetainedOpenClawStateReadConnections);
+  }
+  const retained = reader;
+  clearTimeout(retained.idleTimer);
+  return {
+    status: "available",
+    value: {
+      database: { db: retained.connection.database.db, path: pathname },
+      close(keep) {
+        if (
+          keep &&
+          retained.connection.database.db.isOpen &&
+          !retained.connection.database.db.isTransaction
+        ) {
+          scheduleReaderRetirement(retained);
+        } else {
+          retireReader(retained);
+        }
+        return true;
+      },
+    },
+  };
+}
 
 class SnapshotCleanupIncompleteError extends Error {}
 
@@ -60,6 +178,7 @@ export function withOpenClawStateReadOnlyLocation<T>(
   openStateSchemaReadAdmission?: OpenClawStateSchemaReadAdmission,
   expectedIdentity?: string,
   snapshotRoot?: string,
+  retainConnection = false,
 ): T {
   const result = readOpenClawStateReadOnlyLocation(
     operation,
@@ -68,6 +187,7 @@ export function withOpenClawStateReadOnlyLocation<T>(
     openStateSchemaReadAdmission,
     expectedIdentity,
     snapshotRoot,
+    retainConnection,
   );
   if (result.status === "unavailable") {
     throw result.error;
@@ -83,14 +203,12 @@ export function readOpenClawStateReadOnlyLocation<T>(
   openStateSchemaReadAdmission?: OpenClawStateSchemaReadAdmission,
   expectedIdentity?: string,
   snapshotRoot?: string,
+  retainConnection = false,
 ): OpenClawStateSettledRead<T> {
-  const opening = openStateReadConnectionResult(
-    pathname,
-    source,
-    expectedIdentity,
-    snapshotRoot,
-    true,
-  );
+  const opening =
+    retainConnection && source === pathname && !snapshotRoot && !process.versions.bun
+      ? borrowStateReadConnection(pathname, expectedIdentity)
+      : openStateReadConnectionResult(pathname, source, expectedIdentity, snapshotRoot, true);
   if (opening.status === "unavailable") {
     return opening;
   }
@@ -123,7 +241,7 @@ export function readOpenClawStateReadOnlyLocation<T>(
     errors.push(error);
   }
   try {
-    if (!opened.close()) {
+    if (!opened.close(errors.length === 0 && result?.status === "available")) {
       throw new SnapshotCleanupIncompleteError("Shared-state snapshot cleanup is incomplete.");
     }
   } catch (error) {
@@ -245,7 +363,6 @@ function openStateReadConnectionResult(
       if (snapshot && !snapshot.cleanup()) {
         throw new SnapshotCleanupIncompleteError("Shared-state snapshot cleanup is incomplete.");
       }
-      closed = true;
       return undefined;
     },
   };
@@ -270,6 +387,7 @@ function openStateReadConnectionResult(
           errors[0],
         );
       }
+      closed = true;
       return true;
     },
   };

@@ -627,21 +627,63 @@ describe("node-host invocation cancellation", () => {
 });
 
 describe("node-host desktop manifest", () => {
-  it("advertises desktop.stream only when the node-local desktop is enabled", async () => {
-    const disabled = await prepareNodeHostRuntime({
-      config: {},
-      env: { PATH: "/usr/bin" },
-      platform: "linux",
-    });
-    expect(disabled.manifest.commands).not.toContain(NODE_DESKTOP_STREAM_COMMAND);
+  it.each(["darwin", "linux", "win32"] as const)(
+    "enables the same desktop stream for advertisement and invocation on %s by default",
+    async (platform) => {
+      const prepared = await prepareNodeHostRuntime({
+        config: {},
+        env: { PATH: "/usr/bin" },
+        platform,
+      });
+      expect(prepared.manifest.commands).toContain(NODE_DESKTOP_STREAM_COMMAND);
+      const runtime = prepared.start({ client: createNodeHostClient(async () => ({ bins: [] })) });
+      try {
+        await runtime.invoke({ ...frame, command: NODE_DESKTOP_STREAM_COMMAND });
+        expect(mocks.handleInvoke).toHaveBeenLastCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          expect.objectContaining({ desktopHostConfig: { enabled: true } }),
+        );
+      } finally {
+        await runtime.close();
+      }
+    },
+  );
 
-    const enabled = await prepareNodeHostRuntime({
-      config: { desktop: { host: { enabled: true } } },
-      env: { PATH: "/usr/bin" },
-      platform: "linux",
-    });
-    expect(enabled.manifest.commands).toContain(NODE_DESKTOP_STREAM_COMMAND);
-  });
+  it.each([
+    { configEnabled: false, nativeEnabled: undefined, ephemeral: false, enabled: false },
+    { configEnabled: true, nativeEnabled: undefined, ephemeral: false, enabled: true },
+    { configEnabled: true, nativeEnabled: false, ephemeral: false, enabled: false },
+    { configEnabled: false, nativeEnabled: true, ephemeral: false, enabled: true },
+    { configEnabled: true, nativeEnabled: true, ephemeral: true, enabled: false },
+  ])(
+    "preserves node desktop preference precedence and disposable worker isolation: $configEnabled/$nativeEnabled/$ephemeral",
+    async ({ configEnabled, nativeEnabled, ephemeral, enabled }) => {
+      const prepared = await prepareNodeHostRuntime({
+        config: { desktop: { host: { enabled: configEnabled, port: 5901 } } },
+        env: { PATH: "/usr/bin" },
+        desktopSharingEnabled: nativeEnabled,
+        platform: "darwin",
+        ephemeral,
+      });
+      expect(prepared.manifest.commands.includes(NODE_DESKTOP_STREAM_COMMAND)).toBe(enabled);
+      const runtime = prepared.start({ client: createNodeHostClient(async () => ({ bins: [] })) });
+      try {
+        await runtime.invoke({ ...frame, command: NODE_DESKTOP_STREAM_COMMAND });
+        expect(mocks.handleInvoke).toHaveBeenLastCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          expect.anything(),
+          expect.objectContaining({ desktopHostConfig: { enabled, port: 5901 } }),
+        );
+      } finally {
+        await runtime.close();
+      }
+    },
+  );
 
   it("emits desktop statuses without control-channel heartbeats", async () => {
     const runtime = await startRuntime();

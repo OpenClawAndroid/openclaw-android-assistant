@@ -108,11 +108,17 @@ describe("backup SQLite ownership", () => {
           });
         try {
           const runtime = createTestRuntime();
+          const onSqliteSnapshots = vi.fn();
           const archive = await backupCreateCommand(runtime, {
             output,
             includeWorkspace: false,
             verify: true,
+            onSqliteSnapshots,
           });
+          expect(onSqliteSnapshots).toHaveBeenCalledExactlyOnceWith([
+            expect.objectContaining({ role: "global", sourcePath: globalPath }),
+            expect.objectContaining({ role: "agent", agentId: "main", sourcePath: agentPath }),
+          ]);
           expect(registered).toBe(true);
           expect(archive.verified).toBe(true);
           expect(archive.warnings ?? []).toEqual([]);

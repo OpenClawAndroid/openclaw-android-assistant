@@ -524,6 +524,7 @@ export function acquireStateDatabaseHandleLease(params: CoordinatorOptions) {
     ensurePrivateSqliteCoordinatorDirectory(path.dirname(pathname), "state-handles coordinator");
     const coordinator = tryAcquireSharedSqliteCoordinator(pathname, {
       busyTimeoutMs: params.busyTimeoutMs,
+      keepAlive: shouldKeepStateCoordinatorAlive(params),
     });
     if (!coordinator) {
       throw new StateDatabaseCoordinatorContentionError("state-handles");

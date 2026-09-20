@@ -31,7 +31,6 @@ import { gatewayHealthResponse } from "../gateway/health-response.test-support.j
 import { formatErrorMessage } from "../infra/errors.js";
 import * as nodeSqlite from "../infra/node-sqlite.js";
 import type { PackageUpdateTransaction } from "../infra/package-update-steps.js";
-import { releaseSnapshotTempDirectory } from "../infra/sqlite-readonly-location-cleanup.js";
 import { SUPERVISOR_HINT_ENV_VARS } from "../infra/supervisor-markers.js";
 import * as updateTempRoot from "../infra/tmp-openclaw-dir.js";
 import { isBetaTag } from "../infra/update-channels.js";
@@ -689,10 +688,8 @@ vi.mock("../commands/triage.js", () => ({ triageCommand }));
 vi.mock("../commands/triage-failure.js", () => ({ triageAfterFailure }));
 vi.mock("./update-cli/update-command-report.js", () => updateFailureActionMocks);
 
-const { prepareSqliteReadOnlyLocationSyncInProcess } =
-  await import("../infra/sqlite-readonly-location.js");
-const sqliteReadOnlyWorker = await import("../infra/sqlite-readonly-worker.js");
-const runHostReadOnlyWorker = sqliteReadOnlyWorker.runSqliteReadOnlyWorkerSync;
+const { mockUpdateStateSnapshotWorker } =
+  await import("./update-cli-state-snapshot.test-support.js");
 const { runGatewayUpdate } = await import("../infra/update-runner.js");
 const { createUpdateRun, getUpdateRun, listUpdateRuns } =
   await import("../infra/update-run-ledger.js");
@@ -1548,20 +1545,7 @@ describe("update-cli", () => {
     }
     restartHealthTestControl.snapshot = undefined;
     vi.resetAllMocks();
-    // These fixture-owned databases have no competing writer. Keep real snapshot
-    // staging/adoption; cold ledger and WAL-lock tests own the process boundary.
-    vi.spyOn(sqliteReadOnlyWorker, "runSqliteReadOnlyWorkerSync").mockImplementation(
-      (pathname, stagingRoot) => {
-        if (!fixtureStateDatabases.has(path.resolve(pathname))) {
-          return runHostReadOnlyWorker(pathname, stagingRoot);
-        }
-        const prepared = prepareSqliteReadOnlyLocationSyncInProcess(pathname, stagingRoot);
-        // Match the real worker's successful handoff: its native token is closed
-        // before the parent adopts the copied bytes, including nested snapshots.
-        releaseSnapshotTempDirectory(prepared.cleanupRoot ?? path.dirname(prepared.location));
-        return prepared.location;
-      },
-    );
+    mockUpdateStateSnapshotWorker(fixtureStateDatabases);
     // Service simulations do not provide foreign-platform ACL libraries. Keep
     // real exclusive host creation; actual Windows runs retain the native DACL path.
     if (sqliteHostPlatform !== "win32") {
@@ -4327,18 +4311,18 @@ describe("update-cli", () => {
 
     expect(runGatewayUpdate).not.toHaveBeenCalled();
     expect(replaceConfigFile).toHaveBeenCalledWith({
-      nextConfig: {
-        update: {
-          channel: "dev",
-        },
-      },
+      nextConfig: { update: { channel: "dev" } },
       baseHash: "stable-hash",
     });
-    expect(mutateConfigFileWithRetry).toHaveBeenCalledWith(
-      expect.objectContaining({
-        writeOptions: { skipPluginValidation: true },
-      }),
-    );
+    expect(mutateConfigFileWithRetry).toHaveBeenCalledExactlyOnceWith({
+      mutate: expect.any(Function),
+      writeOptions: {
+        assertCurrent: expect.any(Function),
+        beforeCommit: expect.any(Function),
+        observe: false,
+        skipPluginValidation: true,
+      },
+    });
     expect(syncPluginCall()?.channel).toBe("dev");
     expect(syncPluginCall()?.config?.update?.channel).toBe("dev");
   });

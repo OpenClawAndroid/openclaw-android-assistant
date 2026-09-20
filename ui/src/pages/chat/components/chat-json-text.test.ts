@@ -1,8 +1,9 @@
 /* @vitest-environment jsdom */
 
-import { nothing, render } from "lit";
+import { html, nothing, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
+import { TOOL_OUTPUT_PREVIEW_CHARS } from "../../../lib/chat/tool-output.ts";
+import "./chat-tool-output.ts";
 import { renderGroupedMessage } from "./chat-message-bubble.ts";
 import { prepareChatMessageRender } from "./chat-message-markdown.ts";
 import type { SidebarContent } from "./chat-sidebar.ts";
@@ -121,7 +122,7 @@ describe.each(["user", "assistant", "toolResult"])("%s JSON message text", (role
 });
 
 describe("tool JSON details", () => {
-  function openToolDetails(text: string) {
+  async function openToolDetails(text: string) {
     const container = createContainer();
     const openSidebar = vi.fn<(content: SidebarContent) => void>();
     render(
@@ -136,45 +137,56 @@ describe("tool JSON details", () => {
       ),
       container,
     );
-    expect(container.querySelector(".chat-tool-card__block code")?.textContent).toBe(text);
+    expect(container.querySelector(".chat-tool-card__block code")?.textContent).toBe(
+      text.slice(0, TOOL_OUTPUT_PREVIEW_CHARS),
+    );
     container.querySelector<HTMLButtonElement>(".chat-tool-card__action-btn")!.click();
     expect(openSidebar).toHaveBeenCalledOnce();
     const content = openSidebar.mock.calls[0]?.[0];
-    expect(content?.kind).toBe("markdown");
-    if (content?.kind !== "markdown") {
-      throw new Error("Expected tool details Markdown");
+    expect(content?.kind).toBe("tool-output");
+    if (content?.kind !== "tool-output") {
+      throw new Error("Expected raw tool output inspector");
     }
-    expect(content.rawText).toBe(text);
+    expect(content.card.outputText).toBe(text);
     const panel = createContainer();
-    panel.innerHTML = toSanitizedMarkdownHtml(content.content);
+    render(
+      html`<openclaw-chat-tool-output .content=${content}></openclaw-chat-tool-output>`,
+      panel,
+    );
+    await vi.waitFor(() =>
+      expect(panel.querySelector(".chat-tool-output__text code")?.textContent).toBe(text),
+    );
     return panel;
   }
 
-  it.each(jsonSources)("preserves $name after opening tool details", ({ text }) => {
-    const panel = openToolDetails(text);
-    expect(panel.querySelector("pre code")?.textContent?.trimEnd()).toBe(text);
+  it.each(jsonSources)("preserves $name after opening tool details", async ({ text }) => {
+    const panel = await openToolDetails(text);
+    expect(panel.querySelector("pre code")?.textContent).toBe(text);
     expect(panel.querySelector("pre strong")).toBeNull();
   });
 
-  it.each([19_999, 20_000, 20_001])("keeps %i-character JSON output literal in details", (size) => {
-    const text = '{"text":"**stars**' + "x".repeat(size - 20) + '"}';
-    expect(text).toHaveLength(size);
-    const panel = openToolDetails(text);
-    expect(panel.querySelector("pre code")?.textContent?.trimEnd()).toBe(text);
-    expect(panel.querySelector("pre strong")).toBeNull();
-  });
+  it.each([19_999, 20_000, 20_001])(
+    "keeps %i-character JSON output literal in details",
+    async (size) => {
+      const text = '{"text":"**stars**' + "x".repeat(size - 20) + '"}';
+      expect(text).toHaveLength(size);
+      const panel = await openToolDetails(text);
+      expect(panel.querySelector("pre code")?.textContent).toBe(text);
+      expect(panel.querySelector("pre strong")).toBeNull();
+    },
+  );
 
-  it("keeps explicitly fenced JSON output literal in details", () => {
+  it("keeps explicitly fenced JSON output literal in details", async () => {
     const text = '{"id":9007199254740993,"text":"**stars**"}';
-    const panel = openToolDetails("```json\n" + text + "\n```");
-    expect(panel.querySelector("pre code")?.textContent?.trimEnd()).toBe(text);
+    const fenced = "```json\n" + text + "\n```";
+    const panel = await openToolDetails(fenced);
+    expect(panel.querySelector("pre code")?.textContent).toBe(fenced);
     expect(panel.querySelector("pre strong")).toBeNull();
   });
 
-  it("keeps invalid JSON as ordinary detail output", () => {
+  it("keeps invalid JSON literal in the inspector", async () => {
     const text = '{"count": }';
-    const panel = openToolDetails(text);
-    expect(panel.querySelector("pre code")).toBeNull();
-    expect(panel.textContent).toContain(text);
+    const panel = await openToolDetails(text);
+    expect(panel.querySelector("pre code")?.textContent).toBe(text);
   });
 });

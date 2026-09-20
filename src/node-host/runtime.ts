@@ -20,6 +20,7 @@ import type { OpenClawPluginNodeHostCommandContext } from "../plugins/types.node
 import { BoundedBuffer } from "../shared/bounded-buffer.js";
 import { NODE_DESKTOP_STREAM_COMMAND } from "../shared/node-desktop-stream.js";
 import type { NodeHostClient } from "./client.js";
+import { resolveNodeDesktopHostConfig } from "./desktop-stream-command.js";
 import { requestsClaudeNodeSkillRuntime } from "./invoke-agent-cli-claude-params.js";
 import { handleInvoke, type NodeInvokeRequestPayload, type SkillBinsProvider } from "./invoke.js";
 import { startNodeHostMcpManager, type NodeHostMcpManager } from "./mcp.js";
@@ -204,6 +205,7 @@ export async function prepareNodeHostRuntime(params?: {
   /** Embedded workers may still host long-lived plugin commands over the app-owned socket. */
   enableDuplexPluginCommands?: boolean;
   installedAppsSharingEnabled?: boolean;
+  desktopSharingEnabled?: boolean;
   commands?: readonly string[];
   platform?: NodeJS.Platform;
 }): Promise<PreparedNodeHostRuntime> {
@@ -221,9 +223,12 @@ export async function prepareNodeHostRuntime(params?: {
   const platform = params?.platform ?? process.platform;
   const installedAppsSharingEnabled =
     platform === "darwin" && params?.installedAppsSharingEnabled === true;
-  const desktopStreamingEnabled =
-    (platform === "darwin" || platform === "linux" || platform === "win32") &&
-    config.desktop?.host?.enabled === true;
+  const desktopHostConfig = resolveNodeDesktopHostConfig({
+    config: config.desktop?.host,
+    desktopSharingEnabled: params?.desktopSharingEnabled,
+    platform,
+    ephemeral: params?.ephemeral,
+  });
   const availabilityContext = { config, env };
   const resolvePluginNodeHost = () =>
     listRegisteredNodeHostCapsAndCommands(availabilityContext, {
@@ -311,7 +316,7 @@ export async function prepareNodeHostRuntime(params?: {
       commandAllowlist,
       claudeEnabled: Boolean(claudePath),
       installedAppsSharingEnabled,
-      desktopStreamingEnabled,
+      desktopStreamingEnabled: desktopHostConfig.enabled,
       ephemeral: params?.ephemeral === true,
       pathEnv,
     });
@@ -610,7 +615,7 @@ export async function prepareNodeHostRuntime(params?: {
                 ...(gatewayConnection?.cloudflareAccess
                   ? { gatewayCloudflareAccess: gatewayConnection.cloudflareAccess }
                   : {}),
-                ...(config.desktop?.host ? { desktopHostConfig: config.desktop.host } : {}),
+                desktopHostConfig,
                 ...(progress ? { emitProgress: (text) => progress.write(text) } : {}),
                 installedAppsSharingEnabled,
                 installedAppsPlatform: platform,

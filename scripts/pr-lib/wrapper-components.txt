@@ -587,6 +587,8 @@ src/infra/fs-safe-advanced.ts
 src/infra/fs-safe-copy.worker.ts
 src/infra/fs-safe-defaults.ts
 src/infra/fs-safe.ts
+src/infra/gateway-owner-lease.ts
+src/infra/gateway-process-argv.ts
 src/infra/gateway-supervision.ts
 src/infra/git-commit.ts
 src/infra/git-exec.ts
@@ -645,6 +647,7 @@ src/infra/path-case.ts
 src/infra/path-guards.ts
 src/infra/path-safety.ts
 src/infra/plain-object.ts
+src/infra/ports-lsof.ts
 src/infra/ports-netstat.ts
 src/infra/private-mode.ts
 src/infra/private-temp-workspace.ts
@@ -652,6 +655,7 @@ src/infra/process-env.ts
 src/infra/prototype-keys.ts
 src/infra/regular-file.ts
 src/infra/replace-file.ts
+src/infra/restart-stale-pids.ts
 src/infra/runtime-process-entrypoints.ts
 src/infra/runtime-process-url.ts
 src/infra/runtime-worker-url.ts
@@ -661,6 +665,7 @@ src/infra/semver.ts
 src/infra/shell-env.ts
 src/infra/shell-inline-command.ts
 src/infra/shell-wrapper-resolution.ts
+src/infra/spawn-ps.ts
 src/infra/sqlite-audit-record-store.async.ts
 src/infra/sqlite-audit-record-store.ts
 src/infra/sqlite-audit-record.kernel.ts
@@ -671,6 +676,7 @@ src/infra/sqlite-error-diagnostics.ts
 src/infra/sqlite-existing-database.ts
 src/infra/sqlite-file-generation.ts
 src/infra/sqlite-files.ts
+src/infra/sqlite-handle-lifecycle.ts
 src/infra/sqlite-index-schema.ts
 src/infra/sqlite-integrity.ts
 src/infra/sqlite-live-snapshot.ts
@@ -742,9 +748,11 @@ src/infra/update-managed-service-handoff-boot.ts
 src/infra/update-managed-service-handoff-cleanup.ts
 src/infra/update-managed-service-handoff-database.ts
 src/infra/update-managed-service-handoff-lease.ts
+src/infra/update-managed-service-handoff-legacy-parent.ts
 src/infra/update-managed-service-handoff-process.ts
 src/infra/update-managed-service-handoff-retained-custody.ts
 src/infra/update-managed-service-handoff-schema.ts
+src/infra/update-managed-service-handoff-scope.ts
 src/infra/update-managed-service-handoff-source-inspection.ts
 src/infra/update-managed-service-handoff-store-repair.ts
 src/infra/update-preflight-details.ts
@@ -765,6 +773,7 @@ src/infra/worker-task-native-sections.ts
 src/infra/worker-task-pool-completion.ts
 src/infra/worker-task-pool-core.ts
 src/infra/worker-task-pool-owned.ts
+src/infra/worker-task-pool-resources.ts
 src/infra/worker-task-pool-retirement.ts
 src/infra/worker-task-pool.ts
 src/infra/worker-task-server.ts
@@ -1002,6 +1011,7 @@ src/plugins/runtime/generation-state.ts
 src/plugins/runtime/load-context-state.ts
 src/plugins/schema-validator.ts
 src/plugins/sdk-alias-normalization.ts
+src/plugins/sdk-alias-workspace.ts
 src/plugins/sdk-alias.ts
 src/plugins/setup-descriptors.ts
 src/plugins/setup-presentation-url.ts
@@ -1116,6 +1126,7 @@ src/state/openclaw-state-db-additive-columns.ts
 src/state/openclaw-state-db-async-lifecycle.ts
 src/state/openclaw-state-db-audit-migration.ts
 src/state/openclaw-state-db-borrow.ts
+src/state/openclaw-state-db-cache.idle.ts
 src/state/openclaw-state-db-cache.ts
 src/state/openclaw-state-db-contract.ts
 src/state/openclaw-state-db-delivery-queue-backfill.ts

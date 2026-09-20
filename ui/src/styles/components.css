@@ -6233,6 +6233,21 @@ td.data-table-key-col {
   -webkit-mask: var(--provider-icon-url) center / contain no-repeat;
 }
 
+.cloud-profile-icon,
+.cloud-profile-icon > svg,
+.cloud-profile-icon > .cloud-provider-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: inherit;
+}
+
+.cloud-provider-icon[data-provider-icon="hetzner"] {
+  mask-size: 88%;
+  -webkit-mask-size: 88%;
+}
+
 .provider-brand-icon--fallback {
   border: 1px solid color-mix(in srgb, currentColor 48%, transparent);
   border-radius: var(--radius-sm);

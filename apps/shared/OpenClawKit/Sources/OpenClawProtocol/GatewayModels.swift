@@ -23811,6 +23811,7 @@ public struct UpdateAvailable: Codable, Sendable {
     public let currentsha: String?
     public let upstreamref: String?
     public let upstreamsha: String?
+    public let repositoryurl: String?
     public let commitsbehind: Int?
     public let commits: [[String: AnyCodable]]?
 
@@ -23821,6 +23822,7 @@ public struct UpdateAvailable: Codable, Sendable {
         currentsha: String? = nil,
         upstreamref: String? = nil,
         upstreamsha: String? = nil,
+        repositoryurl: String? = nil,
         commitsbehind: Int? = nil,
         commits: [[String: AnyCodable]]? = nil)
     {
@@ -23830,6 +23832,7 @@ public struct UpdateAvailable: Codable, Sendable {
         self.currentsha = currentsha
         self.upstreamref = upstreamref
         self.upstreamsha = upstreamsha
+        self.repositoryurl = repositoryurl
         self.commitsbehind = commitsbehind
         self.commits = commits
     }
@@ -23841,6 +23844,7 @@ public struct UpdateAvailable: Codable, Sendable {
         case currentsha = "currentSha"
         case upstreamref = "upstreamRef"
         case upstreamsha = "upstreamSha"
+        case repositoryurl = "repositoryUrl"
         case commitsbehind = "commitsBehind"
         case commits
     }
@@ -24012,6 +24016,8 @@ public struct UpdateRunResult: Codable, Sendable {
     public let ok: Bool
     public let result: AnyCodable
     public let ackdelivered: Bool?
+    public let ackqueued: Bool?
+    public let acknowledgement: String?
     public let code: String?
     public let message: String?
     public let handoff: AnyCodable?
@@ -24023,6 +24029,8 @@ public struct UpdateRunResult: Codable, Sendable {
         ok: Bool,
         result: AnyCodable,
         ackdelivered: Bool? = nil,
+        ackqueued: Bool? = nil,
+        acknowledgement: String? = nil,
         code: String? = nil,
         message: String? = nil,
         handoff: AnyCodable? = nil,
@@ -24033,6 +24041,8 @@ public struct UpdateRunResult: Codable, Sendable {
         self.ok = ok
         self.result = result
         self.ackdelivered = ackdelivered
+        self.ackqueued = ackqueued
+        self.acknowledgement = acknowledgement
         self.code = code
         self.message = message
         self.handoff = handoff
@@ -24045,6 +24055,8 @@ public struct UpdateRunResult: Codable, Sendable {
         case ok
         case result
         case ackdelivered = "ackDelivered"
+        case ackqueued = "ackQueued"
+        case acknowledgement
         case code
         case message
         case handoff

@@ -14,6 +14,7 @@ import {
   resetGatewayWorkAdmission,
 } from "../src/process/gateway-work-admission.js";
 import { drainGlobalSingletonLifecycleState } from "../src/shared/global-singleton.js";
+import { hasOpenClawAgentDatabaseAsyncResources } from "../src/state/openclaw-agent-db-resources.js";
 import {
   type CustomElementTracking,
   dropRepoOwnedCustomElements,
@@ -465,6 +466,13 @@ export default class OpenClawNonIsolatedRunner extends TestRunner {
     resetAgentEventsForTest();
     resetOpenClawGlobalDiagnosticState();
     resetOpenClawSessionSuspensionState();
+    if (hasOpenClawAgentDatabaseAsyncResources()) {
+      // Lease release can reopen shared state; close agents first, bypassing suite mocks.
+      const { closeOpenClawAgentDatabasesAsync } = await vi.importActual<
+        typeof import("../src/state/openclaw-agent-db-lifecycle.js")
+      >("../src/state/openclaw-agent-db-lifecycle.js");
+      await closeOpenClawAgentDatabasesAsync();
+    }
     // Lifecycle-owned singletons survive module resets; close them before the next file
     // can observe a previous file's sessions, caches, or registered resources.
     await drainGlobalSingletonLifecycleState();

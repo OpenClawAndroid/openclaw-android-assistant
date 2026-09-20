@@ -460,7 +460,7 @@ describe.runIf("__vitest_browser__" in globalThis)("Inbox panel layout", () => {
         <div class="sidebar-issues-panel__grabber"></div>
         <header class="sidebar-issues-panel__header">
           <div class="sidebar-issues-panel__header-actions">
-            <button class="sidebar-issues-panel__dismiss-shown" type="button">Dismiss shown</button>
+            <button class="sidebar-issues-panel__dismiss-shown" type="button">Dismiss all shown</button>
             <button class="sidebar-brand__icon sidebar-issues-panel__mobile-close" type="button">
               Close
             </button>

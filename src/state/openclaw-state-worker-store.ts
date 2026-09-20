@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
+import { SQLITE_IDLE_HANDLE_TTL_MS } from "../infra/sqlite-handle-lifecycle.js";
 import type { SqliteWorkerAdmissionCleanup } from "../infra/sqlite-worker-broker.types.js";
 import type { DatabasePathIdentity } from "../infra/sqlite-worker-identity.js";
 import type { SqliteWorkerAdmissionFactory } from "../infra/sqlite-worker-operation-admission.js";
@@ -46,7 +47,6 @@ type DomainScope = Pick<SqliteWorkerStore<OpenClawStateWorkerOperations>, "execu
 
 const log = createSubsystemLogger("state/worker");
 const SHARED_STATE_WORKER_IDLE_INSPECT_MS = 60_000;
-const SHARED_STATE_WORKER_IDLE_RETIRE_MS = 30 * 60_000;
 
 function createSharedStateWorkerOwner() {
   const moduleUrl = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sharedStateStore);
@@ -145,7 +145,7 @@ function createSharedStateWorkerOwner() {
     }
     const store = entry.store;
     const generation = entry.operationGeneration;
-    const deadline = performance.now() + SHARED_STATE_WORKER_IDLE_RETIRE_MS;
+    const deadline = performance.now() + SQLITE_IDLE_HANDLE_TTL_MS;
     const arm = (delay: number, inspect: boolean) => {
       const isCurrentIdle = () =>
         entry.idleTimer === timer &&

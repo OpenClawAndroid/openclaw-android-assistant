@@ -240,6 +240,10 @@ catalog omitted that source for Codex; the correction is on main in
 ## Reason codes
 
 - `dirty`, `no-upstream`: repair the source checkout before retrying.
+- `runtime-artifact-publication`: the affected Gateway is running or cannot be
+  verified offline. Inspect `openclaw gateway status --deep`, stop it through its
+  service owner, and retry. On macOS, a loaded LaunchAgent can respawn even when
+  disabled and temporarily has no PID; `openclaw gateway stop` unloads it.
 - `update-ledger-busy`: another process held the state database's write lock
   beyond the update step budget. The command exited successfully without admitting
   a run and left previous history intact. Retry once the Gateway's writes settle.

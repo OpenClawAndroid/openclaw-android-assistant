@@ -59,6 +59,7 @@ vi.mock("../../infra/gateway-lock.js", async (importOriginal) => {
 });
 
 vi.mock("../../infra/restart-intent.js", () => ({
+  prepareGatewayRestartIntentLegacyProcess: async () => undefined,
   writeGatewayRestartIntentSync: (params: unknown) => writeGatewayRestartIntentSync(params),
   writeGatewayServiceRestartIntentSync: (params: unknown) => writeGatewayRestartIntentSync(params),
   clearGatewayRestartIntentSync: () => clearGatewayRestartIntentSync(),

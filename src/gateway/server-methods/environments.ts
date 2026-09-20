@@ -196,9 +196,11 @@ async function listWorkerProfilesWithMachines(context: GatewayRequestContext) {
           context.workerEnvironmentService?.supportsExecutionMode(summary.id, mode) === true,
       );
       const executionMode = executionModes[0];
+      const providerDisplayId = context.workerEnvironmentService?.readProviderDisplayId(summary.id);
       const resolvedSummary = Object.assign(
         summary,
         executionMode ? { executionMode, executionModes } : {},
+        providerDisplayId ? { providerDisplayId } : {},
       );
       try {
         const [options, operatingSystems] = await Promise.all([

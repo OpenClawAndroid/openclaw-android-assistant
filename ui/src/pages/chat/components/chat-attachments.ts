@@ -18,6 +18,7 @@ import { admitAttachmentFiles } from "./chat-attachment-admission.ts";
 import type { ChatAttachmentControlsProps } from "./chat-attachment-controls.types.ts";
 import { renderAttachmentFileIcon } from "./chat-attachment-file-icon.ts";
 import { renderCompactAttachmentFile } from "./chat-attachment-file.ts";
+import { useSingleAttachmentPicker } from "./chat-attachment-picker-policy.ts";
 import { ChatAttachmentReadLifecycle, type ChatAttachmentRead } from "./chat-attachment-reads.ts";
 import { encodeTextAsDataUrl } from "./chat-attachment-text.ts";
 import { renderComposerPastedText } from "./chat-composer-pasted-text.ts";
@@ -411,20 +412,21 @@ export function renderChatAttachmentMenuTrigger(
 }
 
 export function renderChatAttachmentMenuOptions(fileIcon = icons.folder) {
-  return html`
-    <wa-dropdown-item class="agent-chat__attach-menu-option" value="camera">
-      <span slot="icon" aria-hidden="true">${icons.camera}</span>
-      <span>${t("chat.composer.takePhoto")}</span>
-    </wa-dropdown-item>
-    <wa-dropdown-item class="agent-chat__attach-menu-option" value="photo">
-      <span slot="icon" aria-hidden="true">${icons.image}</span>
-      <span>${t("chat.composer.attachPhoto")}</span>
-    </wa-dropdown-item>
-    <wa-dropdown-item class="agent-chat__attach-menu-option" value="file">
-      <span slot="icon" aria-hidden="true">${fileIcon}</span>
-      <span>${t("chat.composer.attachFileOption")}</span>
-    </wa-dropdown-item>
-  `;
+  const options = useSingleAttachmentPicker()
+    ? [{ value: "file", icon: fileIcon, label: t("chat.composer.attach") }]
+    : [
+        { value: "camera", icon: icons.camera, label: t("chat.composer.takePhoto") },
+        { value: "photo", icon: icons.image, label: t("chat.composer.attachPhoto") },
+        { value: "file", icon: fileIcon, label: t("chat.composer.attachFileOption") },
+      ];
+  return options.map(
+    ({ value, icon, label }) => html`
+      <wa-dropdown-item class="agent-chat__attach-menu-option" value=${value}>
+        <span slot="icon" aria-hidden="true">${icon}</span>
+        <span>${label}</span>
+      </wa-dropdown-item>
+    `,
+  );
 }
 
 function removeBrowserAnnotationAttachment(

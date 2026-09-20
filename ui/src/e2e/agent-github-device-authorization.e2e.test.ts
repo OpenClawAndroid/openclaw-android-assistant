@@ -128,6 +128,86 @@ const configResponse = {
 };
 
 suite.define(() => {
+  it.each(["profile", "agent"] as const)(
+    "explains native GitHub lookup in %s Settings without changing setup scope",
+    async (surface) => {
+      await suite.withPage(pageOptions(), async ({ page }) => {
+        const native = {
+          ...systemOAuth,
+          source: "system-detected",
+          credentialKind: "native",
+          credentialState: "unavailable",
+          account: null,
+          gitAuthor: { name: null, email: null },
+          evidence: "none",
+          accessExpiresAtMs: null,
+          refreshState: "not_applicable",
+          oauthScopes: [],
+        } as const;
+        const gateway = await installMockGateway(page, {
+          operatorScopes: ["operator.admin", "operator.read", "operator.write"],
+          methodResponses: {
+            "config.get": configResponse,
+            "tools.github.status": {
+              cases: [
+                {
+                  match: { selectedScope: "system" },
+                  response: {
+                    agentId: "main",
+                    selectedScope: "system",
+                    selected: { scope: "system", configured: false, identity: native },
+                    effective: native,
+                  },
+                },
+                {
+                  match: { selectedScope: "agent" },
+                  response: {
+                    agentId: "main",
+                    selectedScope: "agent",
+                    selected: { scope: "agent", configured: false, identity: null },
+                    effective: native,
+                  },
+                },
+              ],
+            },
+            "tools.catalog": { agentId: "main", profiles: [], groups: [] },
+            "tools.effective": { agentId: "main", profile: "full", groups: [], notices: [] },
+          },
+        });
+        await page.goto(`${suite.server.baseUrl}settings/profile`);
+        const profile = page.locator("#settings-profile-github-connections");
+        await expect(profile.locator('[data-github-connection="system"]')).toContainText(
+          "No credentials",
+        );
+        if (surface === "agent") {
+          await profile.getByRole("button", { name: "View agent account", exact: true }).click();
+          await expect(page).toHaveURL(/settings\/agents\/main\/tools$/);
+        }
+        const section =
+          surface === "profile"
+            ? profile
+            : page.locator(".settings-section").filter({
+                has: page.getByRole("button", { name: "Manage connections in Profile" }),
+              });
+        await expect(section.getByText("No credentials", { exact: true }).first()).toBeVisible();
+        await section.scrollIntoViewIfNeeded();
+        await capture(page, `13-native-${surface}.png`);
+        await expect(section.getByText(/OS account running the Gateway/)).toBeVisible();
+        await expect(section).toContainText("Other OS users' logins are separate.");
+        if (surface === "agent") {
+          await section.getByRole("button", { name: "Manage connections in Profile" }).click();
+          await expect(page).toHaveURL(/settings\/profile#settings-profile-github-connections$/);
+        }
+        await profile.getByRole("button", { name: "Change System GitHub" }).click();
+        await expect(profile.getByText("For the system", { exact: true })).toBeVisible();
+        await expect(profile.getByRole("button", { name: "Continue with GitHub" })).toBeVisible();
+        await expect(profile.getByRole("button", { name: "Use a PAT instead" })).toBeVisible();
+        expect(await gateway.getRequests("tools.github.authorize.start")).toHaveLength(0);
+        expect(await gateway.getRequests("tools.github.configure")).toHaveLength(0);
+      });
+    },
+  );
+
   it("preserves unidentified System management and keeps agent overrides advanced and distinct", async () => {
     await suite.withPage(pageOptions(), async ({ page }) => {
       const gateway = await installMockGateway(page, {

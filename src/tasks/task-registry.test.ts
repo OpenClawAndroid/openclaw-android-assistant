@@ -434,8 +434,6 @@ describe("task-registry", () => {
   it("sweeps one expired plugin-state batch per maintenance pass after restart", async () => {
     await withTaskRegistryTempDir(async () => {
       try {
-        vi.useFakeTimers();
-        vi.setSystemTime(1_000);
         const store = createPluginStateKeyedStore<{ value: string }>("fixture-plugin", {
           namespace: "maintenance-restart",
           maxEntries: 10,
@@ -453,27 +451,27 @@ describe("task-registry", () => {
               .where("entry_key", "=", "expired"),
           ),
         ).toEqual({ ttlMs: 100 });
-        // The worker owns registration time; seed expiry for the maintenance clock separately.
+        // Seed expired rows without waiting for the worker's registration TTL.
+        const expiresAt = Date.now() - 100;
         seedPluginStateEntriesForTests([
           {
             pluginId: "fixture-plugin",
             namespace: "maintenance-restart",
             key: "expired",
             value: { value: "stale" },
-            expiresAt: 1_100,
+            expiresAt,
           },
           ...Array.from({ length: 2_049 }, (_, index) => ({
             pluginId: "fixture-plugin",
             namespace: "maintenance-restart",
             key: `expired-${index}`,
             value: { index },
-            expiresAt: 1_100,
+            expiresAt,
           })),
         ]);
 
         // Close plugin-state's process-local handle while preserving the shared SQLite file.
         resetPluginStateStoreForTests();
-        vi.setSystemTime(1_200);
         const countExpiredRows = () => {
           const database = openOpenClawStateDatabase();
           const row = executeSqliteQueryTakeFirstSync(
@@ -493,8 +491,8 @@ describe("task-registry", () => {
         await runTaskRegistryMaintenance();
         expect(countExpiredRows()).toBe(2);
 
-        expect(sweepExpiredPluginStateEntries()).toBe(2);
-        expect(sweepExpiredPluginStateEntries()).toBe(0);
+        expect(await sweepExpiredPluginStateEntries()).toBe(2);
+        expect(await sweepExpiredPluginStateEntries()).toBe(0);
       } finally {
         resetPluginStateStoreForTests();
       }

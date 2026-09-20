@@ -84,6 +84,7 @@ import {
   canReuseOpenClawAgentIntegrityVerification,
   type OpenClawAgentIntegrityVerification,
 } from "./openclaw-quarantine-store.js";
+import { getOpenClawDatabaseMaintenanceScope } from "./openclaw-state-db-async-lifecycle.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db.js";
 
 type MigratedSessionEntry = Record<string, unknown>;
@@ -500,12 +501,24 @@ function ensureAgentSchema(
       : targetVersion < CANONICAL_SESSION_VALIDATION_SCHEMA_VERSION
         ? withoutCanonicalSessionValidationSchema(OPENCLAW_AGENT_SCHEMA_SQL)
         : OPENCLAW_AGENT_SCHEMA_SQL;
-  const identityMigration =
-    targetVersion >= 18 &&
-    readSqliteUserVersion(db) < targetVersion &&
-    (readSqliteUserVersion(db) > 0 || readExistingAgentSchemaMeta(db) !== null);
-  if (identityMigration) {
-    maintenanceAuthority.assertAgentDatabaseMaintenanceAuthority();
+  const originalVersion = readSqliteUserVersion(db);
+  const schemaMigration =
+    originalVersion < targetVersion &&
+    (originalVersion > 0 || readExistingAgentSchemaMeta(db) !== null);
+  const identityMigration = targetVersion >= 18 && schemaMigration;
+  const assertMigration = () => {
+    if (identityMigration) {
+      maintenanceAuthority.assertAgentDatabaseMaintenanceAuthority();
+    }
+    getOpenClawDatabaseMaintenanceScope()?.assertAgentSchemaMigration({
+      agentId,
+      path: pathname,
+      foundVersion: originalVersion,
+      supportedVersion: targetVersion,
+    });
+  };
+  if (schemaMigration) {
+    assertMigration();
   }
   // FK enforcement must be off before BEGIN: PRAGMA foreign_keys is a silent
   // no-op inside a transaction, and legacy owner-table rebuilds would otherwise
@@ -548,7 +561,7 @@ function ensureAgentSchema(
         db.exec(`PRAGMA user_version = ${targetVersion};`);
         persistAgentSchemaMetadata(db, agentId, targetVersion);
         assertAgentSchemaVersion(db, { agentId, pathname, version: targetVersion }, schemaSql);
-        maintenanceAuthority.assertAgentDatabaseMaintenanceAuthority();
+        assertMigration();
         return;
       }
       if (previousVersion === AGENT_MEDIA_SCHEMA_VERSION) {
@@ -640,7 +653,9 @@ function ensureAgentSchema(
             `Agent identity migration failed foreign key validation for ${pathname}.`,
           );
         }
-        maintenanceAuthority.assertAgentDatabaseMaintenanceAuthority();
+      }
+      if (schemaMigration) {
+        assertMigration();
       }
     });
   } finally {

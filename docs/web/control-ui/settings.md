@@ -275,6 +275,12 @@ update policy, and active or most recent update. **Update now** opens a
 confirmation showing the target and restart impact. Choose **Update and restart**
 to start; canceling leaves the Gateway untouched.
 
+For `dev` git updates, the confirmation, sidebar, and available-update status
+show the installed → target short commit SHAs on a separate line below the commit
+count. **Compare on GitHub** opens a comparison when the tracked upstream is
+a GitHub repository; other installs show plain revisions. This distinguishes
+revisions that share a version number.
+
 After confirmation, one update view shows the ordered phases, current or last
 step details, and verification results for the service, version, plugins,
 channels, and inference. The details area follows new lines until you scroll up.
@@ -372,6 +378,11 @@ The existing Terminal, Files, and Side chat bindings are unchanged.
 Inside the [macOS app](/platforms/macos), Settings includes a **This Mac** group
 for settings on that Mac. **This Mac** (`/settings/device`) contains app behavior,
 device capabilities, browser login import and cookie sync, and developer tools.
+**Capabilities → Desktop sharing** is enabled by default and makes this Mac's
+existing Screen Sharing service available in **Systems** after pairing approval.
+It is separate from agent **Computer Control** and **Keep computer awake**.
+Changing it reconnects this Mac automatically; it does not change the remote
+Gateway host's desktop setting or enable macOS Screen Sharing.
 **Permissions** (`/settings/device/permissions`) shows macOS permission status
 and actions, location preferences, and active computer presence.
 

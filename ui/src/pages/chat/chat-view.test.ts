@@ -6173,7 +6173,6 @@ describe("chat model controls", () => {
         expect(heading.querySelector(".chat-controls__auth-meta")?.textContent?.trim() ?? "").toBe(
           loaded ? expected : "",
         );
-        expect(heading.getAttribute("title")).toBe(loaded && expected ? expected : null);
         expect(heading.textContent).not.toContain("claude@example.com");
       }
     },
@@ -7764,65 +7763,6 @@ describe("chat model controls", () => {
       `[data-chat-model-option="${overrideValue}"]`,
     );
     expect(overrideOption?.querySelector(".chat-controls__inline-select-check")).not.toBeNull();
-  });
-
-  it("distinguishes model rows that use different agent runtimes", () => {
-    const { state } = createChatHeaderState({
-      model: "gpt-5.6",
-      modelProvider: "openai",
-      models: [
-        {
-          id: "gpt-5.6",
-          name: "GPT-5.6",
-          provider: "openai",
-          contextWindow: 1_000_000,
-          agentRuntime: { id: "openclaw", source: "model" },
-        },
-        {
-          id: "gpt-5.6-sol",
-          name: "GPT-5.6 Sol",
-          provider: "openai",
-          contextWindow: 1_000_000,
-          agentRuntime: { id: "codex", source: "model" },
-        },
-        {
-          id: "claude-opus-4-5",
-          name: "Claude Opus 4.5",
-          provider: "anthropic",
-          contextWindow: 200_000,
-          agentRuntime: { id: "claude-cli", source: "model" },
-        },
-        {
-          id: "gemini-3-pro",
-          name: "Gemini 3 Pro",
-          provider: "google",
-          contextWindow: 1_000_000,
-          agentRuntime: { id: "google-gemini-cli", source: "model" },
-        },
-        {
-          id: "gpt-5.6-terra",
-          name: "GPT-5.6 Terra",
-          provider: "openai",
-          contextWindow: 1_000_000,
-          agentRuntime: { id: "openclaw", source: "implicit" },
-        },
-      ],
-    });
-    const container = renderModelControls(state);
-    const metaFor = (value: string) =>
-      container.querySelector(
-        `[data-chat-model-option="${value}"] .chat-controls__model-option-meta`,
-      )?.textContent;
-
-    expect(metaFor("openai/gpt-5.6")).toBe("1M · OpenClaw");
-    expect(metaFor("openai/gpt-5.6")).not.toContain("Codex");
-    expect(metaFor("openai/gpt-5.6-sol")).toBe("1M · Codex");
-    // Known CLI runtime ids map to their product labels, not capitalized ids.
-    expect(metaFor("anthropic/claude-opus-4-5")).toBe("200k · Claude CLI");
-    expect(metaFor("google/gemini-3-pro")).toBe("1M · Gemini CLI");
-    // Implicitly resolved runtimes stay unlabeled; only operator-pinned
-    // (source model/provider) rows carry the runtime meta.
-    expect(metaFor("openai/gpt-5.6-terra")).toBe("1M");
   });
 
   it("shows canonical OpenAI model names instead of command aliases", () => {

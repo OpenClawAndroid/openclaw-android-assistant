@@ -3055,7 +3055,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
     });
   });
 
-  it("keeps the expanded mobile composer tight, scrollable, and flush with the thread", async () => {
+  it("keeps the expanded mobile composer inset, scrollable, and flush with the thread", async () => {
     await withBrowserPage(openFixture(393, 852), async (page) => {
       const textarea = page.locator(".agent-chat__composer-combobox > textarea");
       // Comfortably past a quarter of the tallest viewport this case runs at,
@@ -3143,8 +3143,8 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
       expect(textareaRect.height).toBeLessThanOrEqual(layout.viewportHeight * 0.25 + 1);
       expect(textareaMetrics.scrollHeight).toBeGreaterThan(textareaMetrics.clientHeight);
       expect(input.y - (thread.y + thread.height)).toBeCloseTo(0, 0);
-      expect(shell.x).toBeLessThanOrEqual(12);
-      expect(layout.viewportWidth - (shell.x + shell.width)).toBeLessThanOrEqual(12);
+      expect(shell.x).toBeCloseTo(16, 0);
+      expect(layout.viewportWidth - (shell.x + shell.width)).toBeCloseTo(shell.x, 0);
       expect(attach.x - input.x).toBeLessThanOrEqual(10);
       expect(model.x).toBeGreaterThanOrEqual(context.x + context.width - 1);
       expect(input.x + input.width - (send.x + send.width)).toBeLessThanOrEqual(8);

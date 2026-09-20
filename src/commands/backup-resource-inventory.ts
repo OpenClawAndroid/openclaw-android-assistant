@@ -35,6 +35,14 @@ export type BackupCoreDatabase = Readonly<
   } & ({ role: "global" | "quarantine" } | { role: "agent"; agentId: string })
 >;
 
+/** Ephemeral coverage of a captured canonical image; never part of the archive manifest. */
+export type BackupSqliteSnapshotFact = Readonly<
+  { sourcePath: string; dev: number; ino: number } & (
+    | { role: "global" }
+    | { role: "agent"; agentId: string }
+  )
+>;
+
 type BackupResourcePolicy = Readonly<{
   stateDir: string;
   agentRoots: readonly BackupAgentRoot[];
@@ -381,4 +389,28 @@ export function sealBackupResourceInventory(
     coreDatabases: owners,
     resolveSqliteSource,
   });
+}
+
+/** Report only canonical sources present in the completed snapshot generation. */
+export function describeCapturedBackupSqliteSnapshots(
+  inventory: BackupResourceInventory,
+  capturedSourcePaths: readonly string[],
+): readonly BackupSqliteSnapshotFact[] {
+  const capturedPaths = new Set(capturedSourcePaths);
+  return Object.freeze(
+    inventory.coreDatabases.flatMap((owner) =>
+      owner.role !== "quarantine" && owner.identity && capturedPaths.has(owner.sourcePath)
+        ? [
+            Object.freeze({
+              sourcePath: owner.sourcePath,
+              dev: owner.identity.dev,
+              ino: owner.identity.ino,
+              ...(owner.role === "agent"
+                ? { role: "agent" as const, agentId: owner.agentId }
+                : { role: "global" as const }),
+            }),
+          ]
+        : [],
+    ),
+  );
 }

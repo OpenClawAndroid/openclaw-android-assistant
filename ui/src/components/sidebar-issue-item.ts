@@ -45,7 +45,7 @@ function renderSidebarDismissButton(itemLabel: string, onDismiss?: () => void) {
       onDismiss();
     }}
   >
-    ${icons.x}
+    ${t("common.dismiss")}
   </button>`;
 }
 

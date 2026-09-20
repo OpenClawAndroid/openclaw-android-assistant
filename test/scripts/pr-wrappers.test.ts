@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  constants as fsConstants,
   cpSync,
   existsSync,
   mkdirSync,
@@ -14,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { delimiter, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { isGraphqlQuotaExhausted } from "../../scripts/pr-lib/gh-api-preflight.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 import {
@@ -26,6 +27,8 @@ import {
 import { copyPrWrapperSources, linkPrWrapperDependencies } from "./pr-wrapper.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const templateDirs = useAutoCleanupTempDirTracker(afterAll);
+const fixtureTemplates = new Map<string, ReturnType<typeof createMismatchedWrapperTemplate>>();
 
 function readScript(path: string): string {
   return readFileSync(path, "utf8");
@@ -135,15 +138,35 @@ function isolatedWrapperEnv(root: string) {
   };
 }
 
-function makeMismatchedWrapperRepo({
-  realModules = false,
-  dispatchBody = 'echo "canonical wrapper executed";',
-  toolingOnly = false,
-} = {}) {
-  const root = tempDirs.make("openclaw-pr-dev-wrapper-");
+function createWrapperGit(fixtureEnv: ReturnType<typeof isolatedWrapperEnv>) {
+  return (cwd: string, args: string[]) => {
+    const result = spawnSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...fixtureEnv,
+        // Template copies must not race detached object-store maintenance.
+        GIT_CONFIG_PARAMETERS: "'maintenance.auto=false' 'gc.auto=0'",
+      },
+      stdio: "pipe",
+    });
+    expect(result.status, `git ${args.join(" ")}\n${result.stderr}`).toBe(0);
+    return result;
+  };
+}
+
+function createMismatchedWrapperTemplate({
+  realModules,
+  dispatchBody,
+  toolingOnly,
+}: {
+  realModules: boolean;
+  dispatchBody: string;
+  toolingOnly: boolean;
+}) {
+  const root = templateDirs.make("openclaw-pr-dev-wrapper-template-");
   const bin = join(root, "bin");
   const canonicalPath = join(root, "canonical");
-  const linkedPath = join(root, "linked");
   const originPath = join(root, "origin.git");
   mkdirSync(bin, { recursive: true });
   // This fixture exercises wrapper trust routing, not the host command inventory.
@@ -162,16 +185,7 @@ function makeMismatchedWrapperRepo({
   chmodSync(ghStub, 0o755);
 
   const fixtureEnv = isolatedWrapperEnv(root);
-  const git = (cwd: string, args: string[]) => {
-    const result = spawnSync("git", args, {
-      cwd,
-      encoding: "utf8",
-      env: fixtureEnv,
-      stdio: "pipe",
-    });
-    expect(result.status, `git ${args.join(" ")}\n${result.stderr}`).toBe(0);
-    return result;
-  };
+  const git = createWrapperGit(fixtureEnv);
 
   git(root, ["init", "--bare", "-b", "main", originPath]);
   git(root, ["init", "-b", "main", canonicalPath]);
@@ -213,6 +227,38 @@ function makeMismatchedWrapperRepo({
   git(canonical, ["add", "."]);
   git(canonical, ["commit", "-m", "test: canonical wrapper"]);
   git(canonical, ["push", "-u", "origin", "main"]);
+  // Pack once so private fixture copies do not repeat thousands of loose files.
+  git(canonical, ["repack", "-ad"]);
+  git(origin, ["repack", "-ad"]);
+  return { canonical, origin, bin };
+}
+
+function makeMismatchedWrapperRepo({
+  realModules = false,
+  dispatchBody = 'echo "canonical wrapper executed";',
+  toolingOnly = false,
+} = {}) {
+  const options = { realModules, dispatchBody, toolingOnly };
+  const key = JSON.stringify(options);
+  let template = fixtureTemplates.get(key);
+  if (!template) {
+    template = createMismatchedWrapperTemplate(options);
+    fixtureTemplates.set(key, template);
+  }
+  const root = tempDirs.make("openclaw-pr-dev-wrapper-");
+  const bin = join(root, "bin");
+  const canonical = join(root, "canonical");
+  const origin = join(root, "origin.git");
+  const linkedPath = join(root, "linked");
+  const fixtureEnv = isolatedWrapperEnv(root);
+  const git = createWrapperGit(fixtureEnv);
+  // Copy private object stores before creating worktrees, whose absolute
+  // back-links must refer to this fixture. No refs or mutable files are shared.
+  const copyOptions = { recursive: true, mode: fsConstants.COPYFILE_FICLONE };
+  cpSync(template.bin, bin, copyOptions);
+  cpSync(template.canonical, canonical, copyOptions);
+  cpSync(template.origin, origin, copyOptions);
+  git(canonical, ["remote", "set-url", "origin", origin]);
   git(canonical, ["worktree", "add", "-b", "feature", linkedPath, "main"]);
 
   const linked = realpathSync(linkedPath);

@@ -48,6 +48,8 @@ type ErrorIdentity =
         | "newer-schema"
         | "coordinator"
         | "range-error"
+        | "syntax-error"
+        | "type-error"
         | "skill-upload-request";
     }
   | { type: "coordinator-contention"; family: CoordinatorFamily }
@@ -129,6 +131,12 @@ function identifyError(error: Error): ErrorIdentity {
   }
   if (error instanceof RangeError) {
     return { type: "range-error" };
+  }
+  if (error instanceof SyntaxError) {
+    return { type: "syntax-error" };
+  }
+  if (error instanceof TypeError) {
+    return { type: "type-error" };
   }
   return { type: error instanceof AggregateError ? "aggregate" : "error" };
 }
@@ -232,6 +240,8 @@ function parseIdentity(node: Record<string, unknown>): ErrorIdentity | undefined
     case "newer-schema":
     case "coordinator":
     case "range-error":
+    case "syntax-error":
+    case "type-error":
     case "skill-upload-request":
       return { type: node.type };
     case "coordinator-contention":
@@ -356,6 +366,10 @@ function createError(node: ErrorNode): Error {
       return new Error(node.message);
     case "range-error":
       return new RangeError(node.message);
+    case "syntax-error":
+      return new SyntaxError(node.message);
+    case "type-error":
+      return new TypeError(node.message);
     case "skill-upload-request":
       return new SkillUploadRequestError(node.message);
     case "aggregate":

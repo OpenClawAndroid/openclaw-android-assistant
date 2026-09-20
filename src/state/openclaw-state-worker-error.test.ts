@@ -64,12 +64,11 @@ describe("shared-state worker error transport", () => {
     },
   );
 
-  it.each([
-    [RangeError, false],
-    [RangeError, true],
-    [SkillUploadRequestError, false],
-    [SkillUploadRequestError, true],
-  ] as const)("preserves %s identity with aggregate=%s", (ErrorType, aggregate) => {
+  it.each(
+    [RangeError, SyntaxError, TypeError, SkillUploadRequestError].flatMap((ErrorType) =>
+      [false, true].map((aggregate) => ({ ErrorType, name: ErrorType.name, aggregate })),
+    ),
+  )("preserves $name identity with aggregate=$aggregate", ({ ErrorType, aggregate }) => {
     const original = Object.assign(new ErrorType("Synthetic invalid request"), {
       code: "ERR_OUT_OF_RANGE",
       cause: new Error("Synthetic decoding cause"),
@@ -462,6 +461,8 @@ describe("shared-state worker error transport", () => {
     for (const error of [
       new Error("ordinary"),
       Object.assign(new Error("range imitation"), { name: "RangeError", code: "ERR_OUT_OF_RANGE" }),
+      Object.assign(new Error("syntax imitation"), { name: "SyntaxError" }),
+      Object.assign(new Error("type imitation"), { name: "TypeError" }),
       Object.assign(new Error("upload imitation"), { name: "SkillUploadRequestError" }),
       Object.assign(new Error("native open imitation"), { nativeOpen: true, code: "SQLITE_IOERR" }),
       imitation,

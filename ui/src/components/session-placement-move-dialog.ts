@@ -200,7 +200,6 @@ export function showSessionPlacementTargetDialog(
                                         profiles: [profile],
                                         selectedId: profileSelected ? profile.id : "",
                                         submitting: false,
-                                        icon: icons.server,
                                         profileDisabledReason: options.profileDisabledReason,
                                         onSelect: (profileId) =>
                                           select({ kind: "profile", profileId }),

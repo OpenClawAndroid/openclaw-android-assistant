@@ -63,12 +63,11 @@ function needsPostCoreRepair(run: UpdateRunRecord): boolean {
   );
 }
 
-function inspectNewerRecoveryHistory(recoveryRuns: UpdateRunRecord[], env: NodeJS.ProcessEnv) {
+function inspectNewerRecoveryHistory(recoveryRuns: UpdateRunRecord[], history: UpdateRunRecord[]) {
   if (!recoveryRuns.length) {
     return { postCoreRuns: [], incomplete: false };
   }
   const oldestRecovery = Math.min(...recoveryRuns.map((run) => run.createdAtMs));
-  const history = listUpdateRuns({ limit: 100 }, { env });
   const postCoreRuns = history.filter(
     (run) =>
       run.createdAtMs >= oldestRecovery &&
@@ -101,23 +100,27 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
   if (admission.kind === "conflict") {
     throw new Error(admission.message);
   }
+  // Capture Doctor-visible history before finalization admits its own newer run.
+  // Terminal age limits the shortcut below, not successful repair acknowledgment.
   const recentRuns = listUpdateRuns({ limit: 100 }, options);
-  const abandonedRuns = recentRuns.filter(
+  const historicalRuns = recentRuns.filter(
     (run) => isAbandonedUpdateRun(run) && !isAcknowledgedAbandonedUpdateRun(run),
   );
-  const recoveryRuns = [...activeRuns, ...abandonedRuns];
   if (admission.kind === "continuation") {
     const continuation = admission.run;
     recordUpdateRunRepairContinuation(continuation.runId, inheritedRunId, options);
     await updateFinalizeCommand(
       opts,
-      recoveryRuns.filter((run) => run.runId !== continuation.runId).map((run) => run.runId),
+      [...activeRuns, ...historicalRuns]
+        .filter((run) => run.runId !== continuation.runId)
+        .map((run) => run.runId),
     );
     return;
   }
   const lastRun = recentRuns[0];
   if (
-    !recoveryRuns.length &&
+    !activeRuns.length &&
+    !historicalRuns.length &&
     opts.channel === undefined &&
     !opts.acceptCapabilities &&
     lastRun &&
@@ -156,16 +159,23 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
       }
     }
   }
-  const history = inspectNewerRecoveryHistory(recoveryRuns, env);
+  const recoveryRuns = activeRuns.length
+    ? activeRuns
+    : lastRun && isFreshUnacknowledgedAbandonedUpdateRun(lastRun)
+      ? [lastRun]
+      : [];
+  const history = inspectNewerRecoveryHistory(recoveryRuns, recentRuns);
   const recoveryRunIds = [
-    ...new Set([...recoveryRuns, ...history.postCoreRuns].map((run) => run.runId)),
+    ...new Set(
+      [...recoveryRuns, ...historicalRuns, ...history.postCoreRuns].map((run) => run.runId),
+    ),
   ];
 
   if (
     opts.channel !== undefined ||
     opts.acceptCapabilities ||
     recoveryRuns.length === 0 ||
-    abandonedRuns.some((run) => !isFreshUnacknowledgedAbandonedUpdateRun(run)) ||
+    recoveryRunIds.length !== recoveryRuns.length ||
     recoveryRuns.some(needsPostCoreRepair) ||
     history.postCoreRuns.length > 0 ||
     history.incomplete
@@ -219,7 +229,10 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
   if (currentAdmission.kind === "conflict") {
     throw new Error(currentAdmission.message);
   }
-  const currentHistory = inspectNewerRecoveryHistory(recoveryRuns, env);
+  const currentHistory = inspectNewerRecoveryHistory(
+    recoveryRuns,
+    listUpdateRuns({ limit: 100 }, options),
+  );
   if (
     currentRuns.some(needsPostCoreRepair) ||
     currentHistory.postCoreRuns.length > 0 ||
@@ -238,17 +251,13 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
   if (listUpdateRuns({ active: true, limit: 1 }, options).length) {
     throw new Error("An update is still in progress; retry update repair after it finishes.");
   }
-  for (const runId of new Set([...recoveryRuns, ...reconciled].map((run) => run.runId))) {
-    acknowledgeAbandonedUpdateRun(runId, options);
-  }
+  const acknowledged = recoveryRunIds.filter((runId) =>
+    acknowledgeAbandonedUpdateRun(runId, options),
+  );
   const message = reconciled.length
     ? `Gateway is healthy. Reconciled ${reconciled.length} abandoned update run${reconciled.length === 1 ? "" : "s"}. No maintenance or service restart was needed.`
     : "Gateway is healthy. Abandoned update runs are already reconciled. No maintenance or service restart was needed.";
-  reportRepairResult(
-    opts,
-    reconciled.map((run) => run.runId),
-    message,
-  );
+  reportRepairResult(opts, acknowledged, message);
 }
 
 function reportRepairResult(

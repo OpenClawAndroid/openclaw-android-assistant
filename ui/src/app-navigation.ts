@@ -253,8 +253,17 @@ export function isSettingsNavigationRouteVisible(
   canAdmin: boolean,
   nativeDeviceSettings: NativeDeviceSettingsCapability | null = null,
 ): boolean {
-  if (routeId === "device" || routeId === "device-permissions") {
+  if (routeId === "device") {
     return nativeDeviceSettings !== null;
+  }
+  if (routeId === "device-permissions") {
+    const snapshot = nativeDeviceSettings?.snapshot;
+    return Boolean(
+      snapshot &&
+      (snapshot.permissions.entries.length > 0 ||
+        snapshot.permissions.location ||
+        snapshot.capabilities?.activeComputerPresenceEnabled !== undefined),
+    );
   }
   if (routeId === "updates") {
     return canAdmin || nativeDeviceSettings !== null;
@@ -268,6 +277,9 @@ export function deviceSettingsGroupLabelKey(
   const device = snapshot?.device;
   if (device?.platform === "macos") {
     return "nav.settingsGroupDevice";
+  }
+  if (device?.platform === "linux" || device?.platform === "windows") {
+    return "nav.settingsGroupThisComputer";
   }
   if (device?.platform === "ios") {
     if (device.formFactor === "phone") {

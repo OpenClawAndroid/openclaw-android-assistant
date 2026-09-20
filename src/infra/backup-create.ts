@@ -5,8 +5,10 @@ import path from "node:path";
 import { resolveDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
 import {
   sealBackupResourceInventory,
+  describeCapturedBackupSqliteSnapshots,
   type BackupAgentRoot,
   type BackupResourcePlan,
+  type BackupSqliteSnapshotFact,
 } from "../commands/backup-resource-inventory.js";
 import {
   buildBackupArchiveBasename,
@@ -77,6 +79,8 @@ export type BackupCreateOptions = {
    * silent aside from the final result.
    */
   log?: (message: string) => void;
+  /** Internal consumers bind later effects to the canonical images actually captured. */
+  onSqliteSnapshots?: (facts: readonly BackupSqliteSnapshotFact[]) => void;
 };
 
 type BackupManifestAgentRoot = Pick<BackupAgentRoot, "agentId" | "sourcePath">;
@@ -445,6 +449,7 @@ export async function createBackupArchive(
     throw formatBackupOutputFailure(error, outputPath, "publication");
   }
   const tempArchivePath = publication.tempArchivePath;
+  let snapshotFacts: readonly BackupSqliteSnapshotFact[] = [];
   try {
     const configRemaps = await stageBackupConfigCapture(plan.configCapture, tempDir);
     const { legacyAuditSnapshots, stateSqliteBackup } = await createConsistentStateSnapshotPlan({
@@ -454,6 +459,10 @@ export async function createBackupArchive(
       onlyConfig,
     });
     const inventory = stateSqliteBackup.inventory;
+    snapshotFacts = describeCapturedBackupSqliteSnapshots(
+      inventory,
+      stateSqliteBackup.snapshots.map((snapshot) => snapshot.archiveSourcePath),
+    );
     const sourcePathRemaps = new Map(configRemaps);
     const skippedStateSourcePaths = new Set(configRemaps.values());
     if (plan.configCapture?.files.length === 0) {
@@ -693,5 +702,6 @@ export async function createBackupArchive(
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
 
+  opts.onSqliteSnapshots?.(snapshotFacts);
   return result;
 }

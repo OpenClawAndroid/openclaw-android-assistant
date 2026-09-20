@@ -206,8 +206,10 @@ Node conditions select the target from that captured metadata. Legacy packages
 without an exports map also prefetch their existing main or index entry as raw
 bytes; this can read a large native entry, but does not execute unselected code.
 The selected package's remaining body is captured before execution.
-Dependency links retain existing nested installation locations; hoisted dependencies
-link at the captured package root. Capture does not add `node_modules` beside
+Dependency links retain existing nested installation locations. Dependencies installed
+beside a package remain siblings in the capture, including optional platform packages
+whose native assets are read through relative filesystem paths. Other ancestor
+dependencies link at the captured package root. Capture does not add `node_modules` beside
 individual source files, so native-addon loaders can still locate their package
 root and its build assets.
 

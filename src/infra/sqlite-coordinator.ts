@@ -7,6 +7,7 @@ import { sameFileIdentity } from "./fs-safe-advanced.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { applyPrivateModeSync } from "./private-mode.js";
 import { isSqliteLockError, withSqliteNativeOpen } from "./sqlite-error-diagnostics.js";
+import { SQLITE_IDLE_HANDLE_TTL_MS } from "./sqlite-handle-lifecycle.js";
 import { sqliteWriteAdmissionServicesForLocation } from "./sqlite-transaction.js";
 
 export const SqliteCoordinatorError = resolveGlobalSingleton(
@@ -118,8 +119,6 @@ export function ensurePrivateSqliteCoordinatorDirectory(
   }
 }
 
-const IDLE_COORDINATOR_TIMEOUT_MS = 30 * 60_000;
-const MAX_IDLE_COORDINATORS = 16;
 type IdleCoordinator = {
   database: DatabaseSync;
   identity: fs.BigIntStats;
@@ -217,18 +216,6 @@ function retainIdleCoordinator(location: string, database: DatabaseSync, identit
   if (previous) {
     closeIdleCoordinatorDatabase(previous.database);
   }
-  if (idleCoordinators.size + failedIdleCloses.size >= MAX_IDLE_COORDINATORS) {
-    const oldest = idleCoordinators.keys().next().value;
-    if (oldest !== undefined) {
-      const evicted = takeIdleCoordinator(oldest);
-      if (evicted) {
-        closeIdleCoordinatorDatabase(evicted.database);
-      }
-    }
-  }
-  if (idleCoordinators.size + failedIdleCloses.size >= MAX_IDLE_COORDINATORS) {
-    return false;
-  }
   const timer = runInCoordinatorPoolContext(() =>
     setTimeout(() => {
       if (idleCoordinators.get(location)?.timer !== timer) {
@@ -245,7 +232,7 @@ function retainIdleCoordinator(location: string, database: DatabaseSync, identit
           new SqliteCoordinatorError("Idle SQLite coordinator close failed", error),
         );
       }
-    }, IDLE_COORDINATOR_TIMEOUT_MS),
+    }, SQLITE_IDLE_HANDLE_TTL_MS),
   );
   timer.unref();
   idleCoordinators.set(location, { database, identity, timer });
@@ -394,7 +381,7 @@ export function tryAcquireExclusiveSqliteCoordinator(
 /** Retain a read lock for a live handle; no rows or journal files are written. */
 export function tryAcquireSharedSqliteCoordinator(
   location: string,
-  options: { busyTimeoutMs?: number } = {},
+  options: { busyTimeoutMs?: number; keepAlive?: boolean } = {},
 ): SqliteCoordinatorLease | null {
   return tryAcquireSqliteCoordinator(location, "shared", options);
 }

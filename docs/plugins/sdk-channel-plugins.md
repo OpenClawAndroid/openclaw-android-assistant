@@ -312,6 +312,13 @@ raw callback string. Actor and source-message checks remain channel-owned.
       including Markdown-image extraction. Both operations use
       `projectOutboundPayloadPlanForDelivery(plan)` for their delivery projection.
 
+      A `final` delivery can carry a supplemental notice before the answer.
+      Use `isReplyPayloadTerminalContent(payload)` from
+      `openclaw/plugin-sdk/reply-payload` when deciding whether to complete a task.
+      It excludes reasoning, commentary, and supplemental status or TTS payloads,
+      while retaining terminal errors and host-marked command results.
+      It classifies the reply lane; it does not check content, sendability, or authority.
+
       When cloning a host-supplied reply, use `copyReplyPayloadMetadata(source, clone)`
       from `openclaw/plugin-sdk/reply-payload` to preserve its non-serialized runtime
       metadata. Persisted transcript delivery facts cannot replace that metadata.

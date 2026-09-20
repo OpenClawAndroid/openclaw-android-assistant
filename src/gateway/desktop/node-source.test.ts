@@ -20,9 +20,7 @@ afterEach(async () => {
 });
 
 function createFixture(boundary: "activation" | "pairing" | "attachment") {
-  let config: OpenClawConfig = {
-    gateway: { nodes: { commands: { allow: [NODE_DESKTOP_STREAM_COMMAND] } } },
-  };
+  let config: OpenClawConfig = {};
   const reached = createDeferred();
   const release = createDeferred();
   const forwarded: string[] = [];
@@ -72,6 +70,7 @@ function createFixture(boundary: "activation" | "pairing" | "attachment") {
       client: {
         id: GATEWAY_CLIENT_IDS.NODE_HOST,
         platform: "linux",
+        deviceFamily: "Linux",
         version: "test",
         mode: "node",
       },
@@ -125,6 +124,19 @@ function createFixture(boundary: "activation" | "pairing" | "attachment") {
 }
 
 describe("node desktop runtime policy", () => {
+  it("refuses an advertised desktop without pairing approval", async () => {
+    const fixture = createFixture("attachment");
+    const node = fixture.nodeRegistry.get("node");
+    if (!node) {
+      throw new Error("expected fixture node");
+    }
+    node.pairingGeneration = undefined;
+    await expect(fixture.service.observe({ nodeId: "node", control: false })).rejects.toThrow(
+      "reconnect and approve the node capability",
+    );
+    expect(fixture.forwarded).toEqual([]);
+  });
+
   it.each(["release", "stop"] as const)(
     "joins invocation settlement when owner stop overlaps %s",
     async (firstAction) => {

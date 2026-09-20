@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { deviceIcons } from "../../components/icons-devices.ts";
 import { icons } from "../../components/icons.ts";
 import { readDraftCloudProfiles } from "./discovery.ts";
-import { renderWhereChip, resolveWhereChip } from "./where-chip.ts";
+import { renderPicker } from "./where-chip.test-support.ts";
+import { resolveWhereChip } from "./where-chip.ts";
 
 function hoverDetails(row: Element | null | undefined) {
   return [
@@ -21,76 +22,6 @@ function capacityCaption(row: Element | null | undefined) {
     ?.closest("openclaw-tooltip")
     ?.querySelector(".new-session-page__capacity-caption")
     ?.textContent?.trim();
-}
-
-function renderPicker(
-  isAdmin: boolean,
-  autoPlacementMode?: "least-busy" | "eligible-order",
-  selection: Partial<Parameters<typeof resolveWhereChip>[0]> = {},
-  presentation: Partial<Parameters<typeof renderWhereChip>[0]> = {},
-) {
-  const state = resolveWhereChip({
-    environments: [
-      {
-        id: "node:runner",
-        type: "node",
-        label: "Build runner",
-        status: "available",
-        sessionHost: true,
-        workerSlots: { total: 2, available: 1 },
-      },
-      {
-        id: "node:alpha-device",
-        type: "node",
-        label: "Duplicate runner",
-        status: "available",
-        sessionHost: true,
-        workerSlots: { total: 1, available: 1 },
-      },
-      {
-        id: "node:beta-device",
-        type: "node",
-        label: "Duplicate runner",
-        status: "available",
-        sessionHost: true,
-        workerSlots: { total: 1, available: 1 },
-      },
-    ],
-    cloudProfiles: [{ id: "aws", providerId: "crabbox" }],
-    cloudProfileId: "",
-    deviceId: "",
-    ...selection,
-  });
-  const container = document.createElement("div");
-  render(
-    renderWhereChip({
-      state,
-      gatewayName: "",
-      environmentQuery: "",
-      onEnvironmentQueryInput: vi.fn(),
-      cloudProfileId: selection.cloudProfileId ?? "",
-      deviceId: selection.deviceId ?? "",
-      autoDevice: selection.autoDevice,
-      submitting: false,
-      pendingPlacement: false,
-      popoverOpen: true,
-      popoverHiding: false,
-      isAdmin,
-      ...(autoPlacementMode ? { autoPlacementMode } : {}),
-      onGuardTransition: vi.fn(),
-      onPopoverShow: vi.fn(),
-      onPopoverHide: vi.fn(),
-      onPopoverAfterHide: vi.fn(),
-      onSelectDevice: vi.fn(),
-      onSelectAutoDevice: vi.fn(),
-      onSelectCloudProfile: vi.fn(),
-      onConnectMachine: vi.fn(),
-      onManageCloudWorkers: vi.fn(),
-      ...presentation,
-    }),
-    container,
-  );
-  return container;
 }
 
 describe("Where chip", () => {

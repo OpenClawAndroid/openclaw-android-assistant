@@ -52,7 +52,6 @@ import type {
   OriginalManagedServiceRuntime,
   ManagedGatewayUpdateVerdict,
   PreManagedServiceStop,
-  UpdateRestartParams,
 } from "./update-command-service-context-types.js";
 import { GatewayServiceUpdateOwnershipError } from "./update-command-service-plan.js";
 import { resolveUpdateResultNextAction } from "./update-recovery-guidance.js";
@@ -118,11 +117,9 @@ export function recordServiceReconciliationWarnings(
 
 export function prepareUpdateServiceResult(
   params: Pick<
-    UpdateRestartParams,
-    "result" | "root" | "preManagedServiceStop" | "shouldRestart"
-  > & {
-    coreAlreadyCurrent?: boolean;
-  },
+    FinishUpdateParams,
+    "result" | "root" | "preManagedServiceStop" | "shouldRestart" | "coreAlreadyCurrent" | "opts"
+  >,
 ): boolean {
   const verdict = params.preManagedServiceStop?.serviceUpdateVerdict;
   const serviceEnv = params.preManagedServiceStop?.serviceEnv ?? process.env;
@@ -139,6 +136,7 @@ export function prepareUpdateServiceResult(
   }
   const shouldRestart =
     params.shouldRestart &&
+    params.opts.run?.completionOwner !== "gateway-restart" &&
     (!params.coreAlreadyCurrent || params.preManagedServiceStop?.running === true);
   if (verdict?.kind === "owned" && verdict.requiresInstallRootRefresh && !shouldRestart) {
     recordServiceReconciliationWarning(
@@ -502,6 +500,10 @@ export async function writeControlPlaneUpdateRestartSentinelBestEffort(params: {
       params.env,
     );
   } catch (err) {
+    if (params.meta.completionOwner === "gateway-restart") {
+      // The replacement cannot finish its run from a pending sentinel.
+      throw err;
+    }
     const message = `Failed to write update.run restart sentinel: ${String(err)}`;
     if (params.jsonMode) {
       defaultRuntime.error(message);

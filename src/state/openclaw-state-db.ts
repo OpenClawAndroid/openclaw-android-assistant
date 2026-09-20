@@ -224,7 +224,7 @@ export async function openExistingOpenClawStateDatabaseReadOnly(
       checkpoint: () => false,
       // Cleanup can fail transiently after the database closes. Keep the
       // close contract retryable until one call finishes both responsibilities.
-      close: connection.close,
+      close: () => connection.close(),
     },
   };
 }
@@ -246,6 +246,7 @@ function openOpenClawStateDatabaseWithBusyTimeout(
       env,
     });
     observeOpenClawDatabaseMaintenanceResource(options.database.db);
+    stateDbCache.touchStateDatabase(options.database);
     return options.database;
   }
   const pathname = resolveDatabasePath(options);
@@ -408,6 +409,7 @@ export function runWithOpenClawStateBusyTimeout<T>(
       normalizedTimeoutMs,
       () => {
         observeOpenClawDatabaseMaintenanceResource(existing.db);
+        stateDbCache.touchStateDatabase(existing);
         return operation(existing);
       },
       { lockFailureReporting: "suppress" },

@@ -1,8 +1,12 @@
 // Verifies that nested session tools keep execution identity without narrowing discovery policy.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { registerAcpRuntimeBackend, unregisterAcpRuntimeBackend } from "../acp/runtime/registry.js";
+import type { ChannelPlugin } from "../channels/plugins/types.js";
 import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "../config/config.js";
 import { setEmbeddedMode } from "../infra/embedded-mode.js";
+import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
+import { loadBundledPluginFacade } from "../test-utils/bundled-plugin-public-surface.js";
+import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
 import * as inProcessGateway from "./tools/in-process-gateway.js";
 
@@ -64,6 +68,7 @@ function requireTool(tools: ReturnType<typeof createOpenClawTools>, name: string
 
 afterEach(() => {
   unregisterAcpRuntimeBackend("session-context-test");
+  resetPluginRuntimeStateForTest();
   clearRuntimeConfigSnapshot();
   setEmbeddedMode(false);
   embeddedGatewayCalls.mockClear();
@@ -72,6 +77,15 @@ afterEach(() => {
 });
 
 describe("openclaw session lookup context", () => {
+  let matrixPlugin: ChannelPlugin;
+
+  beforeAll(async () => {
+    ({ matrixPlugin } = await loadBundledPluginFacade<{ matrixPlugin: ChannelPlugin }>({
+      pluginId: "matrix",
+      artifactBasename: "channel-plugin-api.js",
+    }));
+  });
+
   it.each([
     { source: "runtime", runtimeEnabled: true, pinnedEnabled: false, available: true },
     { source: "runtime", runtimeEnabled: false, pinnedEnabled: true, available: false },
@@ -80,6 +94,9 @@ describe("openclaw session lookup context", () => {
   ] as const)(
     "uses $source spawn capabilities (runtime=$runtimeEnabled, pinned=$pinnedEnabled)",
     async ({ source, runtimeEnabled, pinnedEnabled, available }) => {
+      setActivePluginRegistry(
+        createTestRegistry([{ pluginId: "matrix", source: "test", plugin: matrixPlugin }]),
+      );
       registerAcpRuntimeBackend({
         id: "session-context-test",
         runtime: {

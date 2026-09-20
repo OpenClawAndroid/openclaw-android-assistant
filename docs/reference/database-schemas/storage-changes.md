@@ -24,6 +24,13 @@ and publishes the result. Avoid exposing a generic SQL callback to application
 code or adding an asynchronous wrapper around an existing asynchronous facade.
 The plugin KV API already has asynchronous methods over its SQLite owner.
 
+Task maintenance awaits global plugin-state expiry in the shared-state worker.
+The sweep samples expiry time inside its admitted write transaction and deletes
+at most 1,024 rows. Writer waits leave the Gateway event loop available, while
+the captured task owner and database lifecycle still authorize the operation.
+Maintenance joins the sweep before completing; expiry, storage formats, and
+update behavior are unchanged.
+
 Sandbox registry lists, point lookups, backend/scope runtime IDs, and browser
 registry reads execute in the shared-state read worker. CLI management and
 runtime provisioning await the same domain APIs. Reads retain inherited snapshot
@@ -728,9 +735,12 @@ Fleet registry reads use a separate read-only worker and remain noncreating;
 listing cells does not join Gateway writable lifecycle admission. The existing
 read owner retains inherited snapshot and disposable-source scopes until the
 task acknowledges native reader cleanup. Fixed reads share two execution workers
-with the existing pending-task and captured-input byte limits. Each task opens
-and closes its own reader; on Node only execution is reused, never a database connection
-or an earlier result. A completed reply retains its worker slot until acceptance.
+with the existing pending-task and captured-input byte limits. On Node, each worker
+retains independent live read-only connections for 30 minutes without use, checking
+physical file identity and schema admission on each read. Results are never cached.
+Path-specific retirement joins acknowledged reader cleanup in every worker before
+releasing file custody. Private snapshot readers still close before task completion.
+A completed reply retains its worker slot until acceptance.
 On Bun, every successful task also retires its worker because closing a reader
 can retain native statements; the same task and worker bounds still apply.
 The parent selects SQLite through the existing library owner before starting workers,
@@ -948,6 +958,22 @@ finish asynchronous planning first, then reread authoritative rows after write
 admission. Publish live session changes and other dependent effects only after
 the durable write succeeds. A future network-backed owner must preserve that
 ordering while awaiting its driver.
+
+The existing per-thread database owners retain reusable live connections for
+30 minutes after their last use. Retained consumers, active borrows, and transactions
+postpone idle retirement; incognito connections remain open until explicit disposal because
+they hold the only copy of their data. Agent handles no longer retire solely
+because another agent opens a database. Idle retirement preserves WAL checkpoint
+and lease cleanup; explicit shutdown, deletion, quarantine, and replacement keep
+their existing close and revocation paths. Reuse preserves read admission and
+data-version invalidation, without changing schemas, stored retention, or update
+behavior. The idle window is an internal constant, not a configuration option.
+
+Canonical lock coordinators use the same idle window after releasing their locks.
+Independent active shared leases keep separate physical custody; caller-owned
+temporary directories and explicit exclusions still force native close. Explicit
+artifact-preserving inspections, private snapshots, and extension-enabled or nested
+transaction reads retain their isolated connection and cleanup contracts.
 
 Read-only callbacks made while a cached agent writer holds a transaction use a
 separate read-only companion connection. Each call rereads committed rows and
@@ -1172,7 +1198,7 @@ can borrow the Gateway's remembered verification for the same physical agent
 database under live write admission. The worker reacquires the writer and
 revalidates current authority before index repair, schema work, or deletion.
 The process retains at most one validated reclamation worker connection and lease,
-with a 60-second idle retirement. Each deletion keeps its own transaction, retained
+with a 30-minute idle retirement. Each deletion keeps its own transaction, retained
 parent claim, numbered write admission, and current-authority checks in its own
 async context. The worker clears operation buffers and acknowledges transaction
 settlement before the parent publishes committed removals and releases that

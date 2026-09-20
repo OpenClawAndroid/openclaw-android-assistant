@@ -13,7 +13,10 @@ import type { UpdateCommandOptions } from "./shared.js";
 import { runUpdateFinalizationDoctorInFreshProcess } from "./update-command-fresh-doctor.js";
 import { runUpdatedInstallGatewayCommand } from "./update-command-service-command.js";
 import { withOwnedManagedUpdateEnv } from "./update-command-service-env.js";
-import { readyRecoveryHealth } from "./update-command-service-recovery.test-support.js";
+import {
+  type createServiceActivationFixture,
+  readyRecoveryHealth,
+} from "./update-command-service-recovery.test-support.js";
 import { createShippedUnresolvedServiceStop } from "./update-command-service-state.test-support.js";
 import {
   maybeRestartService,
@@ -258,6 +261,7 @@ export function registerRestartOutcomeTests(
   getFixture: () => {
     root: string;
     run: NonNullable<UpdateCommandOptions["run"]>;
+    servingOwner: Awaited<ReturnType<typeof createServiceActivationFixture>>["servingOwner"];
     mocks: Pick<
       InstallRootTransitionFixture["mocks"],
       "child" | "health" | "configSnapshot" | "capability"
@@ -283,7 +287,8 @@ export function registerRestartOutcomeTests(
   ])(
     "carries the real lifecycle's serialized %s result through a child process",
     async (scenario, expected) => {
-      const { root, run, mocks } = getFixture();
+      const { root, run, mocks, servingOwner } = getFixture();
+      await servingOwner.publish();
       const writable = scenario.startsWith("writable ");
       const progressing = scenario.includes("cap");
       const serviceEnv = { ...process.env, OPENCLAW_UPDATE_IN_PROGRESS: "1" };
@@ -304,7 +309,10 @@ export function registerRestartOutcomeTests(
         mocks.restart.mockRejectedValueOnce(new Error("native owner refused"));
       } else if (scenario === "retry refusal") {
         mocks.restart
-          .mockResolvedValueOnce({ outcome: "completed" })
+          .mockImplementationOnce(async () => {
+            await servingOwner.restart();
+            return { outcome: "completed" };
+          })
           .mockRejectedValueOnce(new Error("later native refusal"));
       }
       mocks.health.mockResolvedValue({
@@ -343,6 +351,7 @@ export function registerRestartOutcomeTests(
             }),
           ).rejects.toBe(exit);
         });
+        expect(mocks.restart).toHaveBeenCalled();
         expect(mocks.writeJson).toHaveBeenCalledOnce();
         if (exitCode === undefined) {
           throw new Error("Lifecycle did not return an exit code");

@@ -30,6 +30,7 @@ import {
   createUpdateFailureFact,
   type UpdateFailureFact,
 } from "../../infra/update-failure-facts.js";
+import { POST_CORE_UPDATE_ENV } from "../../infra/update-post-core-context.js";
 import { UpdateRequesterRevokedError } from "../../infra/update-requester-authority.js";
 import { buildUpdateDoctorEnv } from "../../infra/update-runner-doctor.js";
 import { redactSupportString } from "../../logging/diagnostic-support-redaction.js";
@@ -229,6 +230,9 @@ export async function runUpdateFinalizationDoctorInFreshProcess(params: {
             repair: true,
             yes: params.yes,
             workspaceSuggestions: params.workspaceSuggestions === true,
+            ...(params.phase === "post-plugin" && process.env[POST_CORE_UPDATE_ENV] === "1"
+              ? { postCoreSchemaRepair: true as const }
+              : {}),
           },
         },
         (runCommand) =>

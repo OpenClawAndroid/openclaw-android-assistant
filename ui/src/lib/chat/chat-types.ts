@@ -389,6 +389,13 @@ export type NormalizedMessage = {
     | null;
 };
 
+export type ToolOutputMetadata = {
+  source: "provider-response" | "execution";
+  modelInput: "unverified";
+  outcome?: "unknown";
+  captureTruncated?: true;
+};
+
 /** Tool card representation for inline tool call/result rendering */
 export type ToolCard = {
   id: string;
@@ -399,6 +406,11 @@ export type ToolCard = {
   args?: unknown;
   inputText?: string;
   outputText?: string;
+  /** Result identity stays distinct from the assistant call after presentation grouping. */
+  resultMessageId?: string;
+  /** Gateway display projection omitted content; the durable result may still be complete. */
+  outputTruncated?: boolean;
+  toolOutput?: ToolOutputMetadata;
   /** Structured tool result details (e.g. the edit tool's precomputed diff). */
   details?: unknown;
   /** Monotonic edit counts while a live tool call is still receiving input. */

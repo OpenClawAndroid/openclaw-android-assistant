@@ -281,8 +281,8 @@ runtime build is charged once per job. Unknown groups retain positive fallback
 costs. Native evidence with the same inventory must verify latency, actual
 resources and cleanup before claiming improvement.
 
-`config/ci-test-timings.json` records CI measurements for UI and Gateway E2E files
-and compact Node groups. UI and compact packers prefer these weights over their in-source cold-start
+`config/ci-test-timings.json` records CI measurements for UI and Gateway E2E files,
+PR tooling files, and compact Node groups. UI and compact packers prefer active weights over their in-source cold-start
 tables. UI E2E keys are repo-relative paths, including tests under `ui/src/pages/`,
 and every file estimate includes the measured fork, import, and setup overhead.
 Compact groups have separate Blacksmith and GitHub-hosted measurements, selected
@@ -322,6 +322,32 @@ timestamps outside that window fail validation.
 
 The refit seeks up to five successful `ci.yml` push runs on `main` with parsed
 compact measurements. Docs-only runs and unparseable logs do not fill that quota.
+It also reads the newest five successful `ci.yml` `pull_request` runs for the
+PR-only numbered tooling family. These tests execute the PR merge-ref, not a
+canonical main revision; that provenance is appropriate for PR-only tooling.
+PR logs update only `toolingFileSeconds`, never main compact or release weights.
+Tooling measurements are collected ahead of planner activation: run `35506602947`
+exceeds the current hosted and hybrid row caps when applied. Keep activation
+separate until measured test improvements or approved capacity make every profile fit.
+The map keeps separate Blacksmith and GitHub measurements. Numbered tooling
+parents and their child timing keys change when files move, so per-file costs
+can survive repacking and serve local tooling scheduling after activation. Unmeasured files use
+the remaining cold hints or the positive two-second default.
+
+Only successful complete tooling invocations contribute. Native file summaries
+include suite hooks; older verbose-only logs supply summed case durations.
+Those case costs exclude import/setup and can exceed wall time for concurrent
+cases, so they are packing weights rather than claims of per-file wall time.
+Retries contribute one median per file, profile and run. Ordinary refits require
+two independent runs and retain the 15% write threshold. Partial PR plans do not
+prove that absent files disappeared, so tooling maps retain unobserved files.
+
+For an explicit reviewed seed, use `pnpm ci:timings:refit --tooling-run <id>`
+(repeatable). It validates successful PR workflow and job metadata, permits a
+single run only for tooling, preserves all other timing maps, and records the
+seed run IDs and merge-ref provenance in `source`. The initial tooling seed uses
+run `35506602947`; subsequent daily samples replace it under the ordinary rules.
+
 It also samples up to five successful manual runs of each release-check workflow
 that owns Gateway E2E. Run searches remain bounded by 25 pages and GitHub's
 1,000-result filtered-query limit. Incomplete pagination fails without writing.
@@ -437,8 +463,8 @@ in-source `COMPACT_GITHUB_GROUP_SECONDS_HINTS` fallback until hosted observation
 meet the sampling minimum. Later main attempts on the hybrid backend, or main
 runs using `OPENCLAW_CI_RUNNER_BACKEND=github`, can fill it naturally. Once recorded,
 hosted weights survive all-Blacksmith windows: pruning requires observations
-from at least three hosted runs in the sampled window. Sampling stays main-only;
-fork PR timings never influence the packer.
+from at least three hosted runs in the sampled window. Compact group sampling
+stays main-only; PR samples influence only the separate tooling file map.
 
 The `CI Test Timings Refit` workflow runs daily at 09:43 UTC and supports manual
 dispatch on `main`. When weights change, it updates the single

@@ -22,8 +22,9 @@ import {
 import { renderUpdateRunReport } from "../../infra/update-run-report.js";
 import { defaultRuntime } from "../../runtime.js";
 import { classifyUpdateOutcome } from "../../shared/update-outcome.js";
+import type { FinishUpdateParams } from "./update-command-finish-types.js";
 import { registerCurrentCoreRuntimeRefreshTests } from "./update-command-post-update-runtime-refresh.test-support.js";
-import { finishUpdate, type FinishUpdateParams } from "./update-command-post-update.js";
+import { finishUpdate } from "./update-command-post-update.js";
 import {
   registerUnverifiedDefinitionRecoveryTest,
   taskRecovery,

@@ -376,6 +376,9 @@ async function persist(pending: PendingEvent): Promise<void> {
           scope,
           admission: context.admission,
           readIdentity: "preserved",
+          prepare: async () => {
+            await taskFlowSyncOwner(taskId).prepare(context, store, Number.POSITIVE_INFINITY);
+          },
           onPublicationError: (error) => {
             publicationFailure = { error };
           },
@@ -437,7 +440,6 @@ async function persist(pending: PendingEvent): Promise<void> {
           },
         },
         async (beginRecovery) => {
-          await taskFlowSyncOwner(taskId).prepare(context, store, Number.POSITIVE_INFINITY);
           if (pending.phase.kind === "consumed" || pending.phase.kind === "native") {
             return await pending.native.promise;
           }

@@ -85,7 +85,7 @@ export async function respondDesktopObserve(params: {
         undefined,
         errorShape(
           ErrorCodes.INVALID_REQUEST,
-          "node desktop is disabled; explicitly allow desktop.stream, then restart the gateway",
+          "node desktop service is unavailable; reconnect to the Gateway and retry",
         ),
       );
       return;

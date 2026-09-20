@@ -8,6 +8,7 @@ import {
   type UsageCostWorkerInput,
   type UsageCostWorkerReply,
 } from "../../infra/session-cost-usage-worker.types.js";
+import { SQLITE_IDLE_HANDLE_TTL_MS } from "../../infra/sqlite-handle-lifecycle.js";
 import { WorkerTaskError, WorkerTaskPool } from "../../infra/worker-task-pool.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db-contract.js";
@@ -196,7 +197,7 @@ export function armDatabaseWorkerIdleRetirement(lane: SessionDatabaseWorkerLane)
       void rotateDatabaseWorkers(lane).catch((error: unknown) => {
         process.emitWarning(`${lane.name} worker retirement failed: ${String(error)}`);
       });
-    }, 30 * 60_000),
+    }, SQLITE_IDLE_HANDLE_TTL_MS),
   );
   lane.idleTimer.unref();
 }

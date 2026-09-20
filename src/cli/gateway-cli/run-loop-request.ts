@@ -9,6 +9,8 @@ export type GatewayRunSignalRequest = {
   signal: GatewayShutdownTrigger;
   restartReason?: string;
   restartIntent?: GatewayRestartIntent;
+  /** Cancellation removes the helper registry before this shutdown settles. */
+  foregroundUpdate?: boolean;
   hostedStop?: ReturnType<typeof createGatewayHostLifecycle>;
 };
 

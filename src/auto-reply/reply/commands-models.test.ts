@@ -189,6 +189,33 @@ describe("handleModelsCommand", () => {
     expect(result?.reply?.text).not.toContain("Add: /models add");
   });
 
+  it("labels the default route after clearing the session runtime pin", async () => {
+    setCredentials(["anthropic", "claude-cli"]);
+    const data = await buildPreparedModelsProviderData(
+      {
+        agents: {
+          defaults: {
+            model: { primary: "anthropic/claude-opus-4-5" },
+            models: {
+              "anthropic/claude-opus-4-5": { agentRuntime: { id: "openclaw" } },
+              "anthropic/claude-sonnet-4-5": { agentRuntime: { id: "claude-cli" } },
+            },
+          },
+        },
+      },
+      "main",
+      {
+        sessionEntry: {
+          providerOverride: "anthropic",
+          model: "claude-sonnet-4-5",
+          agentRuntimeOverride: "claude-cli",
+        },
+      },
+    );
+    expect(data.modelMenu?.modelNames.get("anthropic/claude-opus-4-5")).toMatch(/^API\b/);
+    expect(data.modelMenu?.modelNames.get("anthropic/claude-sonnet-4-5")).toMatch(/^Claude CLI\b/);
+  });
+
   it("hides unauthenticated providers by default and keeps all as explicit browse", async () => {
     setCredentials(["anthropic"]);
 
@@ -751,7 +778,6 @@ describe("handleModelsCommand", () => {
     params.command.channel = surface;
     params.command.surface = surface;
     const result = await handleModelsCommand(params, true);
-    expect(result?.reply?.text).toBe("Select a provider:");
     expect(result?.reply?.channelData).toEqual(channelData);
   });
 

@@ -219,15 +219,11 @@ describe("update-cli child-owned deferred completion", () => {
         expect(replaceConfigFile).toHaveBeenCalledExactlyOnceWith({ nextConfig: config });
         expect(mutateConfigFileWithRetry).toHaveBeenCalledExactlyOnceWith({
           mutate: expect.any(Function),
-          ...(mode === "finalize"
-            ? {
-                writeOptions: {
-                  assertCurrent: expect.any(Function),
-                  beforeCommit: expect.any(Function),
-                  observe: false,
-                },
-              }
-            : {}),
+          writeOptions: {
+            assertCurrent: expect.any(Function),
+            beforeCommit: expect.any(Function),
+            observe: false,
+          },
         });
         if (mode === "finalize") {
           expect(

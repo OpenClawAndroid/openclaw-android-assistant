@@ -1,6 +1,7 @@
 import { ensureSqliteLibrarySelected } from "../infra/bun-sqlite-library.js";
 import { resolveRuntimeProcessEntrypointUrl } from "../infra/runtime-process-url.js";
 import { createSqliteLifecycleAggregateError } from "../infra/sqlite-coordinator.js";
+import { SQLITE_IDLE_HANDLE_TTL_MS } from "../infra/sqlite-handle-lifecycle.js";
 import {
   DEFAULT_WORKER_PENDING_BYTES,
   DEFAULT_WORKER_PENDING_TASKS,
@@ -8,7 +9,10 @@ import {
 import { createOwnedWorkerTaskPool, WorkerTaskError } from "../infra/worker-task-pool.js";
 import type { OwnedWorkerTask } from "../infra/worker-task-pool.types.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
-import { registerOpenClawStateDatabaseAsyncResource } from "./openclaw-state-db-cache.js";
+import {
+  registerOpenClawStateDatabaseAsyncResource,
+  registerOpenClawStateDatabaseLifecycleListener,
+} from "./openclaw-state-db-cache.js";
 import type {
   OpenClawStateReadAuthority,
   OpenClawStateReadCommand,
@@ -34,12 +38,16 @@ function readPool(): ReadPool {
     registerOpenClawStateDatabaseAsyncResource({
       phase: "after-resources",
       async close(identity) {
-        // Per-path retirement closes only that path's operation handles. Idle workers own no DB.
-        if (identity || !owned.pool) {
+        if (!owned.pool) {
           return;
         }
         const pool = owned.pool;
+        if (identity) {
+          await pool.closeResources(identity.key);
+          return;
+        }
         await (owned.closing ??= Promise.resolve()
+          .then(() => pool.closeResources())
           .then(() => pool.close())
           .then(() => {
             owned.pool = undefined;
@@ -48,6 +56,14 @@ function readPool(): ReadPool {
             owned.closing = undefined;
           }));
       },
+    });
+    registerOpenClawStateDatabaseLifecycleListener((event) => {
+      if (event.kind !== "opened" && event.identity) {
+        void owned.pool?.closeResources(event.identity.key).catch((error: unknown) => {
+          // The worker retains failed cleanup; canonical path close retries it.
+          process.emitWarning(`Shared-state reader invalidation failed: ${String(error)}`);
+        });
+      }
     });
     return owned;
   });
@@ -60,6 +76,7 @@ function readPool(): ReadPool {
     state.pool = createOwnedWorkerTaskPool({
       workerUrl: resolveRuntimeProcessEntrypointUrl("stateRead"),
       maxWorkers: 2,
+      idleTimeoutMs: SQLITE_IDLE_HANDLE_TTL_MS,
       maxPendingTasks: DEFAULT_WORKER_PENDING_TASKS,
       maxPendingBytes: DEFAULT_WORKER_PENDING_BYTES,
     });

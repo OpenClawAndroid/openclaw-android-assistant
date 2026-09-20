@@ -1,7 +1,7 @@
-// Defines the experimental gateway-host desktop source configuration.
+// Defines local desktop sources for Gateway hosts and paired nodes.
 
 export type DesktopHostConfig = {
-  /** Enables the gateway-host desktop source after a gateway restart. */
+  /** Gateway-host opt-in; paired desktop nodes default to enabled when unset. */
   enabled: boolean;
   /** Runs a gateway-supervised headless TigerVNC/XFCE desktop on Linux. */
   managed?: boolean;
@@ -12,6 +12,6 @@ export type DesktopHostConfig = {
 };
 
 export type DesktopConfig = {
-  /** Experimental Labs gate for observing the gateway host desktop. */
+  /** Local desktop attachment settings; managed mode is Gateway-only. */
   host?: DesktopHostConfig;
 };

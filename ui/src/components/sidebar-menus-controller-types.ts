@@ -34,6 +34,7 @@ export interface SidebarMenusControllerHost
   readonly canPairDevice: boolean;
   readonly connected: boolean;
   readonly connectionStatus: GatewayStatus | null;
+  readonly queuedOutboxCount: number;
   readonly enabledRouteIds?: readonly NavigationRouteId[];
   readonly gatewayVersion: string | null;
   readonly onNavigate?: (

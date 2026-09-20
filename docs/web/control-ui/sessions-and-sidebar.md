@@ -420,7 +420,28 @@ When an interrupted remote-placement draft needs deletion, cleanup reclaims the 
 
 Unsent text and staged attachments can be recovered only in the same browser profile and Gateway credential scope; they are never stored on the Gateway or synced across devices. The browser keeps the 20 most recently edited draft scopes per Gateway credential scope for up to seven days, with at most 25 MiB of attachment data per draft, but it can evict browser storage sooner. A successful send or New Session creation, explicit attachment removal, or confirmed session deletion retires the corresponding browser draft. If cleanup fails after deletion, clear site data for the Control UI origin to remove it. Clearing site data also removes every other browser draft. If a draft's attachments exceed the cap, the current tab keeps them and shows the existing storage warning, but only the text is restart-recoverable. OpenClaw **Incognito** drafts are never durable. Turning Incognito off resumes browser autosave for the current text and attachments, without requiring another edit. Switching New Session destinations and returning with Back keeps unsent Incognito text and attachments in the current tab, but reloading or closing the tab discards them. In a private browser window, IndexedDB availability and lifetime are controlled by the browser and stored data is normally cleared when the private session ends. The **Incognito** toggle in the new-session page's top-right control rail retires that browser draft and creates a web-only thread whose session entry, transcript, and compaction state stay in memory until the Gateway restarts; OpenClaw also skips its automatic memory flush. The agent keeps its normal tools, so an explicit save request or tool-driven file write can still persist data. The model provider still processes messages, and content-free audit metadata is still recorded. Remote-placement starts persist their model and reasoning choices before dispatching the session to its worker.
 
+<a id="register-an-existing-repository" />
+
 **Projects.** The Place picker lists configured agent workspaces and repositories recorded with `projects.register`. Read-only connections receive project names and IDs; checkout paths and origin URLs are included only at `operator.write`. An admin can browse to a Git checkout and choose **Register as project**; write-only operators see a hint directing them to that flow. Choosing a project sends its ID through `sessions.create`, so it can run directly or supply the source for optional Worktree isolation without submitting a raw path. If an agent workspace was moved or removed, update that agent's configured workspace path. If a recorded checkout was moved or removed, re-register it before starting another session there.
+
+You can also register an existing checkout through the
+[Gateway CLI](/cli/gateway/query#gateway-call-%3Cmethod%3E). Registration requires
+`operator.admin`; listing requires `operator.read`.
+
+```bash
+openclaw gateway call projects.register \
+  --params '{"path":"/srv/projects/example","name":"example"}' --json
+openclaw gateway call projects.list --json
+```
+
+Use an absolute path on the machine running the Gateway, even when the CLI runs
+on another machine. The Gateway service account must be able to access the Git
+checkout, and its `HEAD` must resolve to a commit. Registration records the
+existing checkout without cloning it. `name` is optional and defaults to the
+checkout directory's name.
+
+Registering the same resolved repository root again returns its existing project ID and
+display name. Passing a different `name` does not rename an existing project.
 
 **Projects from GitHub.** Search the same picker or paste a GitHub HTTPS or `git@github.com` repository URL. For a remote destination, creation records that source and the runner fetches it during dispatch; no Gateway project clone is required. For Gateway execution, the picker clones into the Gateway-managed projects area. Recent repository sources retain their URL without inventing a local path. Public repository search and cloning work anonymously. Private remote checkout uses the effective shared `tools.github` identity; the discovery credential below only grants picker access. For affiliated and private repositories, prefer the explicit `gateway.controlUi.github.token` SecretRef so this service access has a clear runtime owner. When it is omitted, the Gateway still uses its shipped `GH_TOKEN` then `GITHUB_TOKEN` fallback from the shared process environment. When it is explicit, its exact environment or store name is excluded from agent execution without clearing unrelated native GitHub CLI variables. Search requires `operator.read`, cloning requires `operator.write`, and deleting a Gateway-managed cloned checkout requires `operator.admin`. Clone deletion refuses while a live session or managed worktree still references the checkout. SecretRef ownership is not an OS-user security boundary; use a sandbox, dedicated host, or dedicated OS user when same-account processes are not trusted.
 

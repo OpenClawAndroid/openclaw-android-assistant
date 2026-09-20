@@ -93,6 +93,8 @@ export const SETTINGS_SEARCH_TARGETS = {
       "configPage.deviceSettings.panels.watch": (snapshot) => snapshot.device.platform === "ios",
       "configPage.deviceSettings.computerControl": (snapshot) =>
         snapshot.capabilities?.computerControlEnabled !== undefined,
+      "configPage.deviceSettings.desktopSharing": (snapshot) =>
+        snapshot.capabilities?.desktopSharingEnabled !== undefined,
       "configPage.deviceSettings.browser": (snapshot) => snapshot.browser !== undefined,
       "configPage.deviceSettings.cookieSync": (snapshot) => snapshot.browser !== undefined,
       "configPage.deviceSettings.developer": (snapshot) =>
@@ -103,12 +105,14 @@ export const SETTINGS_SEARCH_TARGETS = {
     routeId: "device-permissions",
     labelKey: "tabs.devicePermissions",
     hash: "",
-    searchKeys: [
-      "configPage.deviceSettings.systemAccess",
-      "configPage.deviceSettings.location",
-      "configPage.deviceSettings.preciseLocation",
-    ],
+    searchKeys: [],
     nativeSearchKeys: {
+      "configPage.deviceSettings.systemAccess": (snapshot) =>
+        snapshot.permissions.entries.length > 0,
+      "configPage.deviceSettings.location": (snapshot) =>
+        snapshot.permissions.location !== undefined,
+      "configPage.deviceSettings.preciseLocation": (snapshot) =>
+        snapshot.permissions.location !== undefined,
       "configPage.deviceSettings.permissions.contacts.title": (snapshot) =>
         snapshot.permissions.entries.some((entry) => entry.id === "contacts"),
       "configPage.deviceSettings.permissions.calendars.title": (snapshot) =>

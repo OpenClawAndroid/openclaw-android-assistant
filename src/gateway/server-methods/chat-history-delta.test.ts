@@ -53,6 +53,19 @@ async function createTranscript() {
   return { scope, cursor: head.cursor };
 }
 
+// Fixed block count keeps serialization overhead stable while every text block
+// fits the 8k preview cap. This suite exercises the independent wire-byte budget.
+function budgetContent(content: string) {
+  const chunkSize = Math.ceil(Math.max(0, content.length - 64) / 127);
+  return [
+    { type: "text", text: content.slice(0, 64) },
+    ...Array.from({ length: 127 }, (_, index) => ({
+      type: "text",
+      text: content.slice(64 + index * chunkSize, 64 + (index + 1) * chunkSize),
+    })),
+  ];
+}
+
 async function readContents(contents: string[], requestedMaxBytes?: number) {
   const byteLimit = Math.min(requestedMaxBytes ?? maxBytes, maxBytes);
   const { scope, cursor } = await createTranscript();
@@ -64,7 +77,7 @@ async function readContents(contents: string[], requestedMaxBytes?: number) {
         role: "toolResult",
         toolName: "read",
         toolCallId: `call-${index}`,
-        content,
+        content: budgetContent(content),
         providerReplay: { private: "PRIVATE_REPLAY" },
         __openclaw: { upstreamUserText: "PRIVATE_UPSTREAM" },
       },
@@ -406,7 +419,7 @@ describe("chat history delta display budget", () => {
         messages: contents.map((content, index) => ({
           messageId: `result-${index}`,
           messageSeq: index + 1,
-          message: { content },
+          message: { content: budgetContent(content) },
         })),
       });
       if (result.kind !== "delta") {

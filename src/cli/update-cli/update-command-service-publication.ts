@@ -26,20 +26,13 @@ import {
   resolveUpdatedGatewayRestartPort,
 } from "./update-command-service-plan.js";
 
-export async function isManagedGatewayServiceOffline(
-  service: ReturnType<typeof resolveGatewayService>,
-  state: GatewayServiceState,
-  timeoutMs: number | undefined,
-): Promise<boolean> {
-  // Enabled systemd units may be manually stopped; loaded LaunchAgents can
-  // respawn. Windows needs the live numeric task state, not its last result.
+export async function isManagedGatewayServiceOffline(state: GatewayServiceState): Promise<boolean> {
+  // Loaded LaunchAgents can respawn even while disabled. Windows needs the live
+  // numeric task state; enabled systemd units may be manually stopped.
   return (
     state.runtime?.status === "stopped" &&
     (process.platform === "darwin"
-      ? state.loadState.status === "not-loaded" ||
-        (state.loadState.status === "loaded" &&
-          (await service.isEnabled?.({ env: state.env, timeoutMs }).catch(() => undefined)) ===
-            false)
+      ? state.loadState.status === "not-loaded"
       : process.platform === "win32"
         ? isScheduledTaskDefinitelyNotRunning(resolveTaskName(state.env)) ||
           (await readWindowsStartupFallbackRuntimeForUpdate(state.env).catch(() => null))
@@ -205,7 +198,7 @@ export async function withGatewayRuntimeArtifactPublication<T>(
           (!absent &&
             (state.loadState.status === "unknown" ||
               (process.platform === "linux" && observedSystemdManagerUid(state) === undefined) ||
-              !(await isManagedGatewayServiceOffline(service, state, params.timeoutMs)))))
+              !(await isManagedGatewayServiceOffline(state)))))
       ) {
         refuse();
       }

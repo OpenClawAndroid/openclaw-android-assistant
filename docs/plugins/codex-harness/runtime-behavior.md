@@ -68,6 +68,35 @@ Set `codexDynamicToolsLoading: "direct"` only when connecting to a custom
 Codex app-server that cannot search deferred dynamic tools or when
 debugging the full tool payload.
 
+## Inspecting tool output
+
+Long tool results have a collapsed preview in the Control UI. **Show full output**
+opens the saved result as plain text; copy and download use that text, not the
+preview. Reloading the conversation reads the same saved result. Inspection is
+subject to the Gateway's message-size limits and configured transcript redaction.
+Tool-output inspection requests the supported maximum of 2,000,000 characters per
+text field; a result that remains capped is explicitly marked unavailable.
+A preview limit does not mean Codex truncated the model's input.
+
+OpenClaw preserves the complete tool-response text exposed by Codex's
+`rawResponseItem/completed` notification, including whitespace and Codex's own
+truncation notices. Structured responses retain their text blocks as JSON;
+non-text payloads are marked omitted rather than copied into the text inspector.
+OpenClaw associates the response with its tool-call ID before checkpointing the result. If only an execution event is available, the result is
+labeled as execution output instead. Code-mode response IDs are distinct from
+nested command IDs.
+
+Neither event proves the exact final model input. Codex can apply additional
+history truncation and context normalization after constructing the response;
+its app-server does not expose that final request representation here. OpenClaw
+labels this limitation rather than treating raw stdout as model-visible output.
+
+Older records with the `OpenClaw truncated Codex native tool output` notice lost
+the omitted text before persistence. They explicitly show that the full output
+is unavailable. The same limitation applies when only a bounded execution
+stream was received and no complete response or completion output arrived.
+Opening, copying, or downloading such a record cannot recover its missing text.
+
 ## Background text completions
 
 With local stdio transport and the default `appServer.homeScope: "agent"`, Codex

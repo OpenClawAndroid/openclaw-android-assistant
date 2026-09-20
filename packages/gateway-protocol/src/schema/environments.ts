@@ -204,6 +204,9 @@ export const WorkerExecutionModeSchema = Type.Union([
 const WorkerEnvironmentProfileSummarySchema = closedObject({
   id: NonEmptyString,
   providerId: NonEmptyString,
+  providerDisplayId: Type.Optional(
+    Type.String({ pattern: "^[a-z][a-z0-9-]{0,63}(?![\\s\\S])", maxLength: 64 }),
+  ),
   trust: Type.Optional(EnvironmentTrustSchema),
   executionMode: Type.Optional(WorkerExecutionModeSchema),
   executionModes: Type.Optional(

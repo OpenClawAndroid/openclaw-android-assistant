@@ -260,11 +260,16 @@ export function createSidebarFullMessageLoader(
     if (!state.client || !state.connected) {
       return null;
     }
-    return state.client.request("chat.message.get", {
-      sessionKey: request.sessionKey,
-      ...(request.agentId ? { agentId: request.agentId } : {}),
-      messageId: request.messageId,
-      maxChars: DETAIL_FULL_MESSAGE_MAX_CHARS,
-    });
+    const client = state.client;
+    const result = await client.request<Awaited<ReturnType<SidebarFullMessageLoader>>>(
+      "chat.message.get",
+      {
+        sessionKey: request.sessionKey,
+        ...(request.agentId ? { agentId: request.agentId } : {}),
+        messageId: request.messageId,
+        maxChars: request.maxChars ?? DETAIL_FULL_MESSAGE_MAX_CHARS,
+      },
+    );
+    return state.connected && state.client === client ? result : null;
   };
 }

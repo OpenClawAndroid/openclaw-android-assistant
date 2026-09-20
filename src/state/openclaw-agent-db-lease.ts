@@ -12,7 +12,6 @@ import {
 } from "../infra/kysely-sync.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { runWithSqliteBusyTimeout } from "../infra/sqlite-busy-timeout.js";
-import { extractSqliteTableSchema } from "../infra/sqlite-schema-sql.js";
 import {
   assertExistingDatabaseIdentity,
   readDatabasePathIdentitySync,
@@ -25,6 +24,7 @@ import {
   assertAgentDeletionPathFence,
   prepareAgentDeletionPathFence,
 } from "./agent-deletion-journal.js";
+import { withExistingAgentLeaseWrite } from "./openclaw-agent-db-existing-write.js";
 import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
 import {
   readOpenClawAgentIntegrityVerification,
@@ -33,6 +33,7 @@ import {
   recordOpenClawAgentIntegrityVerification,
   type OpenClawAgentIntegrityVerification,
 } from "./openclaw-quarantine-store.js";
+import { getOpenClawDatabaseMaintenanceScope } from "./openclaw-state-db-async-lifecycle.js";
 import {
   openClawStateDatabaseCache,
   requireOpenClawStateDatabaseIdentity,
@@ -42,7 +43,6 @@ import type {
   OpenClawStateDatabaseOptions,
   OpenClawStateSchemaReadAdmission,
 } from "./openclaw-state-db-contract.js";
-import { runExistingOpenClawStateWriteTransaction } from "./openclaw-state-db-existing-write.js";
 import { ensureAgentDatabaseLeaseSchema } from "./openclaw-state-db-schema-additive.js";
 import { tableExists } from "./openclaw-state-db-schema-helpers.js";
 import type { DB as OpenClawStateKyselyDatabase } from "./openclaw-state-db.generated.js";
@@ -55,7 +55,6 @@ import {
   resolveOpenClawStateDirForDatabasePath,
 } from "./openclaw-state-db.paths.js";
 import type { OpenClawStateLeaseContext } from "./openclaw-state-lease-context.js";
-import { OPENCLAW_STATE_SCHEMA_SQL } from "./openclaw-state-schema.js";
 
 type AgentDatabaseLeaseDatabase = Pick<
   OpenClawStateKyselyDatabase,
@@ -77,6 +76,7 @@ export class OpenClawAgentDatabaseLeaseActiveError extends Error {
 const maintenanceAuthority = new AsyncLocalStorage<{
   authority: OpenClawStateLeaseContext;
   databasePath: string;
+  assertScopeCurrent?: () => void;
 }>();
 
 const maintenanceHandles = resolveGlobalSingleton(
@@ -99,6 +99,7 @@ export function registerAgentDatabaseMaintenanceAccess(database: DatabaseSync): 
       throw new Error("Agent database belongs to another maintenance mutation scope.");
     }
     assertMutation();
+    owner.assertScopeCurrent?.();
     owner.authority.assertOwned();
   };
   assertCurrent();
@@ -119,7 +120,15 @@ export function runWithAgentDatabaseMaintenanceAuthority<T>(
   databasePath: string,
   run: () => Promise<T>,
 ): Promise<T> {
-  return maintenanceAuthority.run({ authority, databasePath: path.resolve(databasePath) }, run);
+  const scope = getOpenClawDatabaseMaintenanceScope();
+  return maintenanceAuthority.run(
+    {
+      authority,
+      databasePath: path.resolve(databasePath),
+      assertScopeCurrent: scope ? () => scope.assertAdmission() : undefined,
+    },
+    run,
+  );
 }
 
 /** Revalidate the held lease, including immediately before committing a versioned rebuild. */
@@ -133,10 +142,12 @@ export function assertAgentDatabaseMaintenanceAuthority(
     );
   }
   authority.assertOwned();
+  maintenanceAuthority.getStore()?.assertScopeCurrent?.();
 }
 
 /** Revalidate a maintenance owner when present, without requiring ordinary opens to hold one. */
 export function assertAgentDatabaseMaintenanceAuthorityIfPresent(): void {
+  maintenanceAuthority.getStore()?.assertScopeCurrent?.();
   maintenanceAuthority.getStore()?.authority.assertOwned();
 }
 
@@ -687,36 +698,6 @@ export function assertNoOpenClawAgentDatabaseLeases(
       );
     }
   }
-}
-
-const existingAgentLeaseSchema = ["schema_meta", "state_leases", "agent_database_leases"]
-  .map((table) =>
-    extractSqliteTableSchema(OPENCLAW_STATE_SCHEMA_SQL, table, {
-      endMarker: ") STRICT;",
-      errorMessage: "Existing agent lease schema is unavailable.",
-    }),
-  )
-  .join("\n");
-
-function withExistingAgentLeaseWrite<T>(
-  maintenance: OpenClawStateLeaseContext,
-  options: OpenClawStateDatabaseOptions,
-  operation: (db: DatabaseSync) => T,
-): T {
-  return runExistingOpenClawStateWriteTransaction(
-    ({ db }) => {
-      maintenance.assertOwnedInTransaction(db);
-      const result = operation(db);
-      maintenance.assertOwnedInTransaction(db);
-      return result;
-    },
-    options,
-    {
-      operationLabel: "agent.database.maintenance.admission",
-      schemaSql: existingAgentLeaseSchema,
-      busyTimeoutMs: 0,
-    },
-  );
 }
 
 /** Stable existing rows can be drained before the candidate is allowed to migrate. */

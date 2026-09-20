@@ -13,9 +13,12 @@ const MAX_SKILL_SOURCE_ORIGIN_BYTES = 16 * 1024;
 function readSourceInstallSkillKey(skillDir: string): string | undefined {
   try {
     const sourceOriginPath = path.join(skillDir, SKILL_SOURCE_ORIGIN_RELATIVE_PATH);
-    const skillDirRealPath = tryRealpath(skillDir);
     const parentRealPath = tryRealpath(path.dirname(sourceOriginPath));
-    if (!skillDirRealPath || !parentRealPath) {
+    if (!parentRealPath) {
+      return undefined;
+    }
+    const skillDirRealPath = tryRealpath(skillDir);
+    if (!skillDirRealPath) {
       return undefined;
     }
     // Preserve contained parent aliases while refusing final symlinks.

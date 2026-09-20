@@ -315,21 +315,24 @@ export function createInMemoryTaskRegistryStore(
     async loadMutationSnapshotAsync(
       this: TaskRegistryStore,
       _context: OpenClawStateWorkerContext,
-      scope?: TaskRegistryMutationScope,
+      scope?: TaskRegistryMutationScope | readonly TaskRegistryMutationScope[],
     ): Promise<TaskRegistryStoreSnapshot> {
       const projectionSnapshot = structuredClone(this.loadSnapshot());
       if (!scope) {
         return projectionSnapshot;
       }
+      const scopes = "taskId" in scope ? [scope] : scope;
       const tasks = new Map(
-        [...projectionSnapshot.tasks].filter(
-          ([taskId, task]) =>
-            taskId === scope.taskId ||
-            Boolean(scope.runId?.trim() && task.runId?.trim() === scope.runId.trim()) ||
-            Boolean(
-              scope.childSessionKey?.trim() &&
-              task.childSessionKey?.trim() === scope.childSessionKey.trim(),
-            ),
+        [...projectionSnapshot.tasks].filter(([taskId, task]) =>
+          scopes.some(
+            (entry) =>
+              taskId === entry.taskId ||
+              Boolean(entry.runId?.trim() && task.runId?.trim() === entry.runId.trim()) ||
+              Boolean(
+                entry.childSessionKey?.trim() &&
+                task.childSessionKey?.trim() === entry.childSessionKey.trim(),
+              ),
+          ),
         ),
       );
       return {

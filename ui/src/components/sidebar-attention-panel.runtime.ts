@@ -164,6 +164,7 @@ export function renderSidebarAttentionPanel(params: SidebarAttentionPanelParams)
               style=${hasVisibleDismissals ? nothing : "visibility:hidden"}
               ?disabled=${!canDismissShown}
               aria-hidden=${hasVisibleDismissals ? nothing : "true"}
+              aria-describedby="sidebar-issues-dismiss-help"
               @click=${() => {
                 for (const dismissal of visibleDismissals) {
                   params.onDismiss(dismissal);
@@ -216,6 +217,9 @@ export function renderSidebarAttentionPanel(params: SidebarAttentionPanelParams)
           variant: "sub",
           onSelect: params.onSelectTab,
         })}
+        <p id="sidebar-issues-dismiss-help" class="sidebar-issues-panel__dismiss-help">
+          ${t("attention.dismissHelp")}
+        </p>
         <div class="sidebar-issues-panel__list-wrap">
           <div
             id="sidebar-issues-tabpanel"

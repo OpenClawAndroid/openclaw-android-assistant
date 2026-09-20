@@ -1,5 +1,6 @@
 import path from "node:path";
 import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
+import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { isPathInside } from "../infra/path-guards.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { getOpenClawDatabaseMaintenanceScope } from "./openclaw-state-db-async-lifecycle.js";
@@ -15,7 +16,7 @@ export type OpenClawAgentDatabaseReadCandidateResource = Omit<
   "agentId"
 > & { scope?: "sibling-family" };
 type AgentDatabaseResource =
-  | (OpenClawAgentDatabaseAsyncResource & { ownership: "known" })
+  | (OpenClawAgentDatabaseAsyncResource & { ownership: "known"; closeSync?: () => void })
   | (OpenClawAgentDatabaseReadCandidateResource & {
       ownership: "unresolved";
       agentId?: never;
@@ -97,6 +98,19 @@ export function registerOpenClawAgentDatabaseAsyncResource(
   });
 }
 
+/** Native readers close synchronously, so successful retirement leaves no asynchronous barrier. */
+export function registerOpenClawAgentDatabaseSyncResource(
+  resource: Omit<OpenClawAgentDatabaseAsyncResource, "close"> & { close: () => void },
+): () => void {
+  return registerAgentDatabaseResource({
+    ...resource,
+    ownership: "known",
+    agentId: normalizeAgentId(resource.agentId),
+    close: async () => resource.close(),
+    closeSync: resource.close,
+  });
+}
+
 /** Retain discovery until the known owner is registered, then release this candidate. */
 export function registerOpenClawAgentDatabaseReadCandidateResource(
   resource: OpenClawAgentDatabaseReadCandidateResource,
@@ -137,6 +151,23 @@ function closeAgentDatabaseResource(
   resource: AgentDatabaseResource,
   onCloseError?: (pathname: string, error: unknown) => void,
 ): Promise<void> {
+  if (resource.ownership === "known" && resource.closeSync) {
+    resources.closing.set(resource, undefined);
+    try {
+      resource.revoke();
+      resource.closeSync();
+      resources.active.delete(resource);
+      resources.closing.delete(resource);
+      return Promise.resolve();
+    } catch (error) {
+      if (onCloseError) {
+        onCloseError(resource.path, error);
+      }
+      const failed = Promise.reject<void>(toErrorObject(error, "Agent database cleanup failed"));
+      void failed.catch(() => {});
+      return failed;
+    }
+  }
   let operation = resources.closing.get(resource);
   if (!operation) {
     operation = Promise.resolve().then(() => resource.close());

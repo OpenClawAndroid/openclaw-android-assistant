@@ -7,6 +7,23 @@ const enModelControls = {
       subscription: "Subscription",
       api: "API",
       default: "Default",
+      routes: {
+        claudeCli: {
+          label: "Claude CLI · native",
+          detail:
+            "Runs through Claude Code, using its native login or a selected saved account. An explicitly selected API-key account has separate API billing; CLI does not mean free or subscription-only.",
+        },
+        anthropicApi: {
+          label: "API · OpenClaw",
+          detail:
+            "Uses the configured Anthropic API connection with OpenClaw's runtime. API-key usage is billed separately from a Claude subscription.",
+        },
+        anthropicConfigured: {
+          label: "Configured route",
+          detail:
+            "Anthropic models can use the API or Claude CLI, depending on their configured runtime and account. The provider name alone does not determine billing.",
+        },
+      },
       decisionLabel: "Decision Model",
       decisionDisabled: "Disabled",
       decisionInherit: "Use global default · {model}",

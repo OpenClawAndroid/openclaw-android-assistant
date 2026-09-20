@@ -452,7 +452,7 @@ it("adopts age facts before synchronous publication reentry", async () => {
     const policy = resolveMaintenanceConfigFromInput({
       mode: "enforce",
       maxEntries: 100,
-      pruneAfter: "1s",
+      pruneAfter: "1d",
     });
     replaceSessionEntrySync(active, { sessionId: "active", updatedAt: Date.now() });
     replaceSessionEntrySync(victim, { sessionId: "victim", updatedAt: Date.now() });

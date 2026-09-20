@@ -4,6 +4,7 @@ import type { ManagedUpdateLeaseDatabaseIdentity } from "../../infra/update-mana
 import {
   createManagedHandoffLeaseStore,
   type ManagedHandoffLease,
+  type ManagedHandoffParent,
 } from "../../infra/update-managed-service-handoff-lease.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { withCommandProcessScope } from "../../process/exec-spawn.js";
@@ -15,9 +16,9 @@ export type UpdateCommandChildGrant = {
   runId: string;
   root: string;
   databasePath: string;
-  parent: ManagedHandoffLease;
+  parent: ManagedHandoffParent;
   /** Original owner and its lineage survive a package-generation change. */
-  originalParent?: ManagedHandoffLease;
+  originalParent?: ManagedHandoffParent;
   originalChildKey?: string;
   spawner?: ManagedHandoffLease;
   retainedParent?: ManagedHandoffLease;
@@ -35,9 +36,9 @@ export type ChildOperation<T> = (
 // names. This is not another credential: live rows and PID/start checks still
 // authorize the receiver. A mirror cannot be substituted for its original root.
 export function childLineageDigest(
-  original: ManagedHandoffLease,
-  spawner: ManagedHandoffLease,
-  parent: ManagedHandoffLease,
+  original: ManagedHandoffParent,
+  spawner: ManagedHandoffParent,
+  parent: ManagedHandoffParent,
   database: ManagedUpdateLeaseDatabaseIdentity,
   retained?: ManagedHandoffLease,
 ): string {
@@ -47,12 +48,13 @@ export function childLineageDigest(
         database.databasePath,
         database.databaseIdentity,
         database.parentIdentity,
-        [original, spawner, parent].map((lease) => [
-          lease.key,
-          lease.owner,
-          lease.payload,
-          lease.updatedAt,
-        ]),
+        [original, spawner, parent].map((lease) =>
+          // v1 stores only its runner; bind the borrowed updater too. Shipped
+          // v2/v3 payloads already carry both identities and keep their bytes.
+          lease.version === 1
+            ? [lease.key, lease.owner, lease.payload, lease.updatedAt, lease.helper, lease.executor]
+            : [lease.key, lease.owner, lease.payload, lease.updatedAt],
+        ),
         // Absent retention preserves the shipped single-root digest bytes.
         ...(retained
           ? [
@@ -75,8 +77,8 @@ export function createChildOwner(params: {
   runId: string;
   binding: () => {
     store: ReturnType<typeof createManagedHandoffLeaseStore>;
-    parent: ManagedHandoffLease;
-    original: ManagedHandoffLease;
+    parent: ManagedHandoffParent;
+    original: ManagedHandoffParent;
     spawner: ManagedHandoffLease;
     retainedParent?: ManagedHandoffLease;
     databasePath: string;
@@ -179,6 +181,11 @@ export function createChildOwner(params: {
               `${childParent.key}/.openclaw-update-child-${childName}`,
               params.runId,
               { kind: "update" },
+              false,
+              original.version === 1 &&
+                childParent.key.startsWith(`${original.key}/.openclaw-update-child-`)
+                ? original
+                : undefined,
             );
             if (acquired.kind !== "acquired") {
               throw new UpdateCommandRecoveryPendingError(
@@ -245,7 +252,10 @@ export function createChildOwner(params: {
               throw new UpdateCommandRecoveryPendingError("The update process has not finished.");
             }
           }
-          if (acquiredParent && !store.release(candidateParent)) {
+          if (
+            acquiredParent &&
+            (candidateParent.version === 1 || !store.release(candidateParent))
+          ) {
             throw new UpdateCommandRecoveryPendingError("Update installation release failed.");
           }
           if (children.length > 0 && !store.release(children[0]!)) {

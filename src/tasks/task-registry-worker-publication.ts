@@ -28,6 +28,8 @@ export type TaskRegistryWorkerMutationContext = {
   readEventTarget?: () => TaskAgentEventTarget | undefined;
   /** Only a producer whose write contract preserves task routing, access, and detail. */
   readIdentity?: "preserved";
+  /** Prepare current rows before this mutation invalidates their projection. */
+  prepare?: () => Promise<void>;
   taskRowsWritten?: () => boolean;
   beforeObservers?: (assertCurrent: () => void) => Promise<void>;
   recoverPublication?: (snapshot: TaskRegistryStoreSnapshot) => TaskRecord | undefined;
