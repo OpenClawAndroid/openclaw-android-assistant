@@ -6,23 +6,27 @@ const OPERATOR_TALK_SCOPE = "operator.talk";
 const OPERATOR_WRITE_SCOPE = "operator.write";
 const OPERATOR_SCOPE_PREFIX = "operator.";
 
-function operatorScopeSatisfied(requestedScope: string, granted: Set<string>): boolean {
+/** Checks operator implications without normalizing grants or extending their lifetime. */
+export function operatorScopeSatisfied(
+  requestedScope: string,
+  granted: readonly string[],
+): boolean {
   if (!requestedScope.startsWith(OPERATOR_SCOPE_PREFIX)) {
     return false;
   }
-  if (granted.has(OPERATOR_ADMIN_SCOPE)) {
+  if (granted.includes(OPERATOR_ADMIN_SCOPE)) {
     return true;
   }
   if (requestedScope === OPERATOR_READ_SCOPE) {
-    return granted.has(OPERATOR_READ_SCOPE) || granted.has(OPERATOR_WRITE_SCOPE);
+    return granted.includes(OPERATOR_READ_SCOPE) || granted.includes(OPERATOR_WRITE_SCOPE);
   }
   if (requestedScope === OPERATOR_WRITE_SCOPE) {
-    return granted.has(OPERATOR_WRITE_SCOPE);
+    return granted.includes(OPERATOR_WRITE_SCOPE);
   }
   if (requestedScope === OPERATOR_TALK_SCOPE) {
-    return granted.has(OPERATOR_TALK_SCOPE) || granted.has(OPERATOR_WRITE_SCOPE);
+    return granted.includes(OPERATOR_TALK_SCOPE) || granted.includes(OPERATOR_WRITE_SCOPE);
   }
-  return granted.has(requestedScope);
+  return granted.includes(requestedScope);
 }
 
 /** Returns true when a role grant satisfies requested scopes, including operator implications. */
@@ -42,7 +46,7 @@ export function resolveMissingRequestedScope(params: {
 }): string | null {
   const role = params.role.trim();
   const prefix = `${role}.`;
-  const allowedSet = new Set(params.allowedScopes.map((scope) => scope.trim()));
+  const allowedScopes = params.allowedScopes.map((scope) => scope.trim());
   for (const scope of params.requestedScopes) {
     const requestedScope = scope.trim();
     if (!requestedScope) {
@@ -50,8 +54,8 @@ export function resolveMissingRequestedScope(params: {
     }
     const satisfied =
       role === OPERATOR_ROLE
-        ? operatorScopeSatisfied(requestedScope, allowedSet)
-        : requestedScope.startsWith(prefix) && allowedSet.has(requestedScope);
+        ? operatorScopeSatisfied(requestedScope, allowedScopes)
+        : requestedScope.startsWith(prefix) && allowedScopes.includes(requestedScope);
     if (!satisfied) {
       return scope;
     }

@@ -3,11 +3,13 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { applyCliProfileEnv } from "../cli/profile.js";
+import { writeOpenClawConfig } from "../config/test-helpers.js";
 import type { GatewayServiceCommandConfig } from "../daemon/service-types.js";
 import { GatewayServiceAuthorityError } from "../daemon/service-update-authority.js";
 import type { GatewayService } from "../daemon/service.js";
 import { createMockGatewayService, mockSystemAccountHome } from "../daemon/service.test-helpers.js";
 import { readLoadedSystemdServiceRuntime } from "../daemon/systemd-loaded-runtime.js";
+import { writeDoctorGatewayConfig } from "../flows/doctor-health-contribution-runners.gateway.js";
 import * as sqliteSnapshotSource from "../infra/sqlite-snapshot-source.js";
 import { readUpdateRunDriver } from "../infra/update-run-driver.js";
 import { createUpdateRun } from "../infra/update-run-ledger.js";
@@ -19,6 +21,7 @@ import {
 import { withEnvAsync } from "../test-utils/env.js";
 import { mockProcessPlatform } from "../test-utils/vitest-spies.js";
 import { maybeRepairGatewayServiceConfig } from "./doctor-gateway-services.js";
+import { prepareWriterContext } from "./doctor-gateway-services.writer-order.test-support.js";
 import { beginDoctorMaintenance } from "./doctor-maintenance.js";
 import { stoppedSystemdBinding } from "./doctor-maintenance.test-support.js";
 import { createDoctorPrompter } from "./doctor-prompter.js";
@@ -27,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   service: vi.fn<() => GatewayService>(),
   activeRoot: "",
   runtimeDirectory: "",
+  runtimePath: "",
   installPlanBuilt: false,
   audit: vi.fn<typeof import("../daemon/service-audit.js").auditGatewayServiceConfig>(),
   confirm: vi.fn(),
@@ -57,7 +61,7 @@ vi.mock("./daemon-install-helpers.js", () => ({
     mocks.installPlanBuilt = true;
     return {
       programArguments: [
-        process.execPath,
+        mocks.runtimePath,
         path.join(mocks.activeRoot, "dist/index.js"),
         "gateway",
         "--port",
@@ -70,6 +74,17 @@ vi.mock("./daemon-install-helpers.js", () => ({
       },
     };
   },
+}));
+// Installation consent owns the launcher drift; runtime capability is a separate probe.
+vi.mock("../daemon/runtime-paths.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../daemon/runtime-paths.js")>()),
+  resolveNodeRuntimeInfo: async () => ({
+    status: "supported" as const,
+    version: "26.8.1",
+    sqliteVersion: "3.53.4",
+    sqliteProbe: { available: true, version: "3.53.4", text: true, blob: true, json: true },
+    nodeSharedSqlite: false,
+  }),
 }));
 vi.mock("../daemon/service-audit.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../daemon/service-audit.js")>()),
@@ -138,6 +153,7 @@ async function runInstallationCase(params: {
   platform: "linux" | "darwin" | "win32";
   mode: "maintenance" | "direct";
   installFails?: boolean;
+  tokenRecovery?: "success" | "refused" | "service-failure" | "writer-unavailable";
   revoked?: "unchanged" | "restored" | "recovery-pending" | "unclassified";
   initiallyStopped?: boolean;
   releaseStateBeforeFinish?: boolean;
@@ -151,7 +167,7 @@ async function runInstallationCase(params: {
     aggressive: boolean;
     approved: boolean;
     interactive: boolean;
-    mixed?: "stale-native" | "custom-argv";
+    mixed?: "stale-native" | "custom-argv" | "version-managed-runtime";
   };
 }) {
   const { installFails, initiallyStopped } = params;
@@ -185,6 +201,10 @@ async function runInstallationCase(params: {
   mockSystemAccountHome();
   const home = await fs.realpath(tempDirs.make("openclaw-doctor-installation-"));
   mocks.runtimeDirectory = home;
+  mocks.runtimePath =
+    params.consent?.mixed === "version-managed-runtime"
+      ? path.join(home, ".nvm", "versions", "node", "v26.8.1", "bin", "node")
+      : path.join(home, "runtime", "node");
   const oldRoot = path.join(home, "prefix-a/lib/node_modules/openclaw");
   mocks.activeRoot = path.join(home, "prefix-b/lib/node_modules/openclaw");
   for (const [root, version] of [
@@ -226,7 +246,7 @@ async function runInstallationCase(params: {
       }
       let command: GatewayServiceCommandConfig = {
         programArguments: [
-          process.execPath,
+          mocks.runtimePath,
           path.join(oldRoot, "dist/index.js"),
           ...(params.consent?.aggressive ? ["node", "run"] : ["gateway"]),
           "--port",
@@ -236,6 +256,7 @@ async function runInstallationCase(params: {
         environment: {
           HOME: home,
           PATH: "/usr/bin:/bin",
+          ...(params.tokenRecovery ? { OPENCLAW_GATEWAY_TOKEN: "maintenance-fixture-token" } : {}),
           ...(params.profile ? { OPENCLAW_PROFILE: params.profile } : {}),
         },
       };
@@ -247,6 +268,9 @@ async function runInstallationCase(params: {
       let competingUpdateStarted = false;
       const installationInspectionElapsedMs: number[] = [];
       const events: string[] = [];
+      let writerContext: Awaited<ReturnType<typeof prepareWriterContext>> | undefined;
+      let configPath: string | undefined;
+      let originalConfig: string | undefined;
       const service = createMockGatewayService({
         isAbsent: async () => false,
         isLoaded: async () => true,
@@ -312,6 +336,14 @@ async function runInstallationCase(params: {
         install: async (plan) => {
           expect(getOpenClawDatabaseMaintenanceScope()).toBeUndefined();
           events.push("install");
+          if (params.tokenRecovery) {
+            expect(writerContext?.cfgForPersistence.gateway?.auth?.token).toBe(
+              "maintenance-fixture-token",
+            );
+            expect(JSON.parse(await fs.readFile(configPath!, "utf8")).gateway.auth.token).toBe(
+              "maintenance-fixture-token",
+            );
+          }
           if (params.revoked) {
             throw new GatewayServiceAuthorityError(
               new Error("Doctor custody was released"),
@@ -341,6 +373,11 @@ async function runInstallationCase(params: {
             runtime,
             options: { repair: true, nonInteractive: !params.consent?.interactive },
           }),
+          {
+            writeConfig: async () => {
+              throw new Error("Installation-only repair must not request a config write.");
+            },
+          },
         );
         const notes = mocks.note.mock.calls.flat().join("\n");
         expect(notes).toContain(`${oldRoot} (2026.9.4)`);
@@ -382,6 +419,14 @@ async function runInstallationCase(params: {
         }
         return;
       }
+      if (params.tokenRecovery) {
+        configPath = await writeOpenClawConfig(home, {
+          gateway: { mode: "local", port: 19989 },
+          plugins: { enabled: false },
+        });
+        originalConfig = await fs.readFile(configPath, "utf8");
+        writerContext = await prepareWriterContext(configPath);
+      }
       const maintenance = await beginDoctorMaintenance({
         root: mocks.activeRoot,
         options: { repair: true, nonInteractive: true },
@@ -411,11 +456,48 @@ async function runInstallationCase(params: {
         }
         let finishError: unknown;
         try {
-          await maintenance?.finish({
-            gateway: { auth: { mode: "token", token: "synthetic-doctor-token" } },
-          });
+          await maintenance?.finish(
+            writerContext?.cfg ?? {
+              gateway: { auth: { mode: "token", token: "synthetic-doctor-token" } },
+            },
+            writerContext && params.tokenRecovery !== "writer-unavailable"
+              ? async (nextConfig) => {
+                  events.push("write-config");
+                  return writeDoctorGatewayConfig(
+                    writerContext!,
+                    params.tokenRecovery === "refused"
+                      ? { ...nextConfig, gateway: { ...nextConfig.gateway, port: 0 } }
+                      : nextConfig,
+                  );
+                }
+              : undefined,
+          );
         } catch (error) {
           finishError = error;
+        }
+        if (params.tokenRecovery) {
+          expect(finishError).toBeUndefined();
+          const bytes = await fs.readFile(configPath!, "utf8");
+          const refused =
+            params.tokenRecovery === "refused" || params.tokenRecovery === "writer-unavailable";
+          expect(events).toEqual([
+            "stop",
+            "repair-state",
+            ...(params.tokenRecovery === "writer-unavailable" ? [] : ["write-config"]),
+            ...(refused ? [] : ["install"]),
+          ]);
+          if (refused) {
+            expect(bytes).toBe(originalConfig);
+            expect(writerContext?.cfg.gateway?.auth?.token).toBeUndefined();
+            expect(running).toBe(false);
+            expect(command).toEqual(originalCommand);
+            expect(mocks.health).not.toHaveBeenCalled();
+          } else {
+            expect(JSON.parse(bytes).gateway.auth.token).toBe("maintenance-fixture-token");
+            expect(writerContext?.cfgForPersistence).toEqual(writerContext?.cfg);
+            expect(running).toBe(!installFails);
+          }
+          return;
         }
         if (params.inspectionScenario === "competing-update") {
           expect(competingUpdateStarted).toBe(true);
@@ -521,6 +603,17 @@ async function runInstallationCase(params: {
   );
 }
 
+it.each(["success", "refused", "service-failure", "writer-unavailable"] as const)(
+  "delegates maintenance token recovery before native service mutation (%s)",
+  async (tokenRecovery) =>
+    runInstallationCase({
+      platform: "linux",
+      mode: "maintenance",
+      tokenRecovery,
+      installFails: tokenRecovery === "service-failure",
+    }),
+);
+
 it.each(["success", "install-failed", "already-stopped"] as const)(
   "Doctor handles two-prefix drift through maintenance finish (%s)",
   async (scenario) =>
@@ -575,6 +668,9 @@ it.each([
   { aggressive: false, approved: false, interactive: true, mixed: "custom-argv" },
   { aggressive: false, approved: true, interactive: true, mixed: "custom-argv" },
   { aggressive: false, approved: false, interactive: false, mixed: "custom-argv" },
+  { aggressive: false, approved: false, interactive: true, mixed: "version-managed-runtime" },
+  { aggressive: false, approved: true, interactive: true, mixed: "version-managed-runtime" },
+  { aggressive: false, approved: false, interactive: false, mixed: "version-managed-runtime" },
 ] as const)(
   "requires consent beyond installation drift (aggressive=$aggressive, mixed=$mixed, approved=$approved, interactive=$interactive)",
   async (consent) => runInstallationCase({ platform: "darwin", mode: "direct", consent }),

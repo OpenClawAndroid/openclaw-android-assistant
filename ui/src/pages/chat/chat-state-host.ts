@@ -123,6 +123,7 @@ export type ChatPageHost = ChatHost &
     chatIsMaintenanceScroll?: () => boolean;
     chatScrollElement?: () => HTMLElement | null;
     chatScrollToEnd?: (options: ChatScrollToEndOptions) => boolean;
+    chatCancelScroll?: () => void;
     sidebarLayout: SidebarLayout;
     sidebarContent: SidebarSelection | null;
     sidebarFocusPanelId: string;

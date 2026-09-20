@@ -359,6 +359,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
     pageState.chatIsMaintenanceScroll = () => this.transcript.isMaintenanceScroll;
     pageState.chatScrollElement = () => this.transcript.scrollElement;
     pageState.chatScrollToEnd = (options) => this.transcript.scrollToEnd(options);
+    pageState.chatCancelScroll = () => this.transcript.cancelScroll();
     pageState.reviewQueuedMessageEdit = () => this.reviewQueuedMessageEdit(pageState);
     pageState.createChatSession = () => this.createSession();
     pageState.confirmConversationReset = () => this.confirmConversationReset();

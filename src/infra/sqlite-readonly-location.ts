@@ -3,7 +3,7 @@ import fs, { type BigIntStats } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { copyFileDescriptorSync } from "@openclaw/fs-safe/advanced";
-import { sameFileIdentity } from "./fs-safe-advanced.js";
+import { sameFileContentsSync, sameFileIdentity } from "./fs-safe-advanced.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { backupNodeSqliteDatabase } from "./sqlite-backup.js";
 import { setSqliteBusyTimeout } from "./sqlite-busy-timeout.js";
@@ -41,7 +41,6 @@ import {
   withSqliteSourceReadDatabase,
 } from "./sqlite-source-handle.js";
 
-const COPY_BUFFER_BYTES = 1024 * 1024;
 const SQLITE_HEADER_BYTES = 20;
 const SQLITE_SOURCE_READ_BUSY_TIMEOUT_MS = 30_000;
 const SQLITE_READONLY_RESULT_CODE = 8;
@@ -184,32 +183,7 @@ function sourceMatchesCopy(sourcePath: string, copyPath: string): boolean {
     if (!fs.fstatSync(copy).isFile()) {
       return false;
     }
-    const sourceBuffer = Buffer.allocUnsafe(COPY_BUFFER_BYTES);
-    const copyBuffer = Buffer.allocUnsafe(COPY_BUFFER_BYTES);
-    let offset = 0;
-    let equal = true;
-    while (true) {
-      const sourceBytes = fs.readSync(
-        source.descriptor,
-        sourceBuffer,
-        0,
-        sourceBuffer.length,
-        offset,
-      );
-      // Compare every source read, including positive short reads, and prove both EOFs.
-      const copyBytes = fs.readSync(copy, copyBuffer, 0, Math.max(1, sourceBytes), offset);
-      if (
-        sourceBytes !== copyBytes ||
-        !sourceBuffer.subarray(0, sourceBytes).equals(copyBuffer.subarray(0, copyBytes))
-      ) {
-        equal = false;
-        break;
-      }
-      if (sourceBytes === 0) {
-        break;
-      }
-      offset += sourceBytes;
-    }
+    const equal = sameFileContentsSync(source.descriptor, copy);
     assertPinnedIdentityUnchanged(source);
     return equal;
   } finally {

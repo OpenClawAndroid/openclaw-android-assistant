@@ -92,6 +92,7 @@ function fixture(relativeRemote = false, partialClone = false) {
       env: { ...env, ...options.env },
       encoding: "utf8",
       input: options.input,
+      stdio: [options.stdinFileDescriptor ?? "pipe", "pipe", "pipe"],
       timeout: 15_000,
     });
     return { code: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
@@ -178,9 +179,11 @@ describe("Git database admission", () => {
       const state = fixture();
       const published = path.join(state.root, "published");
       let repacked = false;
+      let descriptor: number | undefined;
       const command: CommandRunner = async (argv, options) => {
         const result = await state.runCommand(argv, options);
         if (argv[2] === state.install && argv[3] === "index-pack" && result.code === 0) {
+          descriptor = options.stdinFileDescriptor;
           state.git(state.install, "repack", "-a", "-d");
           repacked = true;
           expect(state.git(state.install, "cat-file", "-t", state.target)).toBe("commit");
@@ -203,6 +206,8 @@ describe("Git database admission", () => {
       );
       const installed = publish ? published : state.install;
       expect(repacked).toBe(true);
+      expect(descriptor).toBeTypeOf("number");
+      expect(() => fs.fstatSync(descriptor!)).toThrow();
       expect(result.status, JSON.stringify(result)).toBe("ok");
       expect(state.git(installed, "rev-parse", "HEAD")).toBe(state.target);
       const packs = path.join(installed, ".git", "objects", "pack");
@@ -215,8 +220,10 @@ describe("Git database admission", () => {
     let keepPath = "";
     const command: CommandRunner = async (argv, options) => {
       if (argv[2] === state.install && argv[3] === "index-pack") {
-        const pack = options.input as Buffer;
-        const hash = pack.subarray(-20).toString("hex");
+        const descriptor = options.stdinFileDescriptor!;
+        const trailer = Buffer.alloc(20);
+        fs.readSync(descriptor, trailer, 0, trailer.length, fs.fstatSync(descriptor).size - 20);
+        const hash = trailer.toString("hex");
         keepPath = path.join(state.install, ".git", "objects", "pack", `pack-${hash}.keep`);
         fs.writeFileSync(keepPath, "operator retention\n");
       }

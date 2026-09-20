@@ -32,6 +32,7 @@ import {
 } from "../state/openclaw-state-db-async-lifecycle.js";
 import { openDoctorStateSchemaReadAdmission } from "../state/openclaw-state-db-doctor-schema.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
+import { assertDoctorMaintenanceInspection } from "./doctor-maintenance-inspection.js";
 import {
   assertStaleDoctorGatewayStopped,
   doctorGatewayMaintenanceError,
@@ -47,30 +48,12 @@ import {
   shouldManageGatewayService,
 } from "./doctor-service-repair-policy.js";
 import {
+  formatUpdateDoctorServiceStopRefusal,
   recordUpdateDoctorRefusal,
   resolveUpdateDoctorGitRecovery,
 } from "./doctor-update-refusal.js";
 
-function assertDoctorMaintenanceInspection(
-  inspection: PreManagedServiceStop,
-  env: NodeJS.ProcessEnv,
-): void {
-  const kind = inspection.serviceUpdateVerdict?.kind;
-  // Unavailable inspection grants no service authority. The state coordinators
-  // and agent leases below still exclude live writers before repair.
-  if (
-    !inspection.blockMessage &&
-    (kind === "unavailable" ||
-      (inspection.inspected &&
-        (kind === "owned" || kind === "absent" || inspection.offline === true)))
-  ) {
-    return;
-  }
-  throw new Error(
-    inspection.blockMessage ??
-      `Gateway service ownership or shutdown could not be verified. Run ${formatCliCommand("openclaw gateway status --deep", env)} and stop it through its service owner before retrying.`,
-  );
-}
+type DoctorConfigWriter = (nextConfig: OpenClawConfig) => Promise<OpenClawConfig>;
 
 export async function beginDoctorMaintenance(params: {
   options: DoctorOptions;
@@ -83,7 +66,7 @@ export async function beginDoctorMaintenance(params: {
       run<T>(operation: () => T): T;
       releaseState(): Promise<void>;
       release(): Promise<void>;
-      finish(cfg: OpenClawConfig): Promise<void>;
+      finish(cfg: OpenClawConfig, writeConfig?: DoctorConfigWriter): Promise<void>;
       warnings?: string[];
       failureFacts?: UpdateFailureFact[];
     }
@@ -179,7 +162,12 @@ export async function beginDoctorMaintenance(params: {
       }
     });
   };
-  const finish = async (cfg: OpenClawConfig, assertCustody?: () => void) => {
+  const finish = async (
+    initialConfig: OpenClawConfig,
+    assertCustody?: () => void,
+    writeConfig?: DoctorConfigWriter,
+  ) => {
+    let cfg = initialConfig;
     await release(assertCustody);
     assertCustody?.();
     const before = stopped;
@@ -315,13 +303,26 @@ export async function beginDoctorMaintenance(params: {
                 import("./doctor-gateway-services.js"),
                 import("./doctor-prompter.js"),
               ]);
-            await settle(() =>
+            cfg = await settle(() =>
               maybeRepairGatewayServiceConfig(
                 cfg,
                 "local",
                 params.runtime,
                 createDoctorPrompter({ runtime: params.runtime, options: params.options }),
                 {
+                  async writeConfig(nextConfig) {
+                    assertMaintenanceCurrent();
+                    // Failed maintenance entry has no inspected Doctor writer context.
+                    // Do not fall back to an independent config replacement on recovery.
+                    if (!writeConfig) {
+                      throw new Error(
+                        "Doctor config writer is unavailable during service restoration.",
+                      );
+                    }
+                    const committed = await writeConfig(nextConfig);
+                    assertMaintenanceCurrent();
+                    return committed;
+                  },
                   serviceMaintenance: {
                     managerUid: before.serviceManagerUid,
                     assertCurrent: assertMaintenanceCurrent,
@@ -525,9 +526,7 @@ export async function beginDoctorMaintenance(params: {
           inspection.offline !== true
         ) {
           parentMustStopGateway = true;
-          throw new Error(
-            "The update parent must stop the managed Gateway before Doctor maintenance; Doctor left the service unchanged.",
-          );
+          throw new Error(await formatUpdateDoctorServiceStopRefusal(inspection.serviceEnv ?? env));
         }
         try {
           acquireMaintenanceResources();
@@ -698,7 +697,7 @@ export async function beginDoctorMaintenance(params: {
       custody = "released";
       await release();
     },
-    async finish(cfg: OpenClawConfig) {
+    async finish(cfg: OpenClawConfig, writeConfig?: DoctorConfigWriter) {
       if (cleanupFailure) {
         throw cleanupFailure.error;
       }
@@ -710,7 +709,7 @@ export async function beginDoctorMaintenance(params: {
       assertCustody("held");
       custody = "restoring";
       try {
-        await finish(cfg, assertCustody);
+        await finish(cfg, assertCustody, writeConfig);
       } finally {
         custody = "released";
       }

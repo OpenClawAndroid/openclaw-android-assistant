@@ -599,6 +599,7 @@ metadata:
       `~/.openclaw/tools/<skillKey>`). Existing specs without `sha256` keep the
       previous download behavior. Response bodies are capped at 256 MiB; larger
       transfers are aborted while streaming, and partial staging data is removed.
+      Archive extraction does not require a system `tar` command.
   </Accordion>
   <Accordion title="Sandboxing notes">
     `requires.bins` is checked on the **host** at skill load time. If an agent

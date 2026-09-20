@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { isDirectRunUrl } from "../lib/direct-run.mjs";
@@ -320,6 +320,79 @@ export function createPrMetadataReader(repository) {
   };
 }
 
+function readCommitAuthors(repository, hostname, commits, route) {
+  const oid = /^[0-9a-f]{40}$/;
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) ||
+    !/^[A-Za-z0-9.-]+(?::[0-9]+)?$/.test(hostname) ||
+    !Array.isArray(commits) ||
+    !commits.every((commit) => oid.test(commit?.oid) && typeof commit.changesTree === "boolean") ||
+    new Set(commits.map((commit) => commit.oid)).size !== commits.length
+  ) {
+    throw invalidMetadata("Invalid source commit author request.");
+  }
+  const remaining = new Map(commits.map((commit) => [commit.oid, commit]));
+  const authors = new Map();
+  let batchSize = 100;
+  let cursor = commits.length - 1;
+  while (remaining.size > 0) {
+    while (!remaining.has(commits[cursor].oid)) {
+      cursor -= 1;
+    }
+    const head = commits[cursor].oid;
+    const limit = Math.min(batchSize, remaining.size);
+    const page = execPrGhJson(
+      ["api", "--hostname", hostname, `repos/${repository}/commits?sha=${head}&per_page=${limit}`],
+      {},
+      route,
+    );
+    if (
+      !Array.isArray(page) ||
+      page.length === 0 ||
+      page.length > limit ||
+      !page.every((commit) => oid.test(commit?.sha)) ||
+      new Set(page.map((commit) => commit.sha)).size !== page.length ||
+      !page.some((commit) => commit.sha === head)
+    ) {
+      throw invalidMetadata("Cannot establish the requested source commit author.");
+    }
+    let resolved = 0;
+    for (const commit of page) {
+      const source = remaining.get(commit.sha);
+      if (!source) {
+        continue;
+      }
+      const author = commit.commit?.author;
+      const account = commit.author;
+      if (
+        typeof author?.name !== "string" ||
+        typeof author.email !== "string" ||
+        (account !== null &&
+          (typeof account?.login !== "string" ||
+            !account.login ||
+            typeof account.type !== "string" ||
+            !account.type))
+      ) {
+        throw invalidMetadata("Cannot establish the requested source commit author.");
+      }
+      authors.set(commit.sha, {
+        name: author.name,
+        email: author.email,
+        user: account === null ? null : { login: account.login, type: account.type },
+        changesTree: source.changesTree,
+      });
+      remaining.delete(commit.sha);
+      resolved += 1;
+    }
+    // A merge can introduce unrelated ancestry. Stop expanding after the first
+    // mixed page: N source commits require at most N calls and N + 99 rows.
+    if (resolved < limit) {
+      batchSize = 1;
+    }
+  }
+  return commits.map((commit) => authors.get(commit.oid));
+}
+
 function assignReviewer(pr, reviewer) {
   if (!/^[1-9][0-9]*$/.test(pr) || typeof reviewer !== "string" || !reviewer.trim()) {
     throw new Error("Expected a PR number and reviewer login.");
@@ -354,6 +427,11 @@ function main([requestedRoute, ...args]) {
   const route = requestedRoute === "plain-quota" ? "plain" : requestedRoute;
   if (route === "plain" && args[0] === "assign-reviewer" && args.length === 3) {
     assignReviewer(args[1], args[2]);
+    return;
+  }
+  if (args[0] === "commit-authors" && args.length === 3) {
+    const authors = readCommitAuthors(args[1], args[2], JSON.parse(readFileSync(0, "utf8")), route);
+    process.stdout.write(`${JSON.stringify(authors)}\n`);
     return;
   }
   let result;

@@ -8,8 +8,10 @@ import {
   createHostDesktopService,
   createHostDesktopSource,
   inspectHostDesktop,
+  inspectHostDesktopSetup,
 } from "./host-source.js";
 import type { ManagedLinuxDesktop } from "./managed-linux.js";
+import * as managedLinux from "./managed-linux.js";
 import * as rfbProbe from "./rfb-probe.js";
 import { createDesktopSessionRegistry } from "./session-registry.js";
 
@@ -98,6 +100,77 @@ function fakeManagedDesktop(
 }
 
 describe("gateway host desktop source", () => {
+  it.each([
+    { name: "VncAuth", banner: "RFB 003.008\n", securityTypes: [2] },
+    { name: "Screen Sharing", banner: "RFB 003.889\n", securityTypes: [30] },
+  ])("discovers $name for setup while desktop access stays disabled", async (server) => {
+    const port = await listenRfb(server);
+    const config = Object.freeze({
+      enabled: false,
+      port,
+      passwordFile: "/nonexistent/desktop-password",
+    });
+    const probeRfb = vi.fn(rfbProbe.probeRfbServer);
+    await expect(inspectHostDesktop({ config, probeRfb })).resolves.toMatchObject({
+      status: { enabled: false, state: "disabled" },
+    });
+    expect(probeRfb).not.toHaveBeenCalled();
+    const readFile = vi.spyOn(fs, "readFile");
+    await expect(inspectHostDesktopSetup({ config, probeRfb })).resolves.toEqual({
+      state: "ready",
+    });
+    expect(readFile).not.toHaveBeenCalled();
+    expect(config.enabled).toBe(false);
+  });
+
+  it.each([
+    { name: "unauthenticated VNC", securityTypes: [1] },
+    { name: "VeNCrypt", securityTypes: [19] },
+    { name: "another service", banner: "HTTP/1.1 200" },
+  ])("does not offer $name as a ready desktop", async (server) => {
+    const port = await listenRfb(server);
+    await expect(
+      inspectHostDesktopSetup({ config: { enabled: false, port } }),
+    ).resolves.toMatchObject({
+      state: "unsupported",
+    });
+  });
+
+  it("reports a missing server without changing the disabled desktop setting", async () => {
+    const port = await unusedPort();
+    await expect(
+      inspectHostDesktopSetup({ config: { enabled: false, port }, platform: "darwin" }),
+    ).resolves.toMatchObject({ state: "needs-server" });
+  });
+
+  it("discovers managed setup without starting it and preserves attached-server precedence", async () => {
+    const createManaged = vi.spyOn(managedLinux, "createManagedLinuxDesktop");
+    const probeRfb = vi
+      .fn<typeof rfbProbe.probeRfbServer>()
+      .mockResolvedValue({ kind: "unreachable" });
+    const config = { enabled: false, managed: true };
+    await expect(inspectHostDesktopSetup({ config, platform: "linux", probeRfb })).resolves.toEqual(
+      {
+        state: "managed",
+      },
+    );
+    await expect(
+      inspectHostDesktopSetup({ config: { ...config, port: 5901 }, platform: "linux", probeRfb }),
+    ).resolves.toMatchObject({ state: "needs-server" });
+    await expect(
+      inspectHostDesktopSetup({ config, platform: "darwin", probeRfb }),
+    ).resolves.toMatchObject({
+      state: "unsupported",
+    });
+    probeRfb.mockResolvedValue({ kind: "rfb", securityTypes: [2] });
+    await expect(inspectHostDesktopSetup({ config, platform: "linux", probeRfb })).resolves.toEqual(
+      {
+        state: "ready",
+      },
+    );
+    expect(createManaged).not.toHaveBeenCalled();
+  });
+
   it("refuses an unauthenticated VNC server", async () => {
     const port = await listenRfb({ securityTypes: [1] });
     const source = createHostDesktopSource({ config: { enabled: true, port } });

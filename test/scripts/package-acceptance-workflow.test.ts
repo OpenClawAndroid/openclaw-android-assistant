@@ -35,7 +35,6 @@ import {
   releaseWorkflowJobNeeds as jobNeeds,
 } from "../helpers/release-workflow-timeouts.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
-import { createPnpmArchiveFixture } from "./setup-pnpm-archive.test-support.js";
 
 const PACKAGE_ACCEPTANCE_WORKFLOW = ".github/workflows/package-acceptance.yml";
 const LIVE_E2E_WORKFLOW = ".github/workflows/openclaw-live-and-e2e-checks-reusable.yml";
@@ -7474,42 +7473,6 @@ NODE
       expect(workflowText, workflowPath).not.toContain("pnpm-version:");
       expect(workflowText, workflowPath).not.toContain("pnpm/action-setup");
     }
-  });
-
-  it("bootstraps from store, image, then registry while authenticating each archive", () => {
-    const f = createPnpmArchiveFixture(tempDirs);
-    const archives = readdirSync(f.registry);
-    for (const name of archives) {
-      copyFileSync(join(f.registry, name), join(f.image, name));
-    }
-    for (const source of ["image", "store", "registry"]) {
-      if (source === "store") {
-        for (const name of archives) {
-          writeFileSync(join(f.image, name), "corrupt image");
-        }
-      } else if (source === "registry") {
-        for (const name of archives) {
-          writeFileSync(join(f.store, "toolchain", name), "corrupt store");
-        }
-      }
-      const result = f.run();
-      expect(result.status, result.stderr).toBe(0);
-      const root = join(result.stdout.trim(), "v1/pnpm/12.4.0");
-      expect(readFileSync(join(root, "pnpm"), "utf8")).toBe("wrapper-fixture\n");
-      expect(readFileSync(join(root, "node_modules/@pnpm/exe.linux-x64/pnpm"), "utf8")).toBe(
-        "native-fixture\n",
-      );
-      expect(JSON.parse(readFileSync(join(root, ".corepack"), "utf8")).hash).toBe(
-        f.spec.split("+")[1],
-      );
-      expect(existsSync(f.calls)).toBe(source === "registry");
-      for (const name of archives) {
-        expect(readFileSync(join(f.store, "toolchain", name))).toEqual(
-          readFileSync(join(f.registry, name)),
-        );
-      }
-    }
-    expect(readFileSync(f.calls, "utf8").trim().split("\n")).toHaveLength(2);
   });
 
   it("runs trusted npm preflight pnpm commands from the tooling checkout", () => {

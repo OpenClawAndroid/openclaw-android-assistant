@@ -15,7 +15,7 @@ import {
   cloneTaskRecord,
   listTasksFromIndex,
   cloneTaskRecordForObserver,
-  normalizeTaskRecord,
+  normalizeTaskTimestamps,
   compareTasksNewestFirst,
   pickPreferredRunIdTask,
   snapshotTaskRecords,
@@ -432,7 +432,7 @@ export async function listFreshTasksForOwnerKey(ownerKey: string): Promise<TaskR
       const records = await store.listTasksForOwnerKey(owner.context, key, owner.assertCurrent);
       owner.assertCurrent();
       for (const task of records) {
-        merged.set(task.taskId, cloneTaskRecord(normalizeTaskRecord(task)));
+        merged.set(task.taskId, cloneTaskRecord(normalizeTaskTimestamps(task)));
       }
       return [...merged.values()]
         .map((task, insertionIndex) => Object.assign({}, task, { insertionIndex }))

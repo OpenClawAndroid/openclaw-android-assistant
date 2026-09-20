@@ -118,8 +118,10 @@ For models configured to use a CLI runtime, channel picker availability follows 
 runtime's prepared authentication. A provider API key does not substitute for its
 native login.
 
-If discovery fails, OpenClaw reports the failure and keeps the last compatible
-model list. Without one, it shows prepared starter models with the failure.
+If discovery fails, **Settings > Models** and `openclaw models list` report the
+failure and keep the last compatible model list. Without one, OpenClaw shows
+prepared starter models. Chat and native Quick Chat model pickers keep usable
+choices without a catalog-wide warning; selected-model availability still applies.
 Other providers can still update. A successful empty response clears that
 provider's discovered models; it does not restore old choices. Explicitly
 configured models and independent native runtime catalogs remain.

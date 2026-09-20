@@ -23,6 +23,7 @@ import { getDetachedTaskLifecycleRuntime } from "../../tasks/detached-task-runti
 import { findTaskByRunId, listTaskRecords } from "../../tasks/task-registry.js";
 import { resetTaskRegistryForTests } from "../../tasks/task-registry.test-support.js";
 import { withTestDir } from "../../test-helpers/temp-dir.js";
+import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { waitForAgentJob } from "../agent-turn/agent-job.js";
 import { dispatchAgentRunFromGateway } from "../agent-turn/agent-run-dispatch.js";
 import { createAgentTurnIo } from "../agent-turn/io.js";
@@ -343,8 +344,7 @@ describe("gateway agent handler", () => {
   });
 
   it("registers host-owned requester lineage for plugin subagent completion", async () => {
-    await withTestDir({ prefix: "openclaw-gateway-plugin-subagent-requester-" }, async (root) => {
-      useTestStateDir(root);
+    await withOpenClawTestState({ label: "plugin-requester", layout: "state-only" }, async () => {
       resetSubagentRegistryForTests({ persist: false });
       const childSessionKey = "agent:work:subagent:plugin-completion";
       const requester = {
@@ -3302,8 +3302,8 @@ describe("gateway agent handler", () => {
     });
 
     it("does not affect plugin-subagent tracking for confirmed ACP conditions", async () => {
-      await withTestDir({ prefix: "openclaw-gateway-acp-plugin-subagent-" }, async (root) => {
-        useTestStateDir(root);
+      await withOpenClawTestState({ label: "acp-plugin", layout: "state-only" }, async (state) => {
+        const root = state.stateDir;
         resetAgentTaskRegistryForTests();
         resetSubagentRegistryForTests({ persist: false });
         const childSessionKey = "agent:main:acp:plugin-child";

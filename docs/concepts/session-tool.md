@@ -231,7 +231,7 @@ completion. A delivery failure does not authorize switching to the operator CLI.
 This check prevents accidental loss of attribution; the environment marker is
 not authentication or isolation from other processes running as the same OS user.
 
-After an independent peer session responds, OpenClaw can run a **reply-back loop** where the agents alternate messages up to the built-in limit. The target agent can reply `REPLY_SKIP` to stop early. Ordinary UI threads remain independent peers.
+After an independent peer session responds, OpenClaw can run a **reply-back loop** where the agents alternate messages up to the built-in limit. The target agent can reply `REPLY_SKIP` to stop early. Control UI requesters instead receive the target result once; their human-facing response is not fed back into the target session.
 
 Subagent coordination does not use this loop. A child report goes to its recipient once, without an automatic acknowledgment turn in the child. An explicitly waiting caller can still receive the recipient's reply inline. For a new child turn, the child's reply returns inline or is delivered once after the wait expires; the receiver's response is not sent back to the child.
 

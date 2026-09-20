@@ -10,7 +10,7 @@
   flex-direction: row;
 }
 
-/* The committed transcript opts new prompts and replies in once. Animate the
+/* The committed transcript opts new prompts in once. Animate the
    bubble only, not the virtual row positioning or measured layout dimensions. */
 @keyframes chat-message-enter {
   from {

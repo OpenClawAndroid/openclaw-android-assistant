@@ -27,7 +27,7 @@ import {
   withPendingTaskRegistryEvents,
 } from "./task-registry-listener-state.js";
 import { createTaskRegistryProjectionPreparation } from "./task-registry-projection-prepare.js";
-import { listTasksFromIndex, normalizeTaskRecord } from "./task-registry-records.js";
+import { listTasksFromIndex, normalizeTaskTimestamps } from "./task-registry-records.js";
 import { createAsyncRegistryRestore, createSyncRegistryReader } from "./task-registry-restore.js";
 import type { TaskRegistryRestoreResult } from "./task-registry-restore.worker.js";
 import {
@@ -278,7 +278,7 @@ function restoreTaskRegistryOnce() {
         commit() {},
         rollback() {
           if (taskRegistryRestoreState === installed) {
-            // An enclosing rollback also undoes the identifier repair performed by restore.
+            // An enclosing rollback can undo orphan settlement and snapshot inputs.
             taskRegistryRestoreState = { status: "uninitialized", admission: reader.admission };
             projection.dirty = true;
             bumpTaskRegistryRevision();
@@ -499,7 +499,7 @@ function installSnapshot(
       continue;
     }
     const current = tasks.get(taskId);
-    const next = normalizeTaskRecord(record);
+    const next = normalizeTaskTimestamps(record);
     if (!isDeepStrictEqual(current, next)) {
       tasks.set(taskId, next);
       if (recordWrites) {

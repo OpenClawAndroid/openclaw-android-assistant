@@ -546,9 +546,10 @@ else if(args[0]==="pr"&&args[1]==="view") {
     save();
     out([[...s.issueComments,...s.comments]]);
   }
-} else if(args[0]==="api"&&args[1].startsWith("repos/fixture/repo/commits?")) {
-  const oid=new URL(args[1],"https://github.com").searchParams.get("sha");
-  out([{sha:oid,commit:{author:{name:git(["show","-s","--format=%an",oid]),email:git(["show","-s","--format=%ae",oid])}},author:{login:s.pr.author.login,type:"User"}}]);
+} else if(args[0]==="api"&&args.some(arg=>arg.startsWith("repos/fixture/repo/commits?"))) {
+  const query=new URL(args.find(arg=>arg.startsWith("repos/fixture/repo/commits?")),"https://github.com").searchParams;
+  const commits=git(["rev-list","--max-count="+query.get("per_page"),query.get("sha")]).split("\\n");
+  out(commits.map(oid=>({sha:oid,commit:{author:{name:git(["show","-s","--format=%an",oid]),email:git(["show","-s","--format=%ae",oid])}},author:{login:s.pr.author.login,type:"User"}})));
 } else if(args.some(x=>x.includes("/commits/"))) {
   if(s.audit) fail("audit unavailable");
   out({parents:[{sha:git(["rev-parse",s.pr.mergeCommit.oid+"^1"])}]});
@@ -572,7 +573,10 @@ repo_root() { printf '%s\\n' "$FIXTURE_REPO"; }
 ensure_gh_api_auth() { :; }
 verify_prep_branch_matches_prepared_head() { [ "$(command git rev-parse HEAD)" = "$2" ]; }
 node() { if [[ "$1" == */watch-pr-ci.mjs ]]; then shift; command node "$FIXTURE_GH" watch "$@"; else command node "$@"; fi; }
-pr_gh() { command node "$FIXTURE_GH" path "$@"; }
+pr_gh() {
+  if [ "$1" = commit-authors ]; then pr_gh_run read "$@";
+  else command node "$FIXTURE_GH" path "$@"; fi
+}
 pr_gh_plain() {
   if [ "$FIXTURE_REAL_GH" = true ] && { [ "$1" = pr ] && { [ "$2" = checks ] || [ "$2" = merge ]; } || [[ " $* " == *" graphql "* ]]; }; then
     pr_gh_run "\${pr_gh_quota_route:-plain}" "$@"

@@ -134,21 +134,57 @@ describe("stable read-only snapshot copies", () => {
     expect(fs.readdirSync(fixture.sourceRoot)).toEqual(["source.sqlite"]);
   });
 
-  it("continues after positive short source reads", () => {
+  it("continues after unequal positive short source and private-copy reads", () => {
     const bytes = patternedBytes(MIB + 37);
     const fixture = createFixture(bytes);
+    const open = fs.openSync.bind(fs);
+    const close = fs.closeSync.bind(fs);
     const read = fs.readSync.bind(fs);
-    let shortened = 0;
-    interceptSourceReads(fixture.sourcePath, (descriptor, buffer, options) => {
-      const length = options.length ?? buffer.byteLength - (options.offset ?? 0);
-      if (length > 4093) {
-        shortened += 1;
+    const files = {
+      source: { maxBytes: 8191, shortReads: 0 },
+      copy: { maxBytes: 4093, shortReads: 0 },
+    };
+    const descriptors = new Map<number, (typeof files)[keyof typeof files]>();
+    vi.spyOn(fs, "openSync").mockImplementation((pathname, flags, mode) => {
+      const descriptor = open(pathname, flags, mode);
+      const resolved = path.resolve(String(pathname));
+      if (resolved === fixture.sourcePath) {
+        descriptors.set(descriptor, files.source);
+      } else if (flags === "r" && resolved.startsWith(`${fixture.stagingRoot}${path.sep}`)) {
+        descriptors.set(descriptor, files.copy);
       }
-      return read(descriptor, buffer, { ...options, length: Math.min(length, 4093) });
+      return descriptor;
     });
+    vi.spyOn(fs, "closeSync").mockImplementation((descriptor) => {
+      close(descriptor);
+      descriptors.delete(descriptor);
+    });
+    vi.spyOn(fs, "readSync").mockImplementation(
+      (
+        descriptor: number,
+        buffer: NodeJS.ArrayBufferView,
+        offsetOrOptions: number | fs.ReadOptions = {},
+        length?: number,
+        position?: fs.ReadPosition | null,
+      ) => {
+        const options =
+          typeof offsetOrOptions === "number"
+            ? { offset: offsetOrOptions, length, position }
+            : offsetOrOptions;
+        const file = descriptors.get(descriptor);
+        const requested = options.length ?? buffer.byteLength - (options.offset ?? 0);
+        if (file && requested > file.maxBytes) {
+          file.shortReads += 1;
+          return read(descriptor, buffer, { ...options, length: file.maxBytes });
+        }
+        return read(descriptor, buffer, options);
+      },
+    );
 
     expectSnapshot(fixture, bytes);
-    expect(shortened).toBeGreaterThan(0);
+    expect(files.source.shortReads).toBeGreaterThan(0);
+    expect(files.copy.shortReads).toBeGreaterThan(0);
+    expect(descriptors.size).toBe(0);
   });
 
   it("backs off between bounded asynchronous raw-copy retries", async () => {

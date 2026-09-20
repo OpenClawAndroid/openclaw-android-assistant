@@ -11,11 +11,7 @@ import {
 import { McpAppUnmountGate } from "../../../components/mcp-app-unmount.ts";
 import { resolveScrollBehavior } from "../../../lib/scroll-behavior.ts";
 import type { AssistantMessageExpansionState } from "../chat-message-recovery.ts";
-import {
-  CHAT_TRANSCRIPT_END_THRESHOLD_PX,
-  type ChatSessionScrollPosition,
-  type ChatScrollToEndOptions,
-} from "../scroll.ts";
+import type { ChatSessionScrollPosition, ChatScrollToEndOptions } from "../scroll.ts";
 import { SIDEBAR_GEOMETRY_COMMIT_EVENT } from "../sidebar-layout.ts";
 import { ChatMessageEntryAnimations } from "./chat-message-entry.ts";
 import { ChatMessageReveal } from "./chat-message-reveal.ts";
@@ -26,7 +22,6 @@ import {
 import { TranscriptEndAnchor } from "./chat-transcript-end-anchor.ts";
 import {
   initialTranscriptRect,
-  maxTranscriptScrollOffset,
   measureConnectedTranscriptRows,
   measureTranscriptRow,
   reconcileInitialTranscriptOffset,
@@ -43,6 +38,7 @@ import { renderChatTranscriptLayout, type TranscriptRow } from "./chat-transcrip
 import {
   createTranscriptOffsetState,
   isTranscriptMaintenanceScroll,
+  isTranscriptProgrammaticScroll,
   observeTranscriptOffset,
   scrollTranscriptOffset,
 } from "./chat-transcript-offset-observer.ts";
@@ -128,6 +124,7 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
       return;
     }
     this.endAnchor.clear();
+    this.prependAnchor.clear();
     this.offsetState.pendingInteractionAnchor = anchor;
     queueMicrotask(
       () => this.offsetState.pendingInteractionAnchor === anchor && this.host.requestUpdate(),
@@ -296,7 +293,16 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
           instance,
           callback,
         ),
-      measureElement: measureTranscriptRow,
+      measureElement: (element, entry, instance) => {
+        const size = measureTranscriptRow(element, entry, instance);
+        if (
+          element.dataset.virtualRowKey === "presence:typing" &&
+          instance.itemSizeCache.get("presence:typing") !== size
+        ) {
+          this.endAnchor.clear();
+        }
+        return size;
+      },
       rangeExtractor: (range) =>
         this.prependAnchor.extractRange(range, this.rowIndexesByKey, this.focusedRowKey),
       // Virtual distance omits real padding, pinning readers ~80px up past scroll.ts's follow-lock.
@@ -525,7 +531,14 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
         if (capturePrepend) {
           this.prependAnchor.capture(
             this.scrollElement,
-            Boolean(this.offsetState.pendingScrollOffset || this.offsetState.scrollCommand),
+            Boolean(
+              this.offsetState.pendingScrollOffset ||
+              this.offsetState.scrollCommand ||
+              this.offsetState.pendingInteractionAnchor,
+            ),
+            // A peer append can add attribution above a bubble inside an
+            // existing run row. Row-height compensation alone cannot hold it.
+            rowModelChanged && !this.canAutoFollow(),
           );
         }
         this.headerHeight = header?.height ?? 0;
@@ -579,16 +592,7 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
   }
 
   get isProgrammaticScroll(): boolean {
-    const element = this.scrollElement;
-    // Lit's scroll listener can precede TanStack's offset observer. Read the
-    // committed viewport so the final event publishes the settled end policy.
-    const distanceFromEnd = (maxTranscriptScrollOffset(element) ?? 0) - (element?.scrollTop ?? 0);
-    return (
-      this.isMaintenanceScroll ||
-      this.offsetState.pendingScrollOffset !== null ||
-      (this.offsetState.scrollCommand !== null &&
-        distanceFromEnd > CHAT_TRANSCRIPT_END_THRESHOLD_PX)
-    );
+    return isTranscriptProgrammaticScroll(this.offsetState, this.scrollElement);
   }
 
   private canAutoFollow(): boolean {
@@ -743,11 +747,10 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     const virtualizer = this.virtualizerController.getVirtualizer();
     const typingAdded =
       !this.rowIndexesByKey.has("presence:typing") && nextKeys.includes("presence:typing");
-    const followTyping =
-      typingAdded &&
-      this.canAutoFollow() &&
-      !this.offsetState.pendingScrollOffset &&
-      virtualizer.isAtEnd(CHAT_TRANSCRIPT_END_THRESHOLD_PX);
+    // Remote typing is presence, not a local request to move the viewport.
+    if (typingAdded) {
+      this.endAnchor.clear();
+    }
     this.rowKeys = Object.freeze(nextKeys);
     const rowIndexesByKey = new Map(this.rowKeys.map((key, index) => [key, index]));
     this.rowIndexesByKey = rowIndexesByKey;
@@ -769,11 +772,6 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
         this.prependAnchor.extractRange(range, rowIndexesByKey, this.focusedRowKey),
       scrollMargin: resolveTranscriptScrollMargin(this.scrollElement, this.headerHeight),
     });
-    if (followTyping) {
-      this.cancelScroll();
-      this.offsetState.scrollCommand = { behavior: "auto", target: "index" };
-      virtualizer.scrollToIndex(nextKeys.indexOf("presence:typing"), { align: "end" });
-    }
   }
 
   private reconcileImplicitEndAnchor(): void {

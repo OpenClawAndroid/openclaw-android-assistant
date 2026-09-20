@@ -413,26 +413,39 @@ describe("numerical contract", () => {
 });
 
 describe("fault settlement and generation health", () => {
-  it("joins a deadline-aborted callback and records no success", async () => {
-    let settled = false;
-    const host = registered(async (_batch, { signal }) => {
-      await new Promise<void>((resolve) => {
-        signal.addEventListener("abort", () => resolve(), { once: true });
-      });
-      settled = true;
-      return answer;
-    });
-    expect(await host.run({ ...options(), timeoutMs: 10 })).toEqual({
-      status: "unavailable",
-      reason: "deadline",
-    });
-    expect(settled).toBe(true);
-    expect(host.registry.decisionProviders[0]!.host.inspect(config)).toMatchObject({
-      activeRequests: 0,
-      successCount: 0,
-      reasons: { deadline: 1 },
-    });
-  });
+  it.each([
+    { timeoutMs: 10, deadlineMs: 10 },
+    { timeoutMs: 20_000, deadlineMs: 10_000 },
+  ])(
+    "joins a deadline-aborted callback after $deadlineMs ms for a $timeoutMs ms request",
+    async ({ timeoutMs, deadlineMs }) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+      try {
+        let settled = false;
+        const host = registered(async (_batch, { signal }) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          settled = true;
+          return answer;
+        });
+        const pending = host.run({ ...options(), timeoutMs });
+        await vi.advanceTimersByTimeAsync(deadlineMs - 1);
+        expect(settled).toBe(false);
+        expect(host.registry.decisionProviders[0]!.host.inspect(config).activeRequests).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await pending).toEqual({ status: "unavailable", reason: "deadline" });
+        expect(settled).toBe(true);
+        expect(host.registry.decisionProviders[0]!.host.inspect(config)).toMatchObject({
+          activeRequests: 0,
+          successCount: 0,
+          reasons: { deadline: 1 },
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
   it("keeps auth failures across model selection changes until provider configuration changes", async () => {
     const callback = vi
       .fn<DecisionProviderV1["evaluate"]>()

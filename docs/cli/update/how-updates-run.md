@@ -135,19 +135,38 @@ including copying and verification passes, with a five-minute startup floor.
 It uses the larger of that allowance and the configured per-step timeout.
 The deadline extends while private files continue changing. A stalled snapshot
 reports its size and applied budget. Snapshot time does not consume the separate
-runtime validation budget. By default, that budget scales with measured database
-and plugin bytes, allowing each validation process to inspect the private state.
-An explicit per-step timeout replaces that derived runtime allowance.
+runtime validation budget. Each validation process receives a fresh allowance
+that scales with measured database and plugin bytes. An explicit per-step
+timeout replaces that derived allowance.
 Automatic and chat updates leave that runtime allowance derived from state.
 Their request and recovery watchdogs do not become update validation deadlines.
-Startup and readiness responses share that validation deadline, including reading
+Startup and readiness responses share their own allowance, including reading
 the response body.
+
+During a copied update rehearsal, candidate Doctor publishes its lint report
+before disposing plugin inspections. Its private state stays owned until disposal
+finishes or the owned inspector process tree is confirmed stopped. The disposal
+allowance follows measured check time and the remaining published-driver window;
+an overrun records a warning with its duration. This also lets the 2026.9.4 driver,
+which requires a zero process exit, finish when only disposal is slow.
+Supervisor-initiated disposal termination preserves completed checks on Windows
+as well as macOS and Linux. Caller cancellation and independent failed exits
+remain failures.
+
+When a candidate Doctor completes its checks but its process or output pipes
+remain open past the allowance, the updater records an exit-phase warning and
+continues with the completed result. Lint completion requires that child's
+complete JSON report; a preceding repair's `Doctor complete.` line cannot prove
+lint success. Error findings still refuse validation. A child without a completion
+result reports `candidate-checks-timeout`, the check phase, and elapsed time.
 
 These deadlines belong to the invoking updater. The published 2026.9.3 and 2026.9.4 updaters
 cap their complete rehearsal at five minutes, including the snapshot, and their
 later schema inspection at thirty seconds, even with `--timeout 900`. Installing
 a newer candidate cannot enlarge those parent-process deadlines on that first
 update. Subsequent updates use the newer updater's allowances described above.
+Hosts whose checks cannot finish within the 2026.9.4 rehearsal's five-minute window
+still need the [manual upgrade recovery path](/install/updating#alternative-re-run-the-installer).
 
 Before copying, the updater measures the shared and agent SQLite database
 families and the installed plugin payloads and dependency trees that the

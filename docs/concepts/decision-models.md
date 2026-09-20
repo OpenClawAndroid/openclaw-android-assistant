@@ -147,7 +147,7 @@ const outcome = await api.runtime.decisions.evaluate(
     agentId,
     purpose: "support.triage",
     rubricVersion: "1",
-    timeoutMs: 5000,
+    timeoutMs: 10000,
     signal,
   },
 );
@@ -224,7 +224,7 @@ Score levels, and explicit true/false descriptions. Provider limits differ:
 | TypeSafe AI | 2–255               | 2–10         | Subject to the host's batch limits and the vendor input contract                   |
 
 The host bounds requests to one MiB and 256 questions. It admits at most four
-requests per provider and caps each deadline at five seconds. Provider-specific
+requests per provider and caps each deadline at ten seconds. Provider-specific
 limits can be tighter. Unsupported input is rejected instead of silently truncated.
 
 An `unavailable` outcome includes a reason such as `disabled`, `not-configured`,

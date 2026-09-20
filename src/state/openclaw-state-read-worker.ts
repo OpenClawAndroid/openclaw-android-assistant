@@ -85,6 +85,9 @@ function readPool(): ReadPool {
 }
 
 function captureCommand(command: OpenClawStateReadCommand): OpenClawStateReadCommand {
+  if (command.type === "updateRuns.list") {
+    return { ...command, input: { ...command.input } };
+  }
   if (command.type === "audit.run.inspect") {
     const input = command.input;
     const common = {
@@ -118,6 +121,18 @@ function commandBytes(command: OpenClawStateReadRequest["command"]): number {
       bytes +
       Buffer.byteLength(command.backendId, "utf8") +
       Buffer.byteLength(command.scopeKey, "utf8")
+    );
+  }
+  if (command.type === "updateRuns.get") {
+    return bytes + Buffer.byteLength(command.runId, "utf8");
+  }
+  if (command.type === "updateRuns.list") {
+    return (
+      bytes +
+      Buffer.byteLength(command.input.reason ?? "", "utf8") +
+      Buffer.byteLength(command.input.includeRunId ?? "", "utf8") +
+      (command.input.limit === undefined ? 0 : 8) +
+      (command.input.active === undefined ? 0 : 1)
     );
   }
   if (command.type === "fleet.get") {

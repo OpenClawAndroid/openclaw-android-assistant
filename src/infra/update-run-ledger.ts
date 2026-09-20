@@ -25,11 +25,7 @@ import {
   recordedUpdateRunDrivers,
 } from "./update-run-activity.js";
 import { runUpdateRunAdmission } from "./update-run-admission.js";
-import {
-  decodeRun,
-  encodeRun,
-  type UpdateRunLedgerOptions as LedgerOptions,
-} from "./update-run-codec.js";
+import { encodeRun, type UpdateRunLedgerOptions as LedgerOptions } from "./update-run-codec.js";
 import {
   inspectUpdateRunDriver,
   readUpdateRunDriver,
@@ -37,10 +33,10 @@ import {
   type UpdateRunDriver,
 } from "./update-run-driver.js";
 import { LEGACY_UPDATE_RUN_EXPIRED_REASON } from "./update-run-legacy-expiry.js";
+import { decodeRun, readUpdateRunRecord as readRun } from "./update-run-read.kernel.js";
 import {
   inspectUpdateRunReconciliation,
   readUpdateRunReconciliationCandidates,
-  readUpdateRunRecord as readRun,
   type UpdateRunReconciliationCandidate,
   type UpdateRunReconciliationInput,
 } from "./update-run-reader.js";

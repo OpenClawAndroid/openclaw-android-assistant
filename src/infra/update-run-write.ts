@@ -4,13 +4,8 @@ import type { DB } from "../state/openclaw-state-db.generated.js";
 import { OPENCLAW_STATE_SCHEMA_SQL } from "../state/openclaw-state-schema.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "./kysely-sync.js";
 import { createUpdateErrorFact } from "./update-failure-facts.js";
-import {
-  decodeRun,
-  encodeRun,
-  isRetainedStep,
-  type UpdateRunLedgerOptions,
-} from "./update-run-codec.js";
-import { readUpdateRunRecord } from "./update-run-reader.js";
+import { encodeRun, isRetainedStep, type UpdateRunLedgerOptions } from "./update-run-codec.js";
+import { decodeRun, readUpdateRunRecord } from "./update-run-read.kernel.js";
 import type { UpdateRunRecord, UpdateRunStep } from "./update-run-record.js";
 import { updateRunStepKey } from "./update-run-step-key.js";
 import { recordUpdateRunVerificationRecord } from "./update-run-verification.js";

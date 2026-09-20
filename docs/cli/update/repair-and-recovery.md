@@ -162,6 +162,15 @@ run are revalidated before every native operation. A restoration failure names
 the cause and the commands to inspect and restart the Gateway. Normal update
 finalization continues to leave activation with its outer updater.
 
+If Doctor reports that the update parent must stop the managed Gateway, wait
+for that update to exit, then run `openclaw gateway stop` and retry
+`openclaw update repair` from an independent shell with the same profile and
+state/config overrides. On macOS, stop unloads the LaunchAgent and verifies that
+its process exited. A still-loaded service or surviving PID after a successful
+stop is a service shutdown failure. If stop cannot unload the service, use the
+exact `launchctl bootout` command printed in the refusal from the owning user's
+logged-in macOS GUI session.
+
 An unrelated update whose driver is live or cannot be inspected still blocks
 repair, even after a long period without activity. Manual `doctor --fix` also
 refuses to stop a service while that update is active. The refusal identifies the

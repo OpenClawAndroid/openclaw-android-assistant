@@ -8,7 +8,6 @@ import {
   closeOpenClawStateDatabase,
   closeOpenClawStateDatabaseAsync,
   openOpenClawStateDatabase,
-  runOpenClawStateWriteTransaction,
 } from "../state/openclaw-state-db.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
@@ -206,49 +205,36 @@ function identityRestoreFixture(kind: "task" | "flow", options?: { sameIdentity?
 }
 
 describe("asynchronous registry restoration", () => {
-  it("repairs again when an enclosing transaction rolls back the first restore", () => {
-    upsertTaskWithDeliveryStateToSqlite({ task });
-    const { db } = openOpenClawStateDatabase();
-    db.prepare("UPDATE task_runs SET run_id = ? WHERE task_id = ?").run(
-      ` ${task.runId} `,
-      task.taskId,
-    );
-    const read = () =>
-      db.prepare("SELECT run_id FROM task_runs WHERE task_id = ?").get(task.taskId);
-    expect(() =>
-      runOpenClawStateWriteTransaction(() => {
-        expect(getTaskById(task.taskId)?.runId).toBe(task.runId);
-        expect(read()).toEqual({ run_id: task.runId });
-        throw new Error("synthetic outer rollback");
-      }),
-    ).toThrow("synthetic outer rollback");
-    expect(read()).toEqual({ run_id: ` ${task.runId} ` });
-    expect(getTaskById(task.taskId)?.runId).toBe(task.runId);
-    expect(read()).toEqual({ run_id: task.runId });
-  });
-
   it.each(["native", "worker"] as const)(
-    "repairs legacy task identifiers before %s hydration, including after database close",
+    "leaves legacy task identifiers to Doctor during %s hydration, including after database close",
     async (mode) => {
-      const childSessionKey = "agent:main:legacy-child";
-      upsertTaskWithDeliveryStateToSqlite({ task: { ...task, childSessionKey } });
+      const runId = ` \t${task.runId}\n`;
+      const childSessionKey = "\u00a0agent:main:legacy-child\u00a0";
+      upsertTaskWithDeliveryStateToSqlite({
+        task,
+        deliveryState: { taskId: task.taskId, lastNotifiedEventAt: 12 },
+      });
+      const { db } = openOpenClawStateDatabase();
+      db.prepare("UPDATE task_runs SET run_id = ?, child_session_key = ? WHERE task_id = ?").run(
+        runId,
+        childSessionKey,
+        task.taskId,
+      );
+      const readRows = () => {
+        const { db: current } = openOpenClawStateDatabase();
+        return {
+          tasks: current.prepare("SELECT * FROM task_runs ORDER BY task_id").all(),
+          delivery: current.prepare("SELECT * FROM task_delivery_state ORDER BY task_id").all(),
+        };
+      };
+      const before = readRows();
       for (let generation = 0; generation < 2; generation += 1) {
-        const { db } = openOpenClawStateDatabase();
-        db.prepare("UPDATE task_runs SET run_id = ?, child_session_key = ? WHERE task_id = ?").run(
-          ` ${task.runId} `,
-          ` ${childSessionKey} `,
-          task.taskId,
-        );
         await closeOpenClawStateDatabaseAsync();
         if (mode === "worker") {
           await ensureTaskRegistryReadyAsync(captureOpenClawStateWorkerContext());
         }
-        expect(getTaskById(task.taskId)).toMatchObject({ runId: task.runId, childSessionKey });
-        expect(
-          openOpenClawStateDatabase()
-            .db.prepare("SELECT task_id FROM task_runs WHERE run_id = ? AND child_session_key = ?")
-            .all(task.runId!, childSessionKey),
-        ).toEqual([{ task_id: task.taskId }]);
+        expect(getTaskById(task.taskId)).toMatchObject({ runId, childSessionKey });
+        expect(readRows()).toEqual(before);
       }
     },
   );

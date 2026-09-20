@@ -2134,6 +2134,10 @@ if [ "$WORKER_CELL" = "1" ]; then
   phase worker-candidate-identity prepare_worker_cell_package
   phase update-worker-candidate update_candidate
   phase assert-worker-installed-identity assert_worker_cell_update
+  if [ "$SCENARIO" = "taskflow-restoration" ]; then
+    phase assert-taskflow-update-migration node scripts/e2e/lib/upgrade-survivor/taskflow-restoration.mjs assert-migrated \
+      --package-root "$(package_root)" --expected-commit "$OPENCLAW_UPGRADE_SURVIVOR_CANDIDATE_COMMIT"
+  fi
   if [ "$SCENARIO" = "projects-doctor" ]; then
     phase projects-after-update node scripts/e2e/lib/upgrade-survivor/projects-doctor.mjs snapshot after-update "$(package_root)"
     phase projects-before-doctor node scripts/e2e/lib/upgrade-survivor/projects-doctor.mjs snapshot before-doctor "$(package_root)"
@@ -2177,14 +2181,19 @@ if [ "$WORKER_CELL" = "1" ]; then
       fi
     done
   else
-    phase gateway-start start_gateway
-    phase gateway-probes check_gateway_probes
-    phase taskflow-sdk-and-pages node scripts/e2e/lib/upgrade-survivor/taskflow-restoration.mjs probe \
-      --package-root "$(package_root)" --url ws://127.0.0.1:18789 \
-      --expected-commit "$OPENCLAW_UPGRADE_SURVIVOR_CANDIDATE_COMMIT"
-    phase gateway-stop stop_gateway
-    phase assert-taskflow-persistence node scripts/e2e/lib/upgrade-survivor/taskflow-restoration.mjs assert-state \
-      --package-root "$(package_root)" --expected-commit "$OPENCLAW_UPGRADE_SURVIVOR_CANDIDATE_COMMIT"
+    for startup in first second; do
+      GATEWAY_LOG="$ARTIFACT_ROOT/taskflow-$startup-gateway.log"
+      HEALTHZ_JSON="$ARTIFACT_ROOT/taskflow-$startup-healthz.json"
+      READYZ_JSON="$ARTIFACT_ROOT/taskflow-$startup-readyz.json"
+      phase "$startup-taskflow-gateway-start" start_gateway
+      phase "$startup-taskflow-gateway-probes" check_gateway_probes
+      phase "$startup-taskflow-sdk-and-pages" node scripts/e2e/lib/upgrade-survivor/taskflow-restoration.mjs probe \
+        --package-root "$(package_root)" --url ws://127.0.0.1:18789 --attempt "$startup" \
+        --expected-commit "$OPENCLAW_UPGRADE_SURVIVOR_CANDIDATE_COMMIT"
+      phase "$startup-taskflow-gateway-stop" stop_gateway
+      phase "assert-$startup-taskflow-persistence" node scripts/e2e/lib/upgrade-survivor/taskflow-restoration.mjs assert-state \
+        --package-root "$(package_root)" --attempt "$startup" --expected-commit "$OPENCLAW_UPGRADE_SURVIVOR_CANDIDATE_COMMIT"
+    done
   fi
   run_completed="1"
   echo "Upgrade survivor Docker E2E passed baseline=${baseline_spec} scenario=${SCENARIO} candidate=${candidate_version}."

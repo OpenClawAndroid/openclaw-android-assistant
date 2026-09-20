@@ -94,6 +94,12 @@ Only the app phases restore the app build cache. SwiftPM dependency caches remai
 restore-only in `packages`; the existing primary phase owns shared cache writes.
 The aggregate gate requires every selected phase to succeed.
 
+Debug Swift CI builds omit the IDE index and use line-table debug information.
+Coverage instrumentation and source-line backtraces remain enabled; interactive
+debugger type/value inspection requires a normal local debug build. The app test
+cache uses a separate build profile so it cannot restore the old indexed products;
+Release build flags and caches remain unchanged.
+
 Ordinary Markdown and MDX pages under `docs/`, plus root `README.md`, retain
 their separate `check-docs` coverage beside precise pull-request Node tests.
 Page deletions and renames preserve this targeting. Explicit Node owners for

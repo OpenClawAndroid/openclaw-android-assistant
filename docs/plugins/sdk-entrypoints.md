@@ -140,6 +140,19 @@ and uses existing resource delivery for workers. Discovery assigns file ownershi
 request Gateway-local reads by returning a source label or `fileHost` value.
 Stopping the binding revokes retained host readers.
 
+The Skills worker also runs install and ClawHub operations. Install/remove use
+an authenticated adapter's duplex channel so Gateway policy and mutation checks
+run before the native filesystem operation. The adapter admits source roots and
+uploads; the worker uses its host account's permissions.
+
+For a remote workspace, dependency installation uses `installSkillDependencies`.
+Gateway selects the recipe and runs install policy; the host runs the existing
+installer through the worker's `installDependencies` operation. Requests contain
+the Skill key, recipe, installation preferences and timeout. Recipe choices use
+the host's OS and binaries. Missing host support fails without installing on Gateway.
+File-inspecting Gateway policies receive a temporary tree from the existing Skill
+resource reader; Gateway-owned sources remain local. Resource bundle limits apply.
+
 `readWorkspaceSkillResources` lazily reuses the bounded native bundle reader.
 File-transfer adapters can check each file's requested and verified canonical paths
 before returning a bundle; admitting the Skill directory alone does not admit every child.

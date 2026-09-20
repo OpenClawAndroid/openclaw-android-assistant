@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import type { EnvironmentSummary } from "../../../packages/gateway-protocol/src/index.js";
 import type { DesktopHostConfig } from "../../config/types.desktop.js";
 import { registerSecretValueForRedaction } from "../../logging/secret-redaction-registry.js";
 import type { RfbAttachment } from "./attachment.js";
@@ -128,21 +129,52 @@ function securityLabel(probe: Extract<RfbProbeResult, { kind: "rfb" }>): string 
   return probe.securityTypes.includes(19) ? "VeNCrypt" : "unsupported";
 }
 
-/** Probes the configured host desktop without reading or exposing password material. */
-export async function inspectHostDesktop(params: {
+type HostDesktopInspectionParams = {
   config?: DesktopHostConfig;
   platform?: NodeJS.Platform;
   managedDesktop?: ManagedLinuxDesktop;
   probeRfb?: typeof probeRfbServer;
-}): Promise<HostDesktopInspection> {
-  const port = params.config?.port ?? DEFAULT_HOST_DESKTOP_PORT;
+};
+
+/** Probes the configured host desktop without reading or exposing password material. */
+export async function inspectHostDesktop(
+  params: HostDesktopInspectionParams,
+): Promise<HostDesktopInspection> {
   if (params.config?.enabled !== true) {
     return {
-      status: { enabled: false, state: "disabled", port },
+      status: {
+        enabled: false,
+        state: "disabled",
+        port: params.config?.port ?? DEFAULT_HOST_DESKTOP_PORT,
+      },
       detail:
         "disabled; enable the Desktop lab with desktop.host.enabled=true, then restart the gateway",
     };
   }
+  return inspectConfiguredHostDesktop(params);
+}
+
+/** Setup inspection discovers a source without enabling access or starting a desktop. */
+export async function inspectHostDesktopSetup(
+  params: Omit<HostDesktopInspectionParams, "managedDesktop">,
+): Promise<NonNullable<EnvironmentSummary["desktopSetup"]>> {
+  const inspection = await inspectConfiguredHostDesktop(params);
+  if (inspection.status.state === "attached") {
+    return { state: "ready" };
+  }
+  if (inspection.status.state === "managed") {
+    return { state: "managed" };
+  }
+  return {
+    state: inspection.unavailableReason === "not-listening" ? "needs-server" : "unsupported",
+    detail: inspection.detail,
+  };
+}
+
+async function inspectConfiguredHostDesktop(
+  params: HostDesktopInspectionParams,
+): Promise<HostDesktopInspection> {
+  const port = params.config?.port ?? DEFAULT_HOST_DESKTOP_PORT;
   const platform = params.platform ?? process.platform;
   const probe = await (params.probeRfb ?? probeRfbServer)({
     host: "127.0.0.1",
@@ -150,7 +182,7 @@ export async function inspectHostDesktop(params: {
     timeoutMs: HOST_DESKTOP_PROBE_TIMEOUT_MS,
   });
   if (probe.kind === "unreachable" || probe.kind === "timeout") {
-    if (params.config.port === undefined && params.config.managed === true) {
+    if (params.config?.port === undefined && params.config?.managed === true) {
       if (platform !== "linux") {
         return {
           status: { enabled: true, state: "unavailable", port },

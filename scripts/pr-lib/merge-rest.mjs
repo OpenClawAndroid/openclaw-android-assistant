@@ -321,7 +321,7 @@ function latestRequiredChecks(repo, head, checks) {
   }
   const runs = checkPages(
     repo,
-    `/actions/runs?head_sha=${head}&per_page=100`,
+    `/actions/runs?head_sha=${head}&exclude_pull_requests=true&per_page=100`,
     "workflow_runs",
     head,
   );

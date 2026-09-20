@@ -92,10 +92,11 @@ largest value is an explicit consumer policy. Probabilities and confidence are
 not demonstrated accuracy guarantees or permission to act.
 
 The host owns concurrency, circuit health, deadlines, cancellation, and provider
-lifecycle. The adapter shares transport and response validation with the tool
-below. Requests use the fixed TypeSafe HTTPS endpoint, reject redirects, and do
-not retry automatically. Consumers decide what to do with unavailable decisions;
-caller cancellation must not start fallback work.
+lifecycle. Native decisions have a ten-second maximum; shorter consumer or
+plugin timeouts still apply. The adapter shares transport and response validation
+with the tool below. Requests use the fixed TypeSafe HTTPS endpoint, reject
+redirects, and do not retry automatically. Consumers decide what to do with
+unavailable decisions; caller cancellation must not start fallback work.
 
 ## Optional evaluation tool
 

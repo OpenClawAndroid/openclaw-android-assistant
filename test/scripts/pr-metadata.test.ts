@@ -32,6 +32,8 @@ type Fixture = {
   probeGit?: boolean;
   protectedGh?: boolean;
   cleanupFailure?: boolean;
+  authorSources?: unknown;
+  authorPages?: unknown[];
 };
 
 function readPrMetadata(fixture: Fixture = {}, command = "pr_meta_json 42") {
@@ -119,6 +121,13 @@ const hostFlag = args.indexOf("--hostname");
 const apiHost = hostFlag >= 0 ? args[hostFlag + 1] : defaultHost;
 const repoURL = "https://" + apiHost + "/base-owner/base-repo";
 if (fixture.notify) fs.writeSync(3, endpoint + "\\n");
+if (endpoint.startsWith("repos/base-owner/base-repo/commits?")) {
+  const count = Number(fs.readFileSync(path.join(root, "count"), "utf8"));
+  fs.writeFileSync(path.join(root, "count"), String(count + 1));
+  if (!fixture.authorPages || count >= fixture.authorPages.length) throw new Error("Unexpected author request");
+  out(fixture.authorPages[count]);
+  process.exit(0);
+}
 if (endpoint === "rate_limit") {
   out({resources:{graphql:{remaining:0,limit:5000,reset:1800000000},core:{remaining:4900,limit:5000,reset:1800000300}}});
   process.exit(0);
@@ -223,6 +232,128 @@ if (endpoint === "repos/base-owner/base-repo") {
 }
 
 describe("PR metadata through REST", () => {
+  describe("pinned source authors", () => {
+    const command =
+      'printf "%s\\n" "$FAKE_GH_FIXTURE" | jq .authorSources | pr_gh commit-authors base-owner/base-repo github.enterprise.invalid';
+    const sha = (index: number) => index.toString(16).padStart(40, "0");
+    const source = (index: number) => ({ oid: sha(index), changesTree: index % 2 === 0 });
+    const record = (index: number) => ({
+      sha: sha(index),
+      commit: { author: { name: `Author ${index}`, email: `author${index}@example.com` } },
+      author: { login: `author${index}`, type: "User" },
+    });
+    const requests = (calls: string[][]) =>
+      calls.map((args) => {
+        expect(args.slice(0, 3)).toEqual(["api", "--hostname", "github.enterprise.invalid"]);
+        const endpoint = args[3];
+        if (endpoint === undefined) {
+          throw new Error("Expected a commit-author API endpoint");
+        }
+        const query = new URL(endpoint, "https://github.enterprise.invalid/").searchParams;
+        return { sha: query.get("sha"), limit: Number(query.get("per_page")) };
+      });
+
+    it("does not read GitHub for an empty source selection", () => {
+      const result = readPrMetadata({ authorSources: [] }, command);
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual([]);
+      expect(result.calls).toEqual([]);
+    });
+
+    it("resolves 101 pinned authors in two requests and retains original source order", () => {
+      const sources = Array.from({ length: 101 }, (_, index) => source(index + 1));
+      const records = Array.from({ length: 101 }, (_, index) => record(index + 1));
+      const result = readPrMetadata(
+        { authorSources: sources, authorPages: [records.slice(1).toReversed(), [records[0]]] },
+        command,
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual(
+        records.map((commit, index) => ({
+          name: commit.commit.author.name,
+          email: commit.commit.author.email,
+          user: commit.author,
+          changesTree: source(index + 1).changesTree,
+        })),
+      );
+      expect(requests(result.calls)).toEqual([
+        { sha: sha(101), limit: 100 },
+        { sha: sha(1), limit: 1 },
+      ]);
+    });
+
+    it("ignores unrelated ancestry and uses singleton requests for every remaining author", () => {
+      const result = readPrMetadata(
+        {
+          authorSources: [source(1), source(2), source(3), source(4)],
+          authorPages: [
+            [record(4), record(99), record(98), record(97)],
+            [record(3)],
+            [record(2)],
+            [record(1)],
+          ],
+        },
+        command,
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).map((author: { name: string }) => author.name)).toEqual([
+        "Author 1",
+        "Author 2",
+        "Author 3",
+        "Author 4",
+      ]);
+      expect(requests(result.calls)).toEqual([
+        { sha: sha(4), limit: 4 },
+        { sha: sha(3), limit: 1 },
+        { sha: sha(2), limit: 1 },
+        { sha: sha(1), limit: 1 },
+      ]);
+    });
+
+    it.each([
+      null,
+      {},
+      [source(1), source(1)],
+      [{ oid: "main", changesTree: true }],
+      [{ oid: sha(1) }],
+    ])("rejects invalid source selections before reading GitHub: %j", (authorSources) => {
+      const result = readPrMetadata({ authorSources }, command);
+      expect(result.status).toBe(65);
+      expect(result.stdout).toBe("");
+      expect(result.calls).toEqual([]);
+    });
+
+    it.each([
+      null,
+      {},
+      [],
+      [record(2)],
+      [record(1), record(1)],
+      [{ ...record(1), sha: "main" }],
+      [{ ...record(1), author: undefined }],
+      [{ ...record(1), author: { login: "bot", type: null } }],
+      [{ ...record(1), commit: { author: { name: null, email: "author1@example.com" } } }],
+    ])("rejects malformed or unbound author evidence without retrying: %j", (page) => {
+      const result = readPrMetadata({ authorSources: [source(1)], authorPages: [page] }, command);
+      expect(result.status).toBe(65);
+      expect(result.stdout).toBe("");
+      expect(result.calls).toHaveLength(1);
+    });
+
+    it("rejects duplicate authors even when the batch has the requested size and tip", () => {
+      const result = readPrMetadata(
+        {
+          authorSources: [source(1), source(2)],
+          authorPages: [[record(2), record(2)]],
+        },
+        command,
+      );
+      expect(result.status).toBe(65);
+      expect(result.stdout).toBe("");
+      expect(result.calls).toHaveLength(1);
+    });
+  });
+
   it.each([
     {
       name: "qualified repo URL",

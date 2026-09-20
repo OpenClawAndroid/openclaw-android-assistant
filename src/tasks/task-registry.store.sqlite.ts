@@ -5,7 +5,6 @@ import {
   type ExecutionOwnerBindingResult,
 } from "../audit/execution-owner-binding.js";
 import { readSqliteBusyTimeout } from "../infra/sqlite-busy-timeout.js";
-import { repairLegacyTaskIdentifiers } from "../state/openclaw-state-db-legacy-backfills.js";
 import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import { withSharedStateWriteCoordinator } from "../state/openclaw-state-db-write-coordination.js";
 import {
@@ -59,10 +58,6 @@ function withWriteTransaction(write: (database: OpenClawStateDatabase) => void) 
 
 export function loadTaskRegistryStateFromSqlite(): TaskRegistryStoreSnapshot {
   return readTaskRegistrySnapshot(openTaskRegistryDatabase());
-}
-
-export function repairLegacyTaskIdentifiersInSqlite(): void {
-  withWriteTransaction(({ db }) => repairLegacyTaskIdentifiers(db));
 }
 
 export function withTaskRegistrySqliteMutation<T>(operation: () => T): T {

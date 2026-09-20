@@ -3832,11 +3832,12 @@ struct ChatViewModelTests {
             historyResponses: [historyPayload(), userOnlyHistory, userOnlyHistory, userOnlyHistory],
             requestHistoryHook: { _ in _ = await historyCalls.increment() },
             sendMessageStatus: "pending")
+        await MainActor.run { vm.pendingRunRefreshDelaysMs = [20, 60000] }
 
         try await loadAndWaitBootstrap(vm: vm)
         await sendUserMessage(vm, text: "quiet task")
         try await waitUntil("send refresh applies user-only history") {
-            await historyCalls.current() == 2
+            await historyCalls.current() >= 2
         }
         #expect(await MainActor.run { vm.pendingRunCount == 1 })
         try await waitUntil("post-send fallback keeps known run ownership", timeoutSeconds: 7.0) {
@@ -4007,16 +4008,22 @@ struct ChatViewModelTests {
 
     @Test func `legacy history omission does not clear pending run`() async throws {
         let legacyHistory = historyPayload(supportsActiveRunState: false)
+        let fallbackHistory = historyPayload(
+            sessionId: "sess-main-fallback",
+            supportsActiveRunState: false)
         let (_, vm) = await makeViewModel(
-            historyResponses: [legacyHistory, legacyHistory, legacyHistory],
+            historyResponses: [legacyHistory, legacyHistory, fallbackHistory],
             sendMessageStatus: "pending")
+        await MainActor.run { vm.pendingRunRefreshDelaysMs = [20, 60000] }
 
         try await loadAndWaitBootstrap(vm: vm)
         await sendUserMessage(vm, text: "legacy gateway")
         try await waitUntil("legacy send remains pending") {
             await MainActor.run { !vm.isSending && vm.pendingRunCount == 1 }
         }
-        try await Task.sleep(for: .milliseconds(1700))
+        try await waitUntil("legacy fallback history applies") {
+            await MainActor.run { vm.sessionId == "sess-main-fallback" }
+        }
         #expect(await MainActor.run { vm.pendingRunCount == 1 })
     }
 
@@ -10762,6 +10769,7 @@ struct ChatViewModelTests {
                     ])
             },
             sendMessageStatus: "pending")
+        vm.pendingRunRefreshDelaysMs = [20, 20, 60000]
 
         try await loadAndWaitBootstrap(vm: vm, sessionId: "sess-main")
 

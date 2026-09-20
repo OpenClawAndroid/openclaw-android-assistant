@@ -7,6 +7,7 @@ import {
 } from "../infra/node-commands.js";
 import { getPluginRegistryForContext } from "../plugins/runtime/gateway-request-scope.js";
 import { resolveReservedGatewayMethodScope } from "../shared/gateway-method-policy.js";
+import { operatorScopeSatisfied } from "../shared/operator-scope-compat.js";
 import { resolveDynamicSessionMutationRequiredScope } from "../shared/session-method-scopes.js";
 import { isAgentSessionResetCommand } from "./agent-command-policy.js";
 import {
@@ -272,25 +273,9 @@ export function authorizeOperatorScopesForRequiredScope(
   requiredScope: OperatorScope,
   scopes: readonly string[],
 ): { allowed: true } | { allowed: false; missingScope: OperatorScope } {
-  if (scopes.includes(ADMIN_SCOPE)) {
-    return { allowed: true };
-  }
-  if (requiredScope === READ_SCOPE) {
-    if (scopes.includes(READ_SCOPE) || scopes.includes(WRITE_SCOPE)) {
-      return { allowed: true };
-    }
-    return { allowed: false, missingScope: READ_SCOPE };
-  }
-  if (requiredScope === TALK_SCOPE) {
-    if (scopes.includes(TALK_SCOPE) || scopes.includes(WRITE_SCOPE)) {
-      return { allowed: true };
-    }
-    return { allowed: false, missingScope: TALK_SCOPE };
-  }
-  if (scopes.includes(requiredScope)) {
-    return { allowed: true };
-  }
-  return { allowed: false, missingScope: requiredScope };
+  return operatorScopeSatisfied(requiredScope, scopes)
+    ? { allowed: true }
+    : { allowed: false, missingScope: requiredScope };
 }
 
 /** Returns true when a method has any core, node, dynamic, reserved, or plugin scope policy. */

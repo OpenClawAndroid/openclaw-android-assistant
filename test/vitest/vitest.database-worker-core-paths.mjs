@@ -399,6 +399,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/state/openclaw-state-db-read-admission.test.ts",
   "src/state/openclaw-state-maintenance-resources.test.ts",
   "src/tasks/task-registry.test.ts",
+  "src/tasks/task-registry.test-support.test.ts",
   "src/tasks/task-registry.notifications.test.ts",
   "test/cron-message-read.integration.test.ts",
   "test/imessage-reply-alias.integration.test.ts",

@@ -3,7 +3,6 @@ import { getSqliteWorkerStateContext } from "../infra/sqlite-worker-state-contex
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { serializeAgentSchemaInspectionError } from "../state/openclaw-agent-schema-inspection-response.js";
 import type { OpenClawStateDatabase } from "../state/openclaw-state-db-contract.js";
-import { repairLegacyTaskIdentifiers } from "../state/openclaw-state-db-legacy-backfills.js";
 import { withSharedStateWriteCoordinator } from "../state/openclaw-state-db-write-coordination.js";
 import { runOpenClawStateWriteTransaction } from "../state/openclaw-state-db.js";
 import {
@@ -137,12 +136,6 @@ export function restoreTaskRegistryInDatabase(
   database: OpenClawStateDatabase,
 ): TaskRegistryRestoreResult {
   const restored = restoreTaskExecutionSnapshot({
-    repairLegacyIdentifiers: () =>
-      runOpenClawStateWriteTransaction(({ db }) => repairLegacyTaskIdentifiers(db), {
-        database,
-        path: database.path,
-        env: getSqliteWorkerStateContext().environment,
-      }),
     loadSnapshot: () => readTaskRegistrySnapshot(database),
     withMutation: (operation) =>
       withSharedStateWriteCoordinator(

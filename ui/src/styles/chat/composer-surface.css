@@ -956,9 +956,8 @@
   }
 
   .agent-chat__input:has(.chat-attachments-preview) {
-    /* The rail's overhang must also clear this outer scrollport. */
+    /* The rail's top overhang must also clear this outer scrollport. */
     padding-block-start: var(--chat-attachment-hit-slop);
-    padding-inline-end: var(--chat-attachment-hit-slop);
   }
 
   .agent-chat__input:has(.agent-chat__attach-menu[open]) {
@@ -1106,11 +1105,9 @@
   }
 }
 
-/* Phone composers keep a dense information row without changing the compact
-   desktop/split-pane treatment above. Plus and Send retain full touch targets;
-   the secondary controls share one smaller box so model and effort can remain
-   visible instead of collapsing into the model menu. */
-@media (max-width: 560px) {
+/* Density follows the composer, including narrow split panes in wider windows.
+   Plus and Send retain their targets while model and effort remain separate. */
+@container chat-composer (max-width: 560px) {
   .agent-chat__input--mobile-toolbar .agent-chat__composer-controls {
     flex: 1 1 0;
     min-width: 0;

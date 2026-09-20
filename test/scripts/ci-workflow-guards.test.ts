@@ -11771,7 +11771,7 @@ exit 1
       (step: WorkflowStep) => step.id === "swift-build-cache",
     );
     const nativeCachePrefix =
-      "${{ runner.os }}-swift-build-v6-${{ matrix.phase }}-${{ hashFiles('scripts/swift-build-cache-metadata.py') }}-graph-${{ steps.swift-toolchain.outputs.key }}-" +
+      "${{ runner.os }}-swift-build-${{ matrix.phase == 'tests' && 'v7' || 'v6' }}-${{ matrix.phase }}-${{ hashFiles('scripts/swift-build-cache-metadata.py') }}-graph-${{ steps.swift-toolchain.outputs.key }}-" +
       "${{ hashFiles('apps/macos/Package*.swift', 'apps/macos/Package.resolved', 'apps/shared/**/Package*.swift', 'apps/shared/**/Package.resolved', 'apps/swabble/Package*.swift', 'apps/swabble/Package.resolved') }}-";
 
     expect(buildCache.with).toMatchObject({
@@ -11876,11 +11876,11 @@ if (args[0] === 'delete-keychain') fs.unlinkSync(args.at(-1));
       const calls = readFileSync(callsPath, "utf8").trim().split("\n");
       expect(result.status).toBe(buildExitCode || 1);
       expect(calls).toEqual([
-        "build --package-path apps/macos --build-system native --enable-code-coverage --build-tests",
+        "build --package-path apps/macos --build-system native --enable-code-coverage --disable-index-store -Xswiftc -gline-tables-only --build-tests",
         ...(buildExitCode === 0
           ? [
               expect.stringMatching(
-                /^test --package-path apps\/macos --build-system native --enable-code-coverage --skip-build --experimental-maximum-parallelization-width 4 --skip AppStateIsolationTests\|ProfileChatPreferencesTests --event-stream-output-path \S+\/swift-testing-events\.jsonl --event-stream-version 6\.3$/,
+                /^test --package-path apps\/macos --build-system native --enable-code-coverage --disable-index-store -Xswiftc -gline-tables-only --skip-build --experimental-maximum-parallelization-width 4 --skip AppStateIsolationTests\|ProfileChatPreferencesTests --event-stream-output-path \S+\/swift-testing-events\.jsonl --event-stream-version 6\.3$/,
               ),
             ]
           : []),

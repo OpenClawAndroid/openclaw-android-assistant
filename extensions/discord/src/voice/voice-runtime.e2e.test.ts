@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough, type Readable } from "node:stream";
+import { createOpenClawCodingTools } from "openclaw/plugin-sdk/agent-harness";
 import { defineDiscordVoiceTests } from "./voice-test-harness.test-support.js";
 
 defineDiscordVoiceTests(
@@ -38,7 +39,6 @@ defineDiscordVoiceTests(
     getLastAudioPlayer,
     beginSpeakerTurn,
     lastAgentCommandArgs,
-    lastAgentCommandToolNames,
     lastRealtimeBridgeParams,
     createJoinedAgentProxyFixture,
     lastTtsArgs,
@@ -48,6 +48,20 @@ defineDiscordVoiceTests(
     handleSpeakingStart,
     receiveRecordedSpeech,
   }) => {
+    const lastAgentCommandToolNames = () => {
+      const args = lastAgentCommandArgs();
+      if (typeof args.senderIsOwner !== "boolean") {
+        throw new Error("expected agent command owner identity");
+      }
+      return createOpenClawCodingTools({
+        config: {},
+        senderIsOwner: args.senderIsOwner,
+        messageProvider: "discord",
+        workspaceDir: "/tmp/openclaw-discord-voice-tools",
+        agentDir: "/tmp/openclaw-discord-voice-agent",
+      }).map((tool) => tool.name);
+    };
+
     it("composes join, audio ingress, agent dispatch, playback, and leave", async () => {
       const connection = createConnectionMock();
       joinVoiceChannelMock.mockReturnValueOnce(connection);

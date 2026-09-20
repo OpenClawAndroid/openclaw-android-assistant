@@ -141,9 +141,30 @@ describe("Control UI Vite build", () => {
     await expect(fs.stat(path.join(outDir, "asset-manifest.json"))).resolves.toBeDefined();
   });
 
-  it.each([false, true])("emits assets and maps (release=%s)", async (release) => {
+  it.each(
+    (["configured", "absolute override", "relative override", "output override"] as const).flatMap(
+      (output) => [false, true].map((release) => ({ output, release })),
+    ),
+  )("finalizes $output assets and maps (release=$release)", async ({ output, release }) => {
     vi.stubEnv("OPENCLAW_CONTROL_UI_RELEASE_BUILD", release ? "1" : undefined);
     config = { ...config, ...controlUiViteConfig({ outDir }) };
+    const configuredOutDir = outDir;
+    if (output !== "configured") {
+      outDir = path.join(root, "overridden-output");
+      config.build =
+        output === "output override"
+          ? {
+              ...config.build,
+              rolldownOptions: {
+                ...config.build?.rolldownOptions,
+                output: { dir: outDir },
+              },
+            }
+          : {
+              ...config.build,
+              outDir: output === "relative override" ? path.relative(root, outDir) : outDir,
+            };
+    }
     config.publicDir = fileURLToPath(new URL("../../public", import.meta.url));
     await fs.writeFile(
       path.join(root, "index.html"),
@@ -151,6 +172,9 @@ describe("Control UI Vite build", () => {
     );
     await build(config);
     expect(info).not.toHaveBeenCalled();
+    if (output !== "configured") {
+      await expect(fs.stat(configuredOutDir)).rejects.toMatchObject({ code: "ENOENT" });
+    }
 
     const manifest: ControlUiAssetManifest = JSON.parse(
       await fs.readFile(path.join(outDir, "asset-manifest.json"), "utf8"),

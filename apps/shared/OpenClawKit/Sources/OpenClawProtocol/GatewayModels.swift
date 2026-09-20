@@ -6656,6 +6656,7 @@ public struct EnvironmentSummary: Codable, Sendable {
     public let worker: WorkerEnvironmentMetadata?
     public let preparation: [String: AnyCodable]?
     public let requirednodecommand: RequiredNodeCommand?
+    public let desktopsetup: [String: AnyCodable]?
 
     public init(
         id: String,
@@ -6678,7 +6679,8 @@ public struct EnvironmentSummary: Codable, Sendable {
         issues: [[String: AnyCodable]]? = nil,
         worker: WorkerEnvironmentMetadata? = nil,
         preparation: [String: AnyCodable]? = nil,
-        requirednodecommand: RequiredNodeCommand? = nil)
+        requirednodecommand: RequiredNodeCommand? = nil,
+        desktopsetup: [String: AnyCodable]? = nil)
     {
         self.id = id
         self.type = type
@@ -6701,6 +6703,7 @@ public struct EnvironmentSummary: Codable, Sendable {
         self.worker = worker
         self.preparation = preparation
         self.requirednodecommand = requirednodecommand
+        self.desktopsetup = desktopsetup
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -6725,6 +6728,7 @@ public struct EnvironmentSummary: Codable, Sendable {
         case worker
         case preparation
         case requirednodecommand = "requiredNodeCommand"
+        case desktopsetup = "desktopSetup"
     }
 }
 
@@ -6947,18 +6951,22 @@ public struct EnvironmentsDestroyResult: Codable, Sendable {
 public struct EnvironmentsListParams: Codable, Sendable {
     public let runtimeid: String?
     public let projection: String?
+    public let includedesktopsetup: Bool?
 
     public init(
         runtimeid: String? = nil,
-        projection: String? = nil)
+        projection: String? = nil,
+        includedesktopsetup: Bool? = nil)
     {
         self.runtimeid = runtimeid
         self.projection = projection
+        self.includedesktopsetup = includedesktopsetup
     }
 
     private enum CodingKeys: String, CodingKey {
         case runtimeid = "runtimeId"
         case projection
+        case includedesktopsetup = "includeDesktopSetup"
     }
 }
 

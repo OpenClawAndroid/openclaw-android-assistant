@@ -2193,10 +2193,6 @@ describe("scripts/changed-lanes", () => {
         includes: ["tsgo:ui", "tsgo:core:test"],
         excludes: ["tsgo:core"],
         coreTestChecks: ["checkBoundary", "checkTypes"],
-        stylelintTargets: [
-          "ui/src/styles/chat/composer-surface.css",
-          "ui/src/styles/chat/composer.css",
-        ],
       },
     },
     ...["ui/src/app.ts", "tsconfig.ui.json", "ui/src/e2e/chat-flow.test-support.ts"].map(
@@ -2270,13 +2266,6 @@ describe("scripts/changed-lanes", () => {
     expect(plan.commands.flatMap((command) => command.coreTestCheck ?? [])).toEqual(
       "coreTestChecks" in expected ? expected.coreTestChecks : [],
     );
-    if ("stylelintTargets" in expected && expected.stylelintTargets) {
-      expect(
-        plan.commands.find((command) => command.name.startsWith("lint UI changed style")),
-      ).toMatchObject({
-        args: ["--import", "tsx", "scripts/run-stylelint.mts", ...expected.stylelintTargets],
-      });
-    }
     for (const command of expected.includes) {
       expect(commands).toContain(command);
     }

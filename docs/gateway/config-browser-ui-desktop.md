@@ -182,6 +182,21 @@ machine. It can attach to an existing loopback RFB server, or supervise a
 headless TigerVNC/XFCE desktop on Linux. It is a Labs feature and is off by
 default.
 
+In **Systems**, select the **Gateway host** to check for an existing screen-sharing
+server. When one is available, **Enable desktop access in OpenClaw** turns on Host
+Desktop and requests a Gateway restart; the page reconnects automatically. This
+requires Gateway administrator access. Detection does not expose the desktop or
+change system permissions. Existing managed Linux desktops can be enabled from
+the same view. **Settings → Labs → Host Desktop** remains available to turn access
+off or manage it separately.
+
+Enabling macOS Screen Sharing, a paired node's Desktop sharing, or screenshot
+capture alone does not enable the Gateway's desktop. On macOS, Remote Management
+also provides screen sharing, but the account must have **Observe** and **Control**
+rights in **System Settings → General → Sharing → Remote Management**. A correct
+password can still be rejected when those rights are missing. OpenClaw does not
+change these system permissions automatically.
+
 Observer tokens and observer connections are bound to the Gateway connection
 that requested them. Ending or revoking that connection refuses unused tokens
 and closes its observers with `4006 authority_revoked`. Internal callers without

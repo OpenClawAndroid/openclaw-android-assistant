@@ -167,8 +167,13 @@ In a normal Control UI chat, type `@` and search by a person's display name (inc
 
 Use Up/Down to move through people, Home/End to jump to the first or last result,
 and Enter or Tab to insert the selected mention. Escape closes the picker. Filtering
-keeps the selected person when they still match. The picker shows placeholders while
-searching, an empty message when nobody matches, and **Retry** if the lookup fails.
+keeps the selected person when they still match. The picker reuses recent results
+for the same search in the same composer, including after closing it or starting
+another mention. After five minutes, it refreshes cached results in the background
+without hiding the people you can already select. Switching sessions, profiles,
+or connections clears that cache. Results older than 30 minutes are discarded.
+The picker shows placeholders for uncached searches, an empty message when nobody
+matches, and **Retry** if a search without usable cached results fails.
 **Will notify** reuses the selected person's photo, with initials while it loads or
 when the photo is unavailable.
 

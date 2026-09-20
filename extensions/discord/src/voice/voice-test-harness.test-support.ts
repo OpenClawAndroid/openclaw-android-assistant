@@ -1,7 +1,6 @@
 import { PassThrough } from "node:stream";
 import { DAVESession } from "@discordjs/voice";
 import { VoiceOpcodes, type VoiceSendPayload } from "discord-api-types/voice/v8";
-import { createOpenClawCodingTools } from "openclaw/plugin-sdk/agent-harness";
 import { expectDefined } from "openclaw/plugin-sdk/expect-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChannelType } from "../internal/discord.js";
@@ -398,20 +397,6 @@ function buildVoiceTestHarness() {
       "agent command args",
     );
 
-  const lastAgentCommandToolNames = () => {
-    const args = lastAgentCommandArgs();
-    if (typeof args.senderIsOwner !== "boolean") {
-      throw new Error("expected agent command owner identity");
-    }
-    return createOpenClawCodingTools({
-      config: {},
-      senderIsOwner: args.senderIsOwner,
-      messageProvider: "discord",
-      workspaceDir: "/tmp/openclaw-discord-voice-tools",
-      agentDir: "/tmp/openclaw-discord-voice-agent",
-    }).map((tool) => tool.name);
-  };
-
   const agentCommandArgsAt = (index: number) =>
     requireRecord(
       mockCall(agentCommandMock as unknown as MockCallSource, index, `agent command ${index}`)[0],
@@ -647,7 +632,6 @@ function buildVoiceTestHarness() {
     DAVESession,
     expectDefined,
     VoiceOpcodes,
-    createOpenClawCodingTools,
     expect,
     it,
     vi,
@@ -711,7 +695,6 @@ function buildVoiceTestHarness() {
     getLastAudioPlayer,
     expectOffEventWithFunction,
     lastAgentCommandArgs,
-    lastAgentCommandToolNames,
     agentCommandArgsAt,
     realtimeBridgeAt,
     lastRealtimeBridge,

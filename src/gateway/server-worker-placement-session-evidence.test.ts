@@ -26,6 +26,7 @@ import { clearNodeSqliteKyselyCacheForDatabase } from "../infra/kysely-sync-cach
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import * as registryListing from "../state/openclaw-agent-db-registry-listing.js";
 import {
+  closeOpenClawAgentDatabaseByPathAsync,
   closeOpenClawAgentDatabasesForTest,
   closeOpenClawAgentDatabasesAsync,
   openOpenClawAgentDatabase,
@@ -261,7 +262,13 @@ describe("worker placement session evidence", () => {
           updatedAt: 1,
         });
       }
+      // Settle fixture maintenance before corruption can revoke a reader's validation receipt.
+      const databasePath = openOpenClawAgentDatabase({ agentId: "main" }).path;
+      await closeOpenClawAgentDatabaseByPathAsync(databasePath, "main");
       const database = openOpenClawAgentDatabase({ agentId: "main" });
+      expect(
+        readSessionIdentityEvidenceInDatabase(database, [broken]).map((row) => row.status),
+      ).toEqual(["current"]);
       clearNodeSqliteKyselyCacheForDatabase(database.db);
       database.db.exec("DROP TABLE session_nodes");
 

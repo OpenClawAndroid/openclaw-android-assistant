@@ -14,6 +14,7 @@ import { readExecApprovalsConfigRow } from "../infra/exec-approvals-sqlite.js";
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
 import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { withStateDatabaseCoordinatorRuntimeDirectory } from "../infra/state-database-coordinator.js";
+import { readUpdateRunRecord, readUpdateRuns } from "../infra/update-run-read.kernel.js";
 import { serveOwnedWorkerTasks } from "../infra/worker-task-server.js";
 import { readConfigMachineStateRowInDatabase } from "./config-machine-state.js";
 import { readOnboardingRecommendationsInDatabase } from "./onboarding-recommendations.kernel.js";
@@ -24,6 +25,7 @@ import {
   readOpenClawStateReadOnlyLocation,
   withOpenClawStateReadOnlyLocation,
 } from "./openclaw-state-db-read-connection.js";
+import { tableExists } from "./openclaw-state-db-schema-helpers.js";
 import type {
   OpenClawStateReadReply,
   OpenClawStateReadRequest,
@@ -63,6 +65,17 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
           typeof input.command.input.executionId === "string")) ||
       (input.command.type === "workspace.snapshot" &&
         typeof input.command.workspaceDir === "string") ||
+      (input.command.type === "updateRuns.get" && typeof input.command.runId === "string") ||
+      (input.command.type === "updateRuns.list" &&
+        isRecord(input.command.input) &&
+        (input.command.input.limit === undefined ||
+          typeof input.command.input.limit === "number") &&
+        (input.command.input.active === undefined ||
+          typeof input.command.input.active === "boolean") &&
+        (input.command.input.reason === undefined ||
+          typeof input.command.input.reason === "string") &&
+        (input.command.input.includeRunId === undefined ||
+          typeof input.command.input.includeRunId === "string")) ||
       input.command.type === "fleet.list" ||
       input.command.type === "nodeHost.config" ||
       (input.command.type === "onboardingRecommendations.read" &&
@@ -131,6 +144,24 @@ serveOwnedWorkerTasks(
             return withOpenClawStateReadOnlyLocation(
               ({ db }) => {
                 sourceAdmitted = true;
+                if (command.type === "updateRuns.get") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    run: tableExists(db, "update_runs")
+                      ? readUpdateRunRecord(db, command.runId)
+                      : undefined,
+                  };
+                }
+                if (command.type === "updateRuns.list") {
+                  return {
+                    ok: true,
+                    type: command.type,
+                    sourceAdmitted,
+                    runs: readUpdateRuns(db, command.input),
+                  };
+                }
                 if (command.type === "exec-approvals.read") {
                   return {
                     ok: true,

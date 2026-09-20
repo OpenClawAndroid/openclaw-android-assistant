@@ -80,22 +80,21 @@ describe("roleScopesAllow", () => {
     ).toBe(false);
   });
 
-  it("treats operator.approvals/operator.pairing as satisfied by operator.admin", () => {
-    expect(
-      roleScopesAllow({
-        role: "operator",
-        requestedScopes: ["operator.approvals"],
-        allowedScopes: ["operator.admin"],
-      }),
-    ).toBe(true);
-    expect(
-      roleScopesAllow({
-        role: "operator",
-        requestedScopes: ["operator.pairing"],
-        allowedScopes: ["operator.admin"],
-      }),
-    ).toBe(true);
-  });
+  it.each(["operator.talk.secrets", "operator.approvals", "operator.pairing", "operator.future"])(
+    "requires an exact grant or admin for %s",
+    (requestedScope) => {
+      for (const allowedScopes of [[requestedScope], ["operator.admin"]]) {
+        expect(
+          roleScopesAllow({ role: "operator", requestedScopes: [requestedScope], allowedScopes }),
+        ).toBe(true);
+      }
+      for (const allowedScopes of [[], ["operator.write"]]) {
+        expect(
+          roleScopesAllow({ role: "operator", requestedScopes: [requestedScope], allowedScopes }),
+        ).toBe(false);
+      }
+    },
+  );
 
   it("does not treat operator.admin as satisfying non-operator scopes", () => {
     expect(

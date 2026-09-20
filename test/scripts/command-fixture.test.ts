@@ -1,0 +1,145 @@
+import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { createServer, type Socket } from "node:net";
+import { createInterface } from "node:readline";
+import { describe, expect, it, vi } from "vitest";
+import { createCommandFixture } from "../helpers/command-fixture.js";
+import { isProcessAlive } from "../helpers/process-wait.js";
+import { createDeferred } from "../helpers/promise.js";
+
+const observer = vi.hoisted((): { onChild?: (child: ChildProcess) => void } => ({}));
+
+// Observe the real leader's exit without replacing spawning or process cleanup.
+vi.mock("../../scripts/lib/managed-child-process.mts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../scripts/lib/managed-child-process.mts")>();
+  return {
+    ...actual,
+    runManagedCommand: (options: Parameters<typeof actual.runManagedCommand>[0]) =>
+      actual.runManagedCommand({
+        ...options,
+        onReady(child) {
+          options.onReady?.(child);
+          observer.onChild?.(child);
+        },
+      }),
+  };
+});
+
+describe.skipIf(process.platform === "win32")("POSIX command fixture output drainage", () => {
+  it.for(["drain", "cancel"] as const)(
+    "settles a descendant after leader exit through %s",
+    async (mode, context) => {
+      const stop = new AbortController();
+      const signal = context.signal;
+      const command = createCommandFixture({
+        signal: AbortSignal.any([signal, stop.signal]),
+        onTestFinished: context.onTestFinished,
+      });
+      try {
+        await command.lifetime.run(async () => {
+          signal.throwIfAborted();
+          const server = createServer();
+          let completion: ReturnType<typeof command.run> | undefined;
+          let socket: Socket | undefined;
+          let reader: ReturnType<typeof createInterface> | undefined;
+          const connected = createDeferred<Socket>();
+          const cancelled = createDeferred<never>();
+          // Observe early rejection while retaining the original awaited promises.
+          void connected.promise.catch(() => {});
+          void cancelled.promise.catch(() => {});
+          const aborted = () => cancelled.reject(signal.reason);
+          signal.addEventListener("abort", aborted, { once: true });
+          server.once("connection", (connection) => {
+            socket = connection;
+            connected.resolve(connection);
+          });
+          server.once("error", connected.reject);
+          try {
+            server.listen({ port: 0, host: "127.0.0.1", signal });
+            await once(server, "listening", { signal });
+            const address = server.address();
+            if (!address || typeof address === "string") {
+              throw new Error("Missing fixture listener address");
+            }
+            const exited = createDeferred();
+            observer.onChild = (child) => child.once("exit", () => exited.resolve());
+            const descendant = `
+const socket = require("node:net").connect(${address.port}, "127.0.0.1", () => process.send("ready"));
+require("node:readline").createInterface({ input: socket }).on("line", (line) => {
+  if (line === "ping") socket.write("pong\\n");
+  if (line === "release") {
+    process.stderr.write("drained\\n");
+    socket.end();
+  }
+});
+`;
+            completion = command.run(process.execPath, [
+              "--eval",
+              `
+const child = require("node:child_process").spawn(process.execPath, ["--eval", ${JSON.stringify(descendant)}], {
+  stdio: ["ignore", "ignore", "inherit", "ipc"],
+});
+child.once("message", () => {
+  console.log(child.pid);
+  child.disconnect();
+  child.unref();
+});
+`,
+            ]);
+            const connection = await Promise.race([connected.promise, cancelled.promise]);
+            const lines = createInterface({ input: connection });
+            reader = lines;
+            await Promise.race([exited.promise, cancelled.promise]);
+            // The descendant remains usable while it owns the final output pipe.
+            const pong = new Promise<string>((resolve, reject) => {
+              if (connection.destroyed) {
+                reject(new Error("Descendant exited before its output drained"));
+                return;
+              }
+              lines.once("line", resolve);
+              lines.once("error", reject);
+              connection.once("close", () =>
+                reject(new Error("Descendant exited before acknowledging drainage")),
+              );
+              connection.once("error", reject);
+            });
+            connection.write("ping\n");
+            expect(await Promise.race([pong, cancelled.promise])).toBe("pong");
+            if (mode === "drain") {
+              connection.end("release\n");
+              const result = await completion;
+              expect(result.error).toBeUndefined();
+              expect(result.status).toBe(0);
+              expect(result.stderr).toBe("drained\n");
+            } else {
+              stop.abort();
+              const result = await completion;
+              expect(result.error).toMatchObject({ code: "ABORT_ERR" });
+              const descendantPid = Number(result.stdout.trim());
+              expect(descendantPid).toBeGreaterThan(0);
+              expect(isProcessAlive(descendantPid)).toBe(false);
+            }
+          } finally {
+            observer.onChild = undefined;
+            signal.removeEventListener("abort", aborted);
+            reader?.close();
+            socket?.destroy();
+            await completion;
+            await new Promise<void>((resolve, reject) => {
+              server.close((error?: NodeJS.ErrnoException) => {
+                if (error && error.code !== "ERR_SERVER_NOT_RUNNING") {
+                  reject(error);
+                } else {
+                  resolve();
+                }
+              });
+            });
+          }
+        });
+      } finally {
+        await command.lifetime.cleanup();
+      }
+    },
+  );
+});

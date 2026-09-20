@@ -15,13 +15,15 @@ title: "Database layout"
 
 The task registry uses the shared state database. Runtime trajectory events live with their sessions in the per-agent database or a configured shared session SQLite store.
 
-Task registry restore normalizes legacy task run and child-session identifiers
-before hydrating records, so scoped mutations can use their existing indexes.
-The repair runs in the existing write transaction once per registry restore;
-ordinary database opens and read-only inspection do not rewrite these rows.
-Doctor uses the same repair. New task records normalize these identifiers before
-persistence and receipt publication. Schema versions and retention are unchanged;
-after an older writer is used, the next registry restore repairs its padded rows again.
+Doctor normalizes historical task run and child-session identifiers together
+with their related subagent bindings, so scoped mutations can use the existing
+indexes. Legacy sidecar imports use the same transactional repair. Gateway
+restore and reads consume stored identifiers without repairing them. New task
+records and explicit identifier changes normalize before persistence and receipt
+publication; unrelated patches preserve the existing identity. Schema versions
+and retention are unchanged. `openclaw update` runs Doctor before activation;
+after a direct binary replacement or using an older writer, run
+`openclaw doctor --fix` before starting the new Gateway.
 
 ### Activity session recaps
 
@@ -197,6 +199,12 @@ verification facts, repair attempts, confirmation/finish timestamps, and known
 downtime. Each JSON column has a 16 KiB hard limit with deterministic truncation
 and redaction. The ledger stores bounded diagnostic summaries, not raw logs or
 credentials. There is no automatic history deletion.
+
+Asynchronous history lookup and listing run their queries and record decoding
+in the shared-state read worker. They preserve source artifacts and inherited
+snapshot or disposable-read scopes, and return empty history without creating
+a missing database or ledger table. Reconciliation and ledger writes retain
+their existing owners.
 
 New drivers store optional `origin.driver` fields `host` (the hostname), `pid`,
 and `startIdentity` (the operating system's process-start identity as a decimal

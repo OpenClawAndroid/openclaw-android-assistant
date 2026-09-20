@@ -25,6 +25,32 @@ import {
 const OPENCLAW_CLI_ENV_VALUE = "1";
 
 describe("runCommandWithTimeout", () => {
+  it("inherits a caller-owned stdin descriptor without reading it into JavaScript", async () => {
+    const descriptor = openSync(fileURLToPath(import.meta.url), "r");
+    let running: ReturnType<typeof runCommandWithTimeout>;
+    try {
+      running = runCommandWithTimeout(
+        [process.execPath, "-e", "process.stdin.pipe(process.stdout)"],
+        { stdinFileDescriptor: descriptor, timeoutMs: 3_000 },
+      );
+    } finally {
+      // Spawn duplicates the descriptor before returning to the caller.
+      closeSync(descriptor);
+    }
+    const result = await running;
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("// Exec tests cover command execution");
+  });
+
+  it("rejects competing stdin sources before spawning", async () => {
+    await expect(
+      runCommandWithTimeout([process.execPath, "-e", "process.exit(99)"], {
+        input: "buffered",
+        stdinFileDescriptor: 0,
+      }),
+    ).rejects.toThrow("either input or stdinFileDescriptor");
+  });
+
   it("never enables shell execution (Windows cmd.exe injection hardening)", () => {
     expect(
       shouldSpawnWithShell({
@@ -66,6 +92,7 @@ describe("runCommandWithTimeout", () => {
       }
       const result = await running;
       expect(result.cleanup).toBe(mode === "default-signal" ? "cooperative" : mode);
+      expect(result.killIssuedByAbort).toBe(mode === "normal" ? undefined : true);
       if (mode === "default-signal") {
         expect(result).toMatchObject({ code: null, signal: "SIGINT", termination: "signal" });
       }
@@ -298,6 +325,7 @@ describe("runCommandWithTimeout", () => {
         termination: "signal",
         cleanup: "uncertain",
       });
+      expect(result.killIssuedByAbort).toBeUndefined();
     },
   );
 

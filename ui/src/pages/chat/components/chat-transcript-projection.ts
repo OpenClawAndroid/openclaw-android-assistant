@@ -555,7 +555,7 @@ export function projectChatTranscript(
     expandedToolCards,
     messageRowKeysById,
   );
-  transcript.entryAnimations.project(chatItems, props.sessionKey);
+  transcript.entryAnimations.project(chatItems);
   transcript.syncMessageRows(messageRowKeysById, transcriptMessageKeys);
   let turnRecapOwnerKey: string | null = null;
   if (turnRecap !== null && tailStatusOwner?.runId === turnRecap.runId) {

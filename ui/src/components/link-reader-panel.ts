@@ -504,6 +504,7 @@ class OpenClawLinkReaderPanel extends OpenClawLitElement implements PanelHostedT
       this.readers.includes(target.reader);
     const requestParams: ControlUiLinkReaderDetailParams = {
       url: target.href,
+      ...(agentId ? { agentId } : {}),
       ...(this.refreshRequested ? { refresh: true } : {}),
     };
     this.refreshRequested = false;
