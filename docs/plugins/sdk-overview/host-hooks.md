@@ -484,6 +484,50 @@ that count. Failed images retain initials without dropping an author. Names are
 also available to assistive technology and in the full reader. Author images
 keep the preview’s anonymous-image rules; these are not Gateway user identities.
 
+A document can also include passive `checks`:
+
+```typescript
+checks?: {
+  state: "success" | "failure" | "pending" | "neutral" | "unavailable";
+  summary: string;
+  total: number;
+  items: Array<{
+    name: string;
+    state: "success" | "failure" | "pending" | "neutral";
+    detail?: string;
+    url?: string;
+  }>;
+  truncated?: boolean;
+  url?: string;
+  commit?: string;
+};
+```
+
+The plugin owns summaries, item details, bounded HTTPS source links, aggregation,
+and exact source revision (`commit`). The host renders these facts, not service
+rules or a mergeability decision. `total` is the known check-context count and
+can be incomplete when `truncated` or `unavailable`. Set `truncated` when the
+item list is incomplete, including when a source could not be read. Preserve
+the document body if an optional checks request fails, and never report success
+from incomplete data. An empty complete list is `neutral`.
+
+The bundled GitHub reader reads check runs and legacy commit statuses anonymously
+for the pull request's exact head SHA, not its base or test-merge commit. It reads
+one page of at most 100 entries from each API and returns at most 100 items; it
+does not follow pagination links. GitHub's `filter=latest` selects check runs;
+the reader retains every distinct run ID rather than inferring workflow identity
+from an app and job name. Identically named jobs from different workflows remain
+separate, so a newer success cannot hide an independent failure. Legacy statuses
+remain separate from check runs and use the latest case-insensitive context.
+Known failures outrank pending work, which
+outranks unavailable data; only complete data can produce success or neutral.
+Canceled, timed-out, stale, and action-required runs count as failures; skipped
+and neutral runs remain neutral. Partial results retain known items and an
+explicit incomplete summary. PR snapshots share the existing document cache
+for 30 seconds; an explicit refresh rereads the PR and both CI sources for that
+response's head. This surface neither evaluates required-check rules nor claims
+that a PR can merge.
+
 Return only bounded data appropriate for the caller. Rendered content cannot
 activate embedded app widgets, script, file actions, or code execution. Inline
 remote images use anonymous CORS and no referrer unless the reader declares

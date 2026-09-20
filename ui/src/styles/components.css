@@ -2554,6 +2554,115 @@ select.input {
   user-select: none;
 }
 
+.code-block-json-modes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.code-block-json-mode {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.code-block-json-mode[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+}
+
+.code-block-json-mode:focus-visible,
+.code-block-json-node > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.code-block-json-tree {
+  max-height: 360px;
+  padding: 6px 14px 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.code-block-json-children {
+  padding-inline-start: 20px;
+}
+
+.code-block-json-tree .code-block-json-node {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.code-block-json-node > summary {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  list-style: none;
+}
+
+.code-block-json-node > summary::-webkit-details-marker {
+  display: none;
+}
+
+.code-block-json-node > summary::before {
+  position: static;
+  content: "▸";
+  display: inline-block;
+  inline-size: 14px;
+  block-size: auto;
+  margin-inline-start: -14px;
+  background: none;
+  transform: none;
+}
+
+.code-block-json-node[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.code-block-json-node-summary {
+  font-style: italic;
+}
+
+.code-block-json-node-opening,
+.code-block-json-node[open] > summary > .code-block-json-node-summary {
+  display: none;
+}
+
+.code-block-json-node[open] > summary > .code-block-json-node-opening {
+  display: inline;
+}
+
+.code-block-json-key,
+.code-block-json-value--string {
+  color: var(--hljs-string);
+}
+
+.code-block-json-value--literal {
+  color: var(--hljs-number);
+}
+
+/* Raw keeps the shared seven-line preview, reveal, wrap, and original copy payload. */
+.code-block-wrapper--json:not(.is-json-raw) > :is(.code-block-viewport, .code-block-expand),
+.code-block-wrapper--json:not(.is-json-raw) .code-block-wrap,
+.code-block-wrapper--json.is-json-raw > .code-block-json-tree {
+  display: none;
+}
+
 .code-block-copy {
   appearance: none;
   border: none;
@@ -4836,6 +4945,16 @@ td.data-table-key-col {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
+}
+
+.cmd-palette__attachments {
+  --chat-composer-editor-inset-inline: 14px;
+  --chat-composer-editor-inset-block: 6px;
+  --chat-attachment-hit-slop: 12px;
+  --chat-box-inset: 8px;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0 12px 6px 4px;
 }
 
 .cmd-palette__entry {

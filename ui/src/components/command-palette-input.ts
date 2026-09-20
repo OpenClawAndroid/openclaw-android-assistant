@@ -11,6 +11,7 @@ type CommandPaletteInputProps = {
   onInputRef: (element: Element | undefined) => void;
   onValueChange: (value: string) => void;
   actions?: TemplateResult | typeof nothing;
+  onPaste?: (event: ClipboardEvent) => void;
   disabled?: boolean;
   readOnly?: boolean;
   controls?: string;
@@ -145,6 +146,7 @@ export function renderCommandPaletteInput(props: CommandPaletteInputProps) {
           ?disabled=${props.disabled}
           ?readonly=${props.readOnly}
           @scroll=${handlePaletteInputScroll}
+          @paste=${props.onPaste ?? nothing}
           ${ref(props.onInputRef)}
           @input=${(event: Event) => {
             if (event.currentTarget instanceof HTMLTextAreaElement) {

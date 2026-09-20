@@ -351,6 +351,7 @@ internal fun ChatScreen(
   val sessionCreating by viewModel.chatSessionCreating.collectAsState()
   val errorText by viewModel.chatError.collectAsState()
   val talkFailureText by viewModel.talkFailureText.collectAsState()
+  val talkStatusText by viewModel.talkModeStatusText.collectAsState()
   val pendingRunCount by viewModel.pendingRunCount.collectAsState()
   val selectedActiveRun by viewModel.chatSelectedActiveRunPresentation.collectAsState()
   val healthOk by viewModel.chatHealthOk.collectAsState()
@@ -966,6 +967,9 @@ internal fun ChatScreen(
         title = nativeString("Chat needs attention"),
         body = userFacingChatError(error = error, gatewayConnected = gatewayConnectionDisplay.isConnected),
       )
+    }
+    if (talkActive) {
+      ChatNotice(title = nativeString("Talk"), body = talkStatusText)
     }
     talkFailureText?.takeIf { !talkActive && it.isNotBlank() }?.let { failure ->
       ChatNotice(title = nativeString("Talk stopped"), body = failure)

@@ -655,7 +655,9 @@ export default function controlUiViteConfig(
     build: {
       outDir: buildOutDir,
       emptyOutDir: true,
-      sourcemap: true,
+      // Release packages omit maps; keep generating them without advertising dead URLs.
+      // Source builds retain automatic debugger discovery.
+      sourcemap: buildInfo.release ? "hidden" : true,
       modulePreload: {
         polyfill: true,
         resolveDependencies: resolveControlUiModulePreloadDependencies,

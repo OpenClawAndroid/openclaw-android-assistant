@@ -86,12 +86,12 @@ export async function prepareGitCandidateTransfer(params: {
       : undefined;
   };
   const upstreamSha = upstreamRef
-    ? await runGit("git pin update upstream", ["rev-parse", upstreamRef])
+    ? await runGit("git-pin-update-upstream", ["rev-parse", upstreamRef])
     : undefined;
   if (upstreamRef && !upstreamSha) {
     return undefined;
   }
-  const objects = await runGit("git update history", [
+  const objects = await runGit("git-update-history", [
     "rev-list",
     "--objects",
     "--no-object-names",
@@ -102,7 +102,7 @@ export async function prepareGitCandidateTransfer(params: {
   ]);
   // An older/divergent target may reuse blobs omitted from the installed partial
   // clone. Include its entire tree separately, even when no new commits exist.
-  const tree = await runGit("git update tree", [
+  const tree = await runGit("git-update-tree", [
     "rev-list",
     "--objects",
     "--no-object-names",
@@ -127,7 +127,7 @@ export async function prepareGitCandidateTransfer(params: {
     !probe.signal &&
     (!probe.termination || probe.termination === "exit")
   ) {
-    const beforeTree = await runGit("git retained tree", [
+    const beforeTree = await runGit("git-retained-tree", [
       "rev-list",
       "--objects",
       "--no-object-names",
@@ -137,7 +137,7 @@ export async function prepareGitCandidateTransfer(params: {
       return undefined;
     }
     const local = await runGit(
-      "git retained object availability",
+      "git-retained-object-availability",
       ["--no-lazy-fetch", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
       `${beforeTree}\n`,
       installedRoot,
@@ -157,7 +157,7 @@ export async function prepareGitCandidateTransfer(params: {
       ) {
         return recordStagingFailure(
           { ...step, cwd: installedRoot },
-          "git retained object inventory",
+          "git-retained-object-inventory",
           "verify retained Git object availability",
           "Incomplete retained Git object availability inventory",
         );
@@ -169,7 +169,7 @@ export async function prepareGitCandidateTransfer(params: {
     if (pending.size) {
       return recordStagingFailure(
         { ...step, cwd: installedRoot },
-        "git retained object inventory",
+        "git-retained-object-inventory",
         "verify retained Git object availability",
         "Incomplete retained Git object availability inventory",
       );
@@ -186,7 +186,7 @@ export async function prepareGitCandidateTransfer(params: {
   // base can trigger a lazy network fetch when the installed Git imports it.
   // A configured packSizeLimit also needs clearing to guarantee a single pack.
   const hash = await runGit(
-    "git pack update",
+    "git-pack-update",
     ["-c", "pack.packSizeLimit=0", "pack-objects", "--max-pack-size=0", prefix],
     input,
     step.cwd,
@@ -206,7 +206,7 @@ export async function prepareGitCandidateTransfer(params: {
   } catch (error) {
     return recordStagingFailure(
       step,
-      "git update pack read",
+      "git-update-pack-read",
       `read update pack ${packPath}`,
       `Cannot stage the Git update pack: ${String(error)}`,
       Date.now() - readStarted,
@@ -230,7 +230,7 @@ export async function prepareGitCandidateTransfer(params: {
       }
       const tracked = await runStep({
         ...target,
-        name: "git import admitted upstream",
+        name: "git-import-admitted-upstream",
         argv: ["git", "-C", target.cwd, "update-ref", upstreamRef, upstreamSha],
       });
       return tracked.exitCode === 0;
@@ -267,7 +267,7 @@ export async function prepareGitCandidateTransfer(params: {
         }
       } catch (error) {
         const warning: UpdateStepResult = {
-          name: "git update pack cleanup",
+          name: "git-update-pack-cleanup",
           command: "release retained Git update pack",
           cwd: target.cwd,
           durationMs: 0,

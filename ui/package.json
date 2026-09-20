@@ -43,6 +43,7 @@
     "ghostty-web": "0.4.0",
     "highlight.js": "11.12.0",
     "json5": "2.2.3",
+    "jsonc-parser": "3.3.1",
     "lit": "3.3.3",
     "markdown-it": "15.0.2",
     "markdown-it-cjk-friendly": "3.0.0",

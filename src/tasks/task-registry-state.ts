@@ -665,10 +665,9 @@ export async function runTaskRegistryWorkerMutation<T>(
   mutate: (beginRecovery: () => void) => Promise<T>,
   readCurrent: () => Promise<TaskRegistryStoreSnapshot>,
 ): Promise<T> {
-  const { scope, admission } = context;
+  const { scope, admission, readEventTarget } = context;
   const store = getTaskRegistryStore();
   admission.assertCurrent();
-  const readEventTarget = context.readEventTarget;
   const pending = createPendingTaskRegistryMutation(
     scope,
     readEventTarget
@@ -728,11 +727,15 @@ export async function runTaskRegistryWorkerMutation<T>(
         dirtyScopes.delete(scope);
       }
     } catch (error) {
-      context.onPublicationError?.(error);
-      taskRegistryLog.warn("Failed to reconcile managed child task after worker operation", {
-        flowId: scope.flowId,
-        error,
-      });
+      // A newer committed row owns publication now. Keep the dirty scope for
+      // canonical readback without rejecting readers of the settled mutation.
+      if (!recovery?.isSuperseded(error)) {
+        context.onPublicationError?.(error);
+        taskRegistryLog.warn("Failed to reconcile managed child task after worker operation", {
+          flowId: scope.flowId,
+          error,
+        });
+      }
     } finally {
       pendingMutations.delete(pending);
     }

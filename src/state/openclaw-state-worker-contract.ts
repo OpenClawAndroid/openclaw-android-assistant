@@ -56,7 +56,10 @@ import type * as curator from "../skills/workshop/curator.kernel.js";
 import type { listStoredSkillProposalEventsInDatabase } from "../skills/workshop/store-sqlite-event.js";
 import type { SkillProposalEvent, SkillProposalRecord } from "../skills/workshop/types.js";
 import type { TaskRegistryWorkerOperations } from "../tasks/task-registry.worker-contract.js";
-import type { TranscriptReadOperations } from "../transcripts/store-worker-contract.js";
+import type {
+  TranscriptReadOperations,
+  TranscriptWriteOperations,
+} from "../transcripts/store-worker-contract.js";
 import type { AgentProvenance } from "./agent-provenance.types.js";
 import type { PreparedBackupRunRecord } from "./backup-run-records.kernel.js";
 import type { OnboardingRecommendationWriteOperations } from "./onboarding-recommendations.contract.js";
@@ -85,6 +88,7 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   SessionDeliveryWorkerOperations &
   DeliveryQueueWorkerOperations &
   TranscriptReadOperations &
+  TranscriptWriteOperations &
   TaskRegistryWorkerOperations & {
     "githubRepository.personalPending": {
       input: RepositoryGitHubPublicationPendingQuery;
@@ -219,11 +223,11 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
       output: { value_json: string } | undefined;
     };
     "plugins.deferredMigrations.read": {
-      input: undefined;
+      input: { artifactPreservingReadOnly: boolean };
       output: readonly DeferredPluginMigration[];
     };
     "claws.install-schema-versions": {
-      input: undefined;
+      input: { artifactPreservingReadOnly: boolean };
       output: ClawInstallSchemaVersionRow[] | undefined;
     };
     "config.health.read": { input: { artifactPreserving: boolean }; output: ConfigHealthSnapshot };

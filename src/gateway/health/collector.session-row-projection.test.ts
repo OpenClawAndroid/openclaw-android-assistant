@@ -78,6 +78,21 @@ describe("health and status resident session summaries", () => {
             );
           }
         }
+        const subset = await readStatusSessionStores(
+          cfg,
+          [{ id: "main" }, { id: "empty" }, { id: "main" }],
+          0,
+          projection,
+        );
+        expect(subset.count).toBe(24);
+        expect(subset.recent).toEqual([]);
+        expect(subset.byAgent.map(({ agent, count, recent }) => [agent.id, count, recent])).toEqual(
+          [
+            ["main", 12, []],
+            ["empty", 0, []],
+            ["main", 12, []],
+          ],
+        );
         const health = await buildHealthAgentSummaries(
           cfg,
           resolveHealthAgentOrder(cfg),

@@ -431,7 +431,7 @@ export async function compensateOriginalManagedService(
       steps: [
         ...result.steps,
         {
-          name: "original managed service compensation",
+          name: "original-managed-service-compensation",
           command: "openclaw gateway restart --preserve-definition",
           cwd: original.root,
           durationMs: 0,

@@ -408,9 +408,13 @@ suite.define(() => {
           await captureProof(page, `archived-${surface.replaceAll(" ", "-")}`);
           await expectBrowser(
             page.getByRole("menuitemradio").locator(":scope > .session-menu__text"),
-          ).toHaveText(["Me", "OpenClaw", "Bob", "Carol", ...extraNames]);
+          ).toHaveText(["Me", "OpenClaw", "Bob", "Carol", ...extraNames].slice(0, 20));
           await expectAssignmentAvatarLayout(page);
           const target = extraNames.at(-1) ?? "Carol";
+          if (extraNames.length > 0) {
+            await page.getByRole("searchbox", { name: "Search people and agents…" }).fill(target);
+            await expectBrowser(page.getByRole("menuitemradio")).toHaveCount(1);
+          }
           const owner = page.getByRole("menuitemradio", { name: target, exact: true });
           await owner.scrollIntoViewIfNeeded();
           await expectBrowser(owner).toBeInViewport();
@@ -420,6 +424,66 @@ suite.define(() => {
             gateway,
             `profile-${target.toLowerCase().replaceAll(" ", "-")}`,
           );
+        },
+      );
+    },
+  );
+
+  it.each([1280, 390])(
+    "assigns a renamed teammate from a 1,000-person directory at width %i",
+    async (width) => {
+      await suite.withPage(
+        { ...createControlUiE2eContextOptions(), viewport: { width, height: 900 } },
+        async ({ page }) => {
+          const names = Array.from(
+            { length: 1000 },
+            (_, i) => `Teammate ${String(i).padStart(4, "0")}`,
+          );
+          const gateway = await installOwnerGateway(page, false, names);
+          await gateway.deferNext("users.list");
+          const trigger = page.getByRole("button", {
+            name: "Actions for Owner outcome",
+            exact: true,
+          });
+          const openAssignment = async () => {
+            await trigger.click();
+            const assignTo = page.getByRole("menuitem", { name: "Assign to…", exact: true });
+            if (width < 560) {
+              await assignTo.click();
+            } else {
+              await assignTo.hover();
+            }
+          };
+          await openAssignment();
+          const search = page.getByRole("searchbox", { name: "Search people and agents…" });
+          await search.fill("Teammate 0999");
+          await gateway.resolveDeferred("users.list", directoryResponse(names));
+          await expectBrowser(search).toHaveValue("Teammate 0999");
+          await expectBrowser(page.getByRole("menuitemradio")).toHaveCount(1);
+          await search.clear();
+          await expectBrowser(page.getByRole("menuitemradio")).toHaveCount(20);
+          await search.fill("Teammate 0999");
+          await captureProof(page, `directory-${width}-search`);
+          await search.press("Escape");
+          await expectBrowser(trigger).toHaveAttribute("aria-expanded", "false");
+
+          const directory = directoryResponse(names);
+          const renamed = directory.profiles.find(
+            (profile) => profile.id === "profile-teammate-0999",
+          )!;
+          renamed.displayName = "Renamed teammate";
+          renamed.updatedAt = 2;
+          await gateway.setMethodResponse("users.list", directory);
+          await openAssignment();
+          await search.fill("Renamed teammate");
+          const match = page.getByRole("menuitemradio", { name: "Renamed teammate", exact: true });
+          await expectBrowser(match).toBeVisible();
+          await expectBrowser(page.getByRole("menuitemradio")).toHaveCount(1);
+          await captureProof(page, `directory-${width}-renamed`);
+          await search.press("ArrowDown");
+          await expectBrowser(match).toBeFocused();
+          await page.keyboard.press("Enter");
+          await expectAssignmentRequest(gateway, "profile-teammate-0999");
         },
       );
     },

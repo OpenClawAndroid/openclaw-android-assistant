@@ -14,6 +14,8 @@ export type CommandPaletteInputSnapshot = Pick<
 export type CommandPaletteOpenInput = CommandPaletteInputSnapshot & {
   returnFocus?: HTMLElement | null;
   submitRequested?: true;
+  /** Clipboard Files remain in memory until the canonical draft admits and reads them. */
+  imageFiles?: readonly File[];
 };
 
 /** Read the live cold input when replacement focus is accepted; undefined means retired. */

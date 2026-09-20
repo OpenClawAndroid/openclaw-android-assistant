@@ -16,7 +16,7 @@ export function expectCanaryReadinessWarning(
   status: number,
 ) {
   expect(step).toMatchObject({
-    name: "Checking Gateway startup",
+    name: "candidate-gateway-startup",
     advisory: {
       kind: "candidate-runtime-unavailable",
       message: expect.stringContaining(`failed: HTTP ${status}`),
@@ -174,9 +174,9 @@ export function registerCanaryReadinessBudgetTests(
   });
 
   it.each([
-    ["lint", "Checking data migrations", "Checking update health"],
-    ["startup", "Checking update recovery", "Checking Gateway startup"],
-    ["config", undefined, "Checking configuration"],
+    ["lint", "candidate-doctor", "candidate-doctor-lint"],
+    ["startup", "candidate-recovery", "candidate-gateway-startup"],
+    ["config", undefined, "candidate-config"],
   ] as const)("attributes %s failures to their check", async (phase, previous, name) => {
     let now = 2_000_000;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -232,7 +232,7 @@ export function registerCanaryReadinessBudgetTests(
     });
     expect(result).toMatchObject({ status: "error", phase: "runtime" });
     expect(result.steps).toEqual([
-      expect.objectContaining({ name: "Checking update runtime", exitCode: 1 }),
+      expect.objectContaining({ name: "candidate-runtime", exitCode: 1 }),
     ]);
     expect(result.steps[0]?.stderrTail).toContain("ENOTDIR");
     expect(mocks.snapshot).not.toHaveBeenCalled();

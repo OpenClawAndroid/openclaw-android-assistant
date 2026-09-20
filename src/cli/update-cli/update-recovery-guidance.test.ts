@@ -22,7 +22,7 @@ const foreignDetail =
   "Selected npm destination /other is occupied by an unclaimed OpenClaw installation; launcher /other/bin/openclaw. Switch the runtime back and retry through the original absolute launcher.";
 function failure(overrides: Partial<UpdateRunResult> = {}): UpdateRunResult {
   const failedStep = {
-    name: "global install stage",
+    name: "package-stage",
     command: "prepare staged npm install",
     cwd: "/fixture",
     durationMs: 0,
@@ -227,9 +227,9 @@ describe("update recovery reporting", () => {
   );
 
   it.each([
-    ["global update", "global-install-failed"],
-    ["global update (omit optional)", "global-install-failed"],
-    ["global install swap", "global-install-failed"],
+    ["package-install", "global-install-failed"],
+    ["package-install-omit-optional", "global-install-failed"],
+    ["package-swap", "global-install-failed"],
     ["global-install-permission-denied", "global-install-permission-denied"],
   ])("covers the %s permission failure", (name, reason) => {
     const result = failure({ reason });
@@ -259,34 +259,41 @@ describe("update recovery reporting", () => {
     },
   );
 
-  it.each(["other error", "unrelated step", "later failure", "advisory", "successful step"])(
-    "does not reinterpret %s as a container package failure",
-    (kind) => {
-      const result = failure();
-      const step = result.steps[0]!;
-      if (kind === "other error") {
-        step.stderrTail = "ENOSPC: no space left on device";
-      }
-      if (kind === "unrelated step") {
-        step.name = "config validate";
-      }
-      if (kind === "later failure") {
-        result.failedStep = {
-          ...step,
-          name: "config validate",
-          stderrTail: "invalid configuration",
-        };
-        result.steps.push(result.failedStep);
-      }
-      if (kind === "advisory") {
-        step.advisory = { kind: "recoverable-maintenance", message: "Old backup retained" };
-      }
-      if (kind === "successful step") {
-        step.exitCode = 0;
-      }
-      expect(resolveUpdateResultNextAction({ result, env: {} })).toBe(hostGuidance);
-    },
-  );
+  it.each([
+    "other error",
+    "unrelated step",
+    "package Doctor",
+    "later failure",
+    "advisory",
+    "successful step",
+  ])("does not reinterpret %s as a container package failure", (kind) => {
+    const result = failure();
+    const step = result.steps[0]!;
+    if (kind === "other error") {
+      step.stderrTail = "ENOSPC: no space left on device";
+    }
+    if (kind === "unrelated step") {
+      step.name = "config validate";
+    }
+    if (kind === "package Doctor") {
+      step.name = "openclaw doctor";
+    }
+    if (kind === "later failure") {
+      result.failedStep = {
+        ...step,
+        name: "config validate",
+        stderrTail: "invalid configuration",
+      };
+      result.steps.push(result.failedStep);
+    }
+    if (kind === "advisory") {
+      step.advisory = { kind: "recoverable-maintenance", message: "Old backup retained" };
+    }
+    if (kind === "successful step") {
+      step.exitCode = 0;
+    }
+    expect(resolveUpdateResultNextAction({ result, env: {} })).toBe(hostGuidance);
+  });
 
   it.each([true, false, undefined])(
     "preserves migrated-state and service safety (running=%s)",

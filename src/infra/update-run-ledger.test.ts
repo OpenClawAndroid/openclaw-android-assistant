@@ -462,6 +462,17 @@ describe("update run ledger", () => {
       { step: "fetch", status: "in_progress", startedAtMs: 2_100 },
       options,
     );
+    for (const exitCode of [1, 0]) {
+      for (const receipt of updateRunStepsFromResultStep({
+        name: "fetch",
+        exitCode,
+        ...(exitCode
+          ? { failureFacts: [{ check: "fetch", code: "EACCES", message: "Permission denied" }] }
+          : {}),
+      })) {
+        recordUpdateRunStep(run.runId, receipt, options);
+      }
+    }
     clock.mockReturnValue(3_000);
     recordUpdateRunPhase(
       run.runId,
@@ -481,7 +492,7 @@ describe("update run ledger", () => {
     expect(current?.steps).toEqual([
       { step: "requested", status: "completed", startedAtMs: 1_000, endedAtMs: 2_000 },
       { step: "staging", status: "completed", startedAtMs: 2_000, endedAtMs: 3_000 },
-      { step: "fetch", status: "completed", startedAtMs: 2_100, endedAtMs: 2_900 },
+      { step: "fetch", status: "completed", exitCode: 0, startedAtMs: 2_100, endedAtMs: 2_900 },
       { step: "validating", status: "in_progress", startedAtMs: 3_000 },
     ]);
     clock.mockReturnValue(4_000);

@@ -352,7 +352,7 @@ suite.define(() => {
         "Syncs OpenClaw to the selected runner",
       );
       await captureUiProof(suite, page, "01-cloud-worker-target.png", {
-        surface: checkout.locator('wa-popup [part="popup"]'),
+        surface: checkout.locator(".new-session-page__picker-root"),
         content: [checkout.getByLabel("Name", { exact: true })],
       });
       await page.keyboard.press("Escape");

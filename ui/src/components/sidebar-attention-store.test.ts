@@ -21,7 +21,11 @@ import { invalidateModelAuthStatusRequests } from "../lib/model-auth-request-sta
 import { hiddenScopeUpgradeCapability } from "../test-helpers/application-context.ts";
 import { createStorageMock } from "../test-helpers/storage.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
-import { dismissSidebarAttention, loadDismissals } from "./sidebar-attention-dismissals.ts";
+import {
+  dismissSidebarAttention,
+  loadDismissals,
+  resolveSidebarAttentionKey,
+} from "./sidebar-attention-dismissals.ts";
 import { SidebarAttentionStoreController } from "./sidebar-attention-store.ts";
 
 type CompactCronPage = CronJobsListResult<CronCompactJob>;
@@ -88,6 +92,148 @@ describe("sidebar attention source publication", () => {
       connectionBootstrap,
     });
   }
+
+  it.each([false, true])(
+    "keeps snoozes with their authenticated account across switches and reloads (reconnect: %s)",
+    async (reconnect) => {
+      vi.stubGlobal("localStorage", createStorageMock());
+      const jobs = [...cronPage("dismissed-incident").jobs, ...cronPage("visible-incident").jobs];
+      const request = vi.fn(async (method: string) =>
+        method === "cron.list"
+          ? { ...cronPage(), jobs, total: jobs.length }
+          : method === "cron.status"
+            ? { enabled: true, triggersEnabled: true, jobs: jobs.length }
+            : { ts: 1, providers: [] },
+      );
+      const harness = createGatewayHarness(mockClient(request));
+      harness.update({ selfUser: { id: "alice", name: "Alice" } });
+      const alice = {
+        id: "alice",
+        identity: { type: "profile" as const, id: "alice" },
+        name: "Alice",
+      };
+      const bob = { id: "bob", identity: { type: "profile" as const, id: "bob" }, name: "Bob" };
+      harness.update({ selfUser: alice });
+      store = createStore(harness.gateway);
+      store.activate(SidebarAttentionStoreController);
+      await waitForFast(() => expect(store?.entries).toHaveLength(2));
+      store.dismiss({ kind: "cronFailed", signature: "dismissed-incident" });
+      expect(store.entries).toMatchObject([{ label: "visible-incident" }]);
+
+      // The connection and incident are unchanged; only the authenticated account changes.
+      if (reconnect) {
+        harness.update({ phase: "reconnecting", selfUser: null });
+        store.dismiss({ kind: "cronFailed", signature: "visible-incident" });
+      }
+      harness.update({ phase: "connected", selfUser: bob });
+      await waitForFast(() => expect(store?.entries).toHaveLength(2));
+      store.dispose();
+      store = createStore(harness.gateway);
+      store.activate(SidebarAttentionStoreController);
+      await waitForFast(() => expect(store?.entries).toHaveLength(2));
+
+      const bobKey = resolveSidebarAttentionKey(harness.gateway);
+      if (!bobKey) {
+        throw new Error("expected Bob's authenticated storage scope");
+      }
+      dismissSidebarAttention(bobKey, { kind: "cronFailed", signature: "visible-incident" });
+      globalThis.dispatchEvent(new StorageEvent("storage", { key: bobKey }));
+      expect(store.entries).toMatchObject([{ label: "dismissed-incident" }]);
+
+      harness.update({ selfUser: alice });
+      await waitForFast(() =>
+        expect(store?.entries).toMatchObject([{ label: "visible-incident" }]),
+      );
+    },
+  );
+
+  it("keeps same-profile snoozes isolated between query-routed Gateways", async () => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    const jobs = [...cronPage("first-incident").jobs, ...cronPage("second-incident").jobs];
+    const request = vi.fn(async (method: string) =>
+      method === "cron.list"
+        ? { ...cronPage(), jobs, total: jobs.length }
+        : method === "cron.status"
+          ? { enabled: true, triggersEnabled: true, jobs: jobs.length }
+          : { ts: 1, providers: [] },
+    );
+    const harness = createGatewayHarness(mockClient(request));
+    const selfUser = { id: "alice", name: "Alice" };
+    const connectTenant = (tenant: string) => {
+      harness.update({ phase: "reconnecting", selfUser: null });
+      harness.gateway.connection.gatewayUrl = `wss://gateway.test/path?tenant=${tenant}`;
+      harness.gateway.connectionRevision += 1;
+      harness.update({ phase: "connected", selfUser });
+    };
+    connectTenant("a");
+    store = createStore(harness.gateway);
+    store.activate(SidebarAttentionStoreController);
+    await waitForFast(() => expect(store?.entries).toHaveLength(2));
+    store.dismiss({ kind: "cronFailed", signature: "first-incident" });
+    expect(store.entries).toMatchObject([{ label: "second-incident" }]);
+
+    connectTenant("b");
+    await waitForFast(() => expect(store?.entries).toHaveLength(2));
+    store.dismiss({ kind: "cronFailed", signature: "second-incident" });
+    expect(store.entries).toMatchObject([{ label: "first-incident" }]);
+
+    connectTenant("a");
+    await waitForFast(() => expect(store?.entries).toMatchObject([{ label: "second-incident" }]));
+  });
+
+  it("retires old-account health before the eager facade publishes a storage refresh", async () => {
+    let profile = "alice";
+    const request = vi.fn(async (method: string) =>
+      method === "cron.list"
+        ? cronPage(profile)
+        : method === "cron.status"
+          ? { enabled: true, triggersEnabled: true, jobs: 1 }
+          : { ts: 1, providers: [] },
+    );
+    const harness = createGatewayHarness(mockClient(request));
+    harness.update({ selfUser: { id: profile, name: profile } });
+    store = createStore(harness.gateway);
+    store.activate(SidebarAttentionStoreController);
+    await waitForFast(() => expect(store?.entries).toMatchObject([{ label: "alice" }]));
+    const published: string[] = [];
+    store.subscribe(() => {
+      if (harness.gateway.snapshot.selfUser?.id === "bob") {
+        published.push(
+          ...(store?.entries.flatMap((entry) =>
+            entry.type === "attention" ? [entry.label] : [],
+          ) ?? []),
+        );
+      }
+    });
+    profile = "bob";
+    harness.update({ selfUser: { id: profile, name: profile } });
+    await waitForFast(() => expect(store?.entries).toMatchObject([{ label: "bob" }]));
+    expect(published).not.toContain("alice");
+  });
+
+  it("retires only the current account's scope-upgrade snooze before the Inbox mounts", () => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    const alice = 'openclaw.control.sidebarAttention.v2:["ws://gateway.test","alice"]';
+    const bob = 'openclaw.control.sidebarAttention.v2:["ws://gateway.test","bob"]';
+    const dismissal = { kind: "scopeUpgrade" as const, signature: "available" };
+    dismissSidebarAttention(alice, dismissal);
+    dismissSidebarAttention(bob, dismissal);
+    const legacyKey = "openclaw.control.sidebarAttention.v1:ws://gateway.test";
+    const legacy = JSON.stringify({ scopeUpgrade: ["unknown-owner"] });
+    localStorage.setItem(legacyKey, legacy);
+    const harness = createGatewayHarness(mockClient(async () => ({})));
+    harness.update({
+      selfUser: { id: "alice", name: "Alice" },
+      hello: {
+        ...harness.gateway.snapshot.hello!,
+        auth: { role: "operator", scopes: ["operator.admin"] },
+      },
+    });
+    store = createStore(harness.gateway);
+    expect(loadDismissals(alice)).toEqual({});
+    expect(loadDismissals(bob)).toEqual({ scopeUpgrade: ["available"] });
+    expect(localStorage.getItem(legacyKey)).toBe(legacy);
+  });
 
   it.each(["ready", "hidden", "disposed"] as const)(
     "holds automatic cron inventory until chat is ready and respects a %s owner",
@@ -173,6 +319,7 @@ describe("sidebar attention source publication", () => {
         : { ts: 1, providers: [] };
     });
     const harness = createGatewayHarness(mockClient(request));
+    harness.update({ selfUser: { id: "alice", name: "Alice" } });
     store = createStore(harness.gateway);
     store.activate(SidebarAttentionStoreController);
 
@@ -206,6 +353,7 @@ describe("sidebar attention source publication", () => {
           : { ts: 1, providers: [] };
       });
       const harness = createGatewayHarness(mockClient(request));
+      harness.update({ selfUser: { id: "alice", name: "Alice" } });
       store = createStore(harness.gateway);
       store.activate(SidebarAttentionStoreController);
       await waitForFast(() => expect(offsets).toEqual([0, 1]));
@@ -253,6 +401,7 @@ describe("sidebar attention source publication", () => {
         throw new Error(`Unexpected request: ${method}`);
       });
       const harness = createGatewayHarness(mockClient(request));
+      harness.update({ selfUser: { id: "alice", name: "Alice" } });
       store = createStore(harness.gateway);
       store.activate(SidebarAttentionStoreController);
 
@@ -316,6 +465,7 @@ describe("sidebar attention source publication", () => {
           : { ts: 120_000, providers: [] };
       });
       const harness = createGatewayHarness(mockClient(request));
+      harness.update({ selfUser: { id: "alice", name: "Alice" } });
       store = createStore(harness.gateway);
       store.activate(SidebarAttentionStoreController);
       if (initial === "settled") {
@@ -364,9 +514,10 @@ describe("sidebar attention source publication", () => {
         : { ts: 120_000, providers: [] };
     });
     const harness = createGatewayHarness(mockClient(request));
+    harness.update({ selfUser: { id: "alice", name: "Alice" } });
     store = createStore(harness.gateway);
     store.activate(SidebarAttentionStoreController);
-    dismissSidebarAttention(harness.gateway.connection.gatewayUrl, {
+    dismissSidebarAttention(resolveSidebarAttentionKey(harness.gateway), {
       kind: "cronFailed",
       signature: "newer-job",
     });
@@ -377,7 +528,7 @@ describe("sidebar attention source publication", () => {
     pendingList.resolve(cronPage("previous"));
     await waitForFast(() => expect(store?.entries).toMatchObject([{ label: "previous" }]));
     expect(listCalls).toBe(1);
-    expect(loadDismissals(harness.gateway.connection.gatewayUrl)).toEqual({
+    expect(loadDismissals(resolveSidebarAttentionKey(harness.gateway))).toEqual({
       cronFailed: ["newer-job"],
     });
 
@@ -385,7 +536,7 @@ describe("sidebar attention source publication", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     await waitForFast(() => expect(store?.entries).toEqual([]));
     expect(listCalls).toBe(2);
-    expect(loadDismissals(harness.gateway.connection.gatewayUrl)).toEqual({
+    expect(loadDismissals(resolveSidebarAttentionKey(harness.gateway))).toEqual({
       cronFailed: ["newer-job"],
     });
   });
@@ -404,6 +555,7 @@ describe("sidebar attention source publication", () => {
       return { ts: 1, providers: [] };
     });
     const harness = createGatewayHarness(mockClient(request));
+    harness.update({ selfUser: { id: "alice", name: "Alice" } });
     store = createStore(harness.gateway);
     store.activate(SidebarAttentionStoreController);
     pages[0]!.resolve(cronPage("dismissed"));
@@ -419,14 +571,14 @@ describe("sidebar attention source publication", () => {
         await waitForFast(() =>
           expect(store?.entries).toMatchObject([{ label: `current-${index}` }]),
         );
-        expect(loadDismissals(harness.gateway.connection.gatewayUrl)).toEqual({
+        expect(loadDismissals(resolveSidebarAttentionKey(harness.gateway))).toEqual({
           cronFailed: ["dismissed"],
         });
       }
       pages[3]!.resolve({ ...cronPage("partial"), hasMore: true, total: 2, nextOffset: 1 });
       await waitForFast(() => expect(listCalls).toBe(5));
       expect(store?.entries).toMatchObject([{ label: "current-2" }]);
-      expect(loadDismissals(harness.gateway.connection.gatewayUrl)).toEqual({
+      expect(loadDismissals(resolveSidebarAttentionKey(harness.gateway))).toEqual({
         cronFailed: ["dismissed"],
       });
       pages[4]!.resolve({
@@ -438,7 +590,7 @@ describe("sidebar attention source publication", () => {
       await waitForFast(() =>
         expect(store?.entries).toMatchObject([{ label: "partial" }, { label: "fresh" }]),
       );
-      expect(loadDismissals(harness.gateway.connection.gatewayUrl)).toEqual({});
+      expect(loadDismissals(resolveSidebarAttentionKey(harness.gateway))).toEqual({});
     } finally {
       store.dispose();
       for (const page of pages) {
@@ -577,6 +729,7 @@ describe("sidebar attention source publication", () => {
       return { ts: 1, providers: [] };
     });
     const harness = createGatewayHarness(mockClient(request));
+    harness.update({ selfUser: { id: "alice", name: "Alice" } });
     store = createStore(harness.gateway);
     store.activate(SidebarAttentionStoreController);
     await waitForFast(() => expect(store?.entries).toHaveLength(1));
@@ -592,7 +745,7 @@ describe("sidebar attention source publication", () => {
     await new Promise<void>((resolve) => {
       globalThis.setTimeout(resolve, 0);
     });
-    expect(loadDismissals(harness.gateway.connection.gatewayUrl)).toEqual({
+    expect(loadDismissals(resolveSidebarAttentionKey(harness.gateway))).toEqual({
       cronOverdue: ["overdue@1"],
     });
 
@@ -618,6 +771,7 @@ describe("sidebar attention source publication", () => {
       return method === "cron.list" ? page : { ts: 1, providers: [] };
     });
     const harness = createGatewayHarness(mockClient(request));
+    harness.update({ selfUser: { id: "alice", name: "Alice" } });
     store = createStore(harness.gateway);
     store.activate(SidebarAttentionStoreController);
     await new Promise<void>((resolve) => {
@@ -654,6 +808,7 @@ describe("sidebar attention source publication", () => {
         throw new Error(`Unexpected request: ${method}`);
       });
       const harness = createGatewayHarness(mockClient(request));
+      harness.update({ selfUser: { id: "alice", name: "Alice" } });
       store = createStore(harness.gateway);
       const publish = vi.fn();
       store.subscribe(publish);
@@ -766,6 +921,7 @@ describe("sidebar attention source publication", () => {
       throw new Error(`Unexpected request: ${method}`);
     });
     const harness = createGatewayHarness(mockClient(request));
+    harness.update({ selfUser: { id: "alice", name: "Alice" } });
     harness.update({
       hello: {
         type: "hello-ok",

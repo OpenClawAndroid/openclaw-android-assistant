@@ -287,7 +287,7 @@ it("refuses state inspection when activation leaves no known runtime root", asyn
   ).resolves.toBe("rollback-state-unverified");
   expect(result).toMatchObject({
     reason: "rollback-state-unverified",
-    steps: [expect.objectContaining({ name: "state schema verification", exitCode: 1 })],
+    steps: [expect.objectContaining({ name: "state-schema-verification", exitCode: 1 })],
   });
 });
 
@@ -616,7 +616,7 @@ it.each([
     if (original) {
       expect(result.result.steps).toContainEqual(
         expect.objectContaining({
-          name: "original managed service compensation",
+          name: "original-managed-service-compensation",
           cwd: path.join(stateDir, "service-A"),
           exitCode: 1,
         }),

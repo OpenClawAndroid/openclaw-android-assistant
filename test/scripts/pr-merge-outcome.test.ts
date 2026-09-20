@@ -207,12 +207,17 @@ function fixture(
     quotaAfterObservations: 0,
     restPolicy: "supported",
     restRequiredApp: 15368 as number | null,
+    restContexts: ["CI"],
     restCheckApp: 15368,
     restChecks: "pass",
+    restFailedContext: "",
     restDuplicate: "",
     restSuite: "pass",
     restUnseenSuite: "",
     restAdvanceMain: false,
+    restMainFault: "",
+    restMainFaultAfterReads: 0,
+    restMainReads: 0,
     restObservation: null as null | {
       pr?: Record<string, unknown>;
       advanceMain?: boolean;
@@ -324,10 +329,11 @@ if(quotaRead) quota();
 const restMerge=args[0]==="api"&&args.includes("repos/fixture/repo/pulls/123/merge");
 const restCheckRuns=()=>{
   if(["missing","status-only"].includes(s.restChecks)) return [];
-  const check={id:1,head_sha:s.pr.headRefOid,name:"CI",status:"completed",conclusion:s.gates==="pass"?"success":"failure",
+  const check={id:1,head_sha:s.pr.headRefOid,name:s.restContexts[0],status:"completed",conclusion:s.gates==="pass"?"success":"failure",
     started_at:"2026-09-20T00:00:00Z",check_suite:{id:10},app:{id:s.restCheckApp,slug:s.restCheckApp===15368?"github-actions":"custom-ci"}};
   if(s.restUnseenSuite==="partial-pending") return [check,{...check,id:2,name:"detect-changes",check_suite:{id:2}}];
-  if(!s.restDuplicate) return [check];
+  if(!s.restDuplicate) return s.restContexts.map((name,index)=>({...check,id:index+1,name,check_suite:{id:10+index},
+    conclusion:name===s.restFailedContext?"failure":check.conclusion}));
   return [{...check,conclusion:"failure"},{...check,id:2,check_suite:{id:20},
     started_at:s.restDuplicate==="missing-time"?null:s.restDuplicate==="same-time"?check.started_at:"2026-09-20T00:01:00Z"}];
 };
@@ -382,8 +388,16 @@ else if(args[0]==="api"&&args.includes("repos/fixture/repo/pulls/123")) {
     user:{login:s.pr.author.login,type:s.pr.author.__typename},
     mergeable:s.pr.mergeable==="UNKNOWN"?null:s.pr.mergeable==="MERGEABLE",mergeable_state:s.pr.mergeStateStatus.toLowerCase()});
 }
-else if(args[0]==="api"&&args.includes("repos/fixture/repo/branches/main")) {
-  out({name:"main",commit:{sha:main()}});
+else if(args[0]==="api"&&args.includes("repos/fixture/repo/git/ref/heads/main")) {
+  s.restMainReads++;
+  const reference={ref:"refs/heads/main",object:{type:"commit",sha:main()}};
+  if(s.restMainReads>s.restMainFaultAfterReads) {
+    if(s.restMainFault==="wrong-ref") reference.ref="refs/tags/main";
+    if(s.restMainFault==="wrong-type") reference.object.type="tag";
+    if(s.restMainFault==="missing-object") delete reference.object;
+    if(s.restMainFault==="invalid-sha") reference.object.sha="not-a-commit";
+  }
+  out(reference);
   if(s.pr.state==="MERGED"&&s.restAdvanceMain) {s.restAdvanceMain=false;advanceMain();}
 }
 else if(args[0]==="api"&&args.includes("repos/fixture/repo/branches/main/protection")) {
@@ -392,7 +406,7 @@ else if(args[0]==="api"&&args.includes("repos/fixture/repo/branches/main/protect
 }
 else if(args[0]==="api"&&args.some(arg=>arg.startsWith("repos/fixture/repo/rules/branches/main?"))) {
   out(s.restPolicy==="missing"?[null]:[[
-    {type:"required_status_checks",parameters:{required_status_checks:[{context:"CI",integration_id:s.restRequiredApp}]}},
+    {type:"required_status_checks",parameters:{required_status_checks:s.restContexts.map(context=>({context,integration_id:s.restRequiredApp}))}},
     ...(s.restPolicy==="queue"?[{type:"merge_queue"}]:s.restPolicy==="unsupported"?[{type:"workflows"}]:[])
   ]]);
 }
@@ -409,7 +423,9 @@ else if(args[0]==="api"&&args.some(arg=>arg.startsWith("repos/fixture/repo/check
   } else out(s.restUnseenSuite==="changed-suite"?{...suite,updated_at:"2026-09-20T00:02:00Z"}:["changed-count","queued-empty-drift"].includes(s.restUnseenSuite)?{...suite,latest_check_runs_count:4}:suite);
 }
 else if(args[0]==="api"&&args.some(arg=>arg.includes("/check-runs?"))) {
-  const checks=restCheckRuns();
+  const endpoint=args.find(arg=>arg.includes("/check-runs?"));
+  const context=new URL(endpoint,"https://github.com").searchParams.get("check_name");
+  const checks=restCheckRuns().filter(check=>context===null||check.name===context);
   out([{total_count:checks.length,check_runs:checks}]);
 }
 else if(args[0]==="api"&&args.some(arg=>arg.includes("/status?"))) {
@@ -530,9 +546,9 @@ else if(args[0]==="pr"&&args[1]==="view") {
     save();
     out([[...s.issueComments,...s.comments]]);
   }
-} else if(args[0]==="api"&&new RegExp("^repos/fixture/repo/commits/[0-9a-f]{40}$").test(args[1])&&args.includes("--jq")) {
-  const oid=args[1].split("/").at(-1);
-  out({name:git(["show","-s","--format=%an",oid]),email:git(["show","-s","--format=%ae",oid]),user:{login:s.pr.author.login,type:"User"}});
+} else if(args[0]==="api"&&args[1].startsWith("repos/fixture/repo/commits?")) {
+  const oid=new URL(args[1],"https://github.com").searchParams.get("sha");
+  out([{sha:oid,commit:{author:{name:git(["show","-s","--format=%an",oid]),email:git(["show","-s","--format=%ae",oid])}},author:{login:s.pr.author.login,type:"User"}}]);
 } else if(args.some(x=>x.includes("/commits/"))) {
   if(s.audit) fail("audit unavailable");
   out({parents:[{sha:git(["rev-parse",s.pr.mergeCommit.oid+"^1"])}]});
@@ -950,6 +966,73 @@ describePosix("native merge with exhausted GraphQL quota", () => {
       expect(f.state().mutations).toBe(0);
       expect(f.state().posts).toBe(0);
       expect(() => f.record()).toThrow();
+    },
+  );
+
+  it.each([
+    { fault: "wrong-ref", afterReads: 0 },
+    { fault: "wrong-type", afterReads: 1 },
+    { fault: "missing-object", afterReads: 0 },
+    { fault: "invalid-sha", afterReads: 1 },
+  ])(
+    "rejects $fault main reference evidence after $afterReads valid reads",
+    ({ fault, afterReads }) => {
+      const f = fixture();
+      f.save({
+        ...f.state(),
+        quotaAt: "checks",
+        restMainFault: fault,
+        restMainFaultAfterReads: afterReads,
+      });
+
+      const run = f.run();
+
+      expect(run.status, run.output).toBe(1);
+      expect(run.output).toContain("REST merge fallback: main is unavailable");
+      expect(f.state().mutations).toBe(0);
+      expect(() => f.record()).toThrow();
+    },
+  );
+
+  it.each([
+    { contexts: ["CI / checks? & +"], failedContext: "", admitted: true },
+    { contexts: ["CI", "Quality"], failedContext: "", admitted: true },
+    { contexts: ["CI", "Quality"], failedContext: "Quality", admitted: false },
+  ])(
+    "preserves all required contexts $contexts with failing context '$failedContext'",
+    ({ contexts, failedContext, admitted }) => {
+      const f = fixture();
+      f.save({
+        ...f.state(),
+        quotaAt: "checks",
+        restContexts: contexts,
+        restFailedContext: failedContext,
+      });
+
+      const run = f.run();
+
+      expect(run.status, run.output).toBe(admitted ? 0 : 1);
+      expect(f.state().mutations).toBe(admitted ? 1 : 0);
+      const requests = f
+        .state()
+        .calls.flatMap((call) =>
+          call.filter(
+            (arg) => arg.startsWith("repos/fixture/repo/commits/") && arg.includes("/check-runs?"),
+          ),
+        )
+        .map((endpoint) => new URL(endpoint, "https://github.com"));
+      expect(requests.length).toBeGreaterThan(0);
+      expect(
+        requests.every(
+          (request) =>
+            request.searchParams.get("check_name") === (contexts.length === 1 ? contexts[0] : null),
+        ),
+      ).toBe(true);
+      if (admitted) {
+        expect(f.record()).toMatchObject({ phase: "complete", transport: "rest", head: f.head });
+      } else {
+        expect(() => f.record()).toThrow();
+      }
     },
   );
 

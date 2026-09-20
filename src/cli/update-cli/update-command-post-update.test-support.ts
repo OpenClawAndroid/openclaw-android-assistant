@@ -279,7 +279,7 @@ export function registerForegroundFinalizationTests({
         if (outcome === "retirement") {
           expect(mocks.printResult.mock.lastCall?.[0].steps).toContainEqual(
             expect.objectContaining({
-              name: "post-plugin doctor warning 1",
+              name: "post-plugin-doctor-warning-1",
               advisory: {
                 kind: "package-post-install-doctor",
                 message: "Deferred retirement repair warning",

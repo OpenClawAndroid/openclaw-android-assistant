@@ -1,6 +1,7 @@
 import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
 import type { ControlUiLinkReaderDocument } from "openclaw/plugin-sdk/control-ui-link-reader";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { fetchPullChecks } from "./detail-checks.js";
 import {
   ControlUiGitHubError,
   fetchGitHubApi,
@@ -298,16 +299,32 @@ async function fetchDetail(target: GitHubTarget, fetchImpl: typeof fetch): Promi
       filesTruncated = true;
     }
   }
+  const head = isRecord(value.head) ? value.head : {};
+  const base = isRecord(value.base) ? value.base : {};
+  const checks =
+    target.kind === "pull"
+      ? await fetchPullChecks(repositoryUrl, head.sha, url + "/checks", (checkUrl) =>
+          fetchDetailPage(checkUrl, fetchImpl),
+        )
+      : undefined;
+  const view = githubPreviewView(preview);
+  const metadata = githubChangeMetadata(
+    preview.additions,
+    preview.deletions,
+    preview.changedFiles,
+    preview.comments,
+  );
+  const headRef = readOptionalGitHubString(head, "ref")?.slice(0, 256);
+  const baseRef = readOptionalGitHubString(base, "ref")?.slice(0, 256);
   return {
-    ...githubPreviewView(preview),
-    metadata: githubChangeMetadata(
-      preview.additions,
-      preview.deletions,
-      preview.changedFiles,
-      preview.comments,
-    ),
+    ...view,
+    metadata:
+      target.kind === "pull" && headRef && baseRef
+        ? [...metadata, { label: "Branch", value: headRef + " → " + baseRef }]
+        : metadata,
     url,
     ...content,
+    ...(checks ? { checks } : {}),
     comments,
     commentsTotal,
     commentsTruncated,
@@ -318,6 +335,8 @@ async function fetchDetail(target: GitHubTarget, fetchImpl: typeof fetch): Promi
       content.bodyTruncated ||
       commentsTruncated ||
       filesTruncated ||
+      checks?.truncated === true ||
+      checks?.state === "unavailable" ||
       comments.some((comment) => comment.bodyTruncated || comment.context?.diffTruncated) ||
       files.some((file) => file.patchTruncated),
   };
@@ -344,7 +363,9 @@ export function loadGitHubDetail(
     expiresAt: Date.now() + SUCCESS_CACHE_MS,
     promise: fetchDetail(parsed, fetchImpl)
       .then((detail) => {
-        if (detail.partial) {
+        // PR checks and heads change independently of the body. Keep one short
+        // document snapshot, and let explicit refresh bypass it as before.
+        if (parsed.kind === "pull" || detail.partial) {
           entry.expiresAt = Date.now() + PARTIAL_CACHE_MS;
         }
         return detail;

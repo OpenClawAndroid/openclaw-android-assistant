@@ -18,12 +18,29 @@ import type {
 
 const MODEL_CALL_SEMANTIC_PROGRESS_REASON = "model_call:semantic_result";
 
-function utf8JsonByteLength(value: unknown): number | undefined {
+function jsonLength(value: unknown, utf8: boolean): number | undefined {
   try {
-    return Buffer.byteLength(JSON.stringify(value), "utf8");
+    let stringLengths = 0;
+    const serialized = JSON.stringify(value, (_key, part: unknown) => {
+      if (typeof part !== "string" || part.length < 4096) {
+        return part;
+      }
+      // Keep large strings out of the combined JSON allocation. Native encoding
+      // still owns escaping, surrogate handling, toJSON, and container semantics.
+      const encoded = JSON.stringify(part);
+      stringLengths += (utf8 ? Buffer.byteLength(encoded, "utf8") : encoded.length) - 2;
+      return "";
+    });
+    return serialized === undefined
+      ? undefined
+      : stringLengths + (utf8 ? Buffer.byteLength(serialized, "utf8") : serialized.length);
   } catch {
     return undefined;
   }
+}
+
+function utf8JsonByteLength(value: unknown): number | undefined {
+  return jsonLength(value, true);
 }
 
 function assignRequestPayloadBytes(state: ModelCallObservationState, payload: unknown): void {
@@ -38,11 +55,7 @@ function utf8StringByteLength(value: string): number {
 }
 
 function jsonCharLength(value: unknown): number | undefined {
-  try {
-    return JSON.stringify(value)?.length;
-  } catch {
-    return undefined;
-  }
+  return jsonLength(value, false);
 }
 
 function streamDeltaByteLength(chunk: Record<string, unknown>): number | undefined {

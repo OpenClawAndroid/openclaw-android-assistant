@@ -57,6 +57,7 @@ describe("Control UI Vite build", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     await fs.rm(root, { recursive: true, force: true });
   });
 
@@ -140,7 +141,9 @@ describe("Control UI Vite build", () => {
     await expect(fs.stat(path.join(outDir, "asset-manifest.json"))).resolves.toBeDefined();
   });
 
-  it("inventories final emitted bytes and compressed variants, excluding source maps", async () => {
+  it.each([false, true])("emits assets and maps (release=%s)", async (release) => {
+    vi.stubEnv("OPENCLAW_CONTROL_UI_RELEASE_BUILD", release ? "1" : undefined);
+    config = { ...config, ...controlUiViteConfig({ outDir }) };
     config.publicDir = fileURLToPath(new URL("../../public", import.meta.url));
     await fs.writeFile(
       path.join(root, "index.html"),
@@ -165,6 +168,7 @@ describe("Control UI Vite build", () => {
 
     const scripts = emitted.filter((name) => name.endsWith(".js"));
     expect(scripts.length).toBeGreaterThan(1);
+    expect(scripts.some((name) => emitted.includes(`${name}.map`))).toBe(true);
     expect(emitted.some((name) => name.endsWith(".css"))).toBe(true);
     for (const name of emitted.filter((fileName) => /\.(js|css)$/u.test(fileName))) {
       const source = await fs.readFile(path.join(outDir, "assets", name));
@@ -172,6 +176,11 @@ describe("Control UI Vite build", () => {
       const gzip = await fs.readFile(path.join(outDir, "assets", `${name}.gz`));
       expect(brotliDecompressSync(brotli)).toEqual(source);
       expect(gunzipSync(gzip)).toEqual(source);
+      if (name.endsWith(".js")) {
+        expect(source.toString("utf8").includes("sourceMappingURL="), name).toBe(
+          !release && emitted.includes(`${name}.map`),
+        );
+      }
     }
     const serviceWorker = await fs.readFile(path.join(outDir, "sw.js"), "utf8");
     const embeddedBuildId = /const EMBEDDED_CACHE_VERSION = "([^"]+)"/u.exec(serviceWorker)?.[1];

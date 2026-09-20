@@ -330,7 +330,7 @@ export async function convergeUpdatePlugins(params: {
       }
       resultWithPostUpdate.steps.push(
         ...normalizeUpdatePostInstallDoctorWarnings(doctorWarnings).map((message, index) => ({
-          name: `post-plugin doctor warning ${index + 1}`,
+          name: `post-plugin-doctor-warning-${index + 1}`,
           command: "openclaw doctor --fix",
           cwd: postUpdateRoot,
           durationMs: 0,

@@ -292,7 +292,7 @@ describe("asynchronous registry restoration", () => {
     "refreshes a flow write pending %s after synchronous snapshot installation",
     async (when) => {
       const store = createInMemoryTaskFlowRegistryStore({ flows: new Map([[flow.flowId, flow]]) });
-      const loadSnapshot = vi.fn(() => store.loadSnapshot());
+      const loadSnapshot = vi.fn(store.loadSnapshot);
       const release = createDeferred();
       const context = captureOpenClawStateWorkerContext();
       let pending: Promise<void> | undefined;
@@ -325,6 +325,8 @@ describe("asynchronous registry restoration", () => {
           currentStep: "pending mutation",
         });
         expect(loadSnapshot).toHaveBeenCalledTimes(2);
+        expect(loadSnapshot).toHaveBeenNthCalledWith(1);
+        expect(loadSnapshot).toHaveBeenNthCalledWith(2, [flow.flowId]);
       } finally {
         release.resolve();
         await pending;

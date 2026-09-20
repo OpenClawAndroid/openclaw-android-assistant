@@ -103,8 +103,8 @@ import { commitSkillUploadInDatabase } from "../skills/lifecycle/upload-store-co
 import * as skillWorkshop from "../skills/workshop/store.worker.js";
 import { isTaskRegistryWorkerCommand } from "../tasks/task-registry.worker-contract.js";
 import { executeTaskRegistryCommand } from "../tasks/task-registry.worker.js";
-import { ensureMeetingTranscriptsSchema } from "../transcripts/sqlite-schema.js";
 import { executeTranscriptRead } from "../transcripts/store-worker-read.js";
+import { appendTranscriptInWorker } from "../transcripts/store-worker-write.js";
 import {
   listAgentProvenanceInDatabase,
   readAgentProvenanceBatchInDatabase,
@@ -306,10 +306,14 @@ export function executeSharedStateCommand(
     return readDeferredPluginMigrations({
       path: context.databasePath,
       env: getSqliteWorkerStateContext().environment,
+      artifactPreservingReadOnly: command.input.artifactPreservingReadOnly,
     });
   }
   if (command.type === "claws.install-schema-versions") {
-    return withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(
+    const read = command.input.artifactPreservingReadOnly
+      ? withExistingOpenClawStateDatabaseArtifactPreservingReadOnly
+      : withExistingOpenClawStateDatabaseReadOnly;
+    return read(
       ({ db, path: pathname }) => {
         assertOpenClawStateDatabaseOwner(db, { pathname });
         return readClawInstallSchemaVersionRows(db);
@@ -394,6 +398,9 @@ export function executeSharedStateCommand(
   if (command.type === "deviceAuth.list") {
     return deviceAuth.readDeviceAuthTokensFromDatabase(database.db, command.input);
   }
+  if (command.type === "transcripts.append") {
+    return appendTranscriptInWorker(command.input, { database, path: context.databasePath });
+  }
   switch (command.type) {
     case "transcripts.sessionEntries":
     case "transcripts.matches":
@@ -407,13 +414,7 @@ export function executeSharedStateCommand(
     case "transcripts.summarySnapshot":
     case "transcripts.utterances":
     case "transcripts.summary": {
-      ensureMeetingTranscriptsSchema({
-        database,
-        path: context.databasePath,
-        env: getSqliteWorkerStateContext().environment,
-        readOnly: command.input.readOnly,
-      });
-      return executeTranscriptRead(database.db, command);
+      return executeTranscriptRead({ database, path: context.databasePath }, command);
     }
     default:
       break;

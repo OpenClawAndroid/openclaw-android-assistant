@@ -191,7 +191,7 @@ export async function withGitTargetInspectionRoot<T>(
     await cleanupUpdateTemporaryDirectory({
       directory: temporaryRoot,
       root: params.root,
-      name: "git target inspection cleanup",
+      name: "git-target-inspection-cleanup",
       onWarning: params.onWarning,
     });
   }
@@ -342,14 +342,14 @@ export async function fetchGitUpdateTarget(params: {
   if (fetch.exitCode !== 0 || channel === "dev") {
     return fetch.exitCode === 0;
   }
-  const remote = await runStep(targetStep("git remote", ["git", "-C", root, "remote"], root));
+  const remote = await runStep(targetStep("git-remote", ["git", "-C", root, "remote"], root));
   if (remote.exitCode !== 0) {
     return false;
   }
   const remotes = normalizeStringEntries((remote.stdoutTail ?? "").split("\n"));
   const tracked = await runStep(
     targetStep(
-      "git config update upstream",
+      "git-config-update-upstream",
       ["git", "-C", root, "config", "--get", `branch.${DEV_BRANCH}.remote`],
       root,
     ),
@@ -360,7 +360,7 @@ export async function fetchGitUpdateTarget(params: {
   const tagRemote = resolveReleaseTagRemote(remotes, (tracked.stdoutTail ?? "").trim());
   if (!tagRemote) {
     steps.push({
-      name: "git release remote",
+      name: "git-release-remote",
       command: "git remote",
       cwd: root,
       durationMs: 0,
@@ -374,7 +374,7 @@ export async function fetchGitUpdateTarget(params: {
   // even when Git config enables it, so operator-only tags survive.
   const tags = await runStep(
     workStep(
-      `git fetch tags ${tagRemote}`,
+      "git-fetch-tags",
       [
         "git",
         "-C",

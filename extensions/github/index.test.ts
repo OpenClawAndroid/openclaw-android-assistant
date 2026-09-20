@@ -340,7 +340,11 @@ describe("GitHub plugin ownership and RPC migration", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(response({ private: false }))
-      .mockResolvedValueOnce(response(issue()))
+      .mockResolvedValueOnce(response(issue({ head: { sha: "a".repeat(40) } })))
+      .mockResolvedValueOnce(response({ total_count: 0, check_runs: [] }))
+      .mockResolvedValueOnce(
+        response({ sha: "a".repeat(40), total_count: 0, state: "pending", statuses: [] }),
+      )
       .mockResolvedValueOnce(response({ message: "private upstream text" }, 429));
     vi.stubGlobal("fetch", fetchMock);
     const respond = await request("github.detail", {

@@ -7,16 +7,15 @@ import { normalizeCapabilityProviderId } from "../plugins/provider-registry-shar
 import { truncateUtf16Safe } from "../utils.js";
 import { ABSOLUTE_DEADLINE_EXPIRED, awaitWithinDeadline } from "../utils/absolute-deadline.js";
 import { createTranscriptsStore, stopTranscriptCapture } from "./capture-operations.js";
+import { retainTranscriptStartRetry, TranscriptStartError } from "./capture-startup.js";
 import {
   activeSessions,
   createTranscriptSessionId,
   isTranscriptSessionStarting,
   resolveSourceProvider,
   resolveTranscriptSourceOwnership,
-  retainTranscriptStartRetry,
   sourceFromParams,
   startTranscripts,
-  TranscriptStartError,
   type TranscriptsRuntimeContext,
 } from "./capture.js";
 import { hasSameTranscriptCaptureIntent } from "./config-reload.js";
@@ -346,7 +345,7 @@ function startTranscriptsAutoStartEntry(
       if (error instanceof TranscriptStartError) {
         clearRetry();
         if (!stopped && error.retry) {
-          startRetry = retainTranscriptStartRetry(ctx, error.retry);
+          startRetry = retainTranscriptStartRetry(ctx.stateDir, error.retry);
         }
       }
       throw error;

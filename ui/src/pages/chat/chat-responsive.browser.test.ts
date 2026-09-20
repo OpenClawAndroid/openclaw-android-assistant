@@ -2061,9 +2061,9 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
               </div>
             </div>
             <div class="chat-bubble chat-bubble--with-images">
-              <details class="chat-json-collapse" data-shape="json">
-                <summary class="chat-json-summary">JSON</summary>
-              </details>
+              <div class="chat-text" data-shape="json">
+                <pre><code class="language-json">{"ready":true}</code></pre>
+              </div>
             </div>
           </div>
         </body></html>`,

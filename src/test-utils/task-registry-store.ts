@@ -17,6 +17,7 @@ import type {
   TaskFlowRegistryObservedUpdate,
   TaskFlowRegistryStoreSnapshot,
 } from "../tasks/task-flow-registry.store.types.js";
+import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
 import type { TaskInitialWorkerOperations } from "../tasks/task-initial-worker.types.js";
 import { captureTaskCreationEventTarget } from "../tasks/task-registry-agent-event-target.js";
 import {
@@ -369,7 +370,16 @@ export function createInMemoryTaskFlowRegistryStore(
   return {
     withSnapshotAsync: async (_context, consume) => consume(structuredClone(state)),
     readFlowAsync: async (_context, flowId) => structuredClone(state.flows.get(flowId)),
-    loadSnapshot: () => structuredClone(state),
+    loadSnapshot: (flowIds) => {
+      const flows = new Map<string, TaskFlowRecord>();
+      for (const flowId of flowIds ?? state.flows.keys()) {
+        const flow = state.flows.get(flowId);
+        if (flow) {
+          flows.set(flowId, structuredClone(flow));
+        }
+      }
+      return { flows };
+    },
     upsertFlow: (flow) => {
       state.flows.set(flow.flowId, structuredClone(flow));
     },

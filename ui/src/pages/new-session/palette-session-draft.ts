@@ -12,6 +12,13 @@ import type { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import "../../components/web-awesome-popover.ts";
 import "../../styles/new-session.css";
+import "../../styles/chat/composer.css";
+import type { ChatAttachmentControlsProps } from "../chat/components/chat-attachment-controls.types.ts";
+import {
+  appendChatAttachmentFiles,
+  handleChatAttachmentPaste,
+  renderAttachmentPreview,
+} from "../chat/components/chat-attachments.ts";
 import { ConnectMachineSetupState, renderConnectMachineDialog } from "./connect-machine-dialog.ts";
 import { NewSessionDraftController } from "./draft-controller.ts";
 import type { NewSessionRouteData } from "./location.ts";
@@ -22,7 +29,7 @@ import type { PaletteSessionPreference } from "./preferences.ts";
 
 registerCommandPaletteEnglish();
 
-/** Launcher-local text and selections; never binds the full page's durable draft or handoff. */
+/** Launcher-local prompt and selections; never binds the full page's durable draft or handoff. */
 export class PaletteSessionDraft implements ReactiveController {
   private draft: NewSessionDraftController | undefined;
   private data: NewSessionRouteData | undefined;
@@ -31,6 +38,7 @@ export class PaletteSessionDraft implements ReactiveController {
   private readonly preferences: PaletteSessionPreferences;
   private readonly settings: PaletteSessionSettings;
   private rejectedOpen: (() => void) | undefined;
+  private coldSubmitReadSignal: AbortSignal | undefined;
   private owner: { gateway: ApplicationContext["gateway"]; url: string; scope: string } | undefined;
   private readonly connectMachine: ConnectMachineSetupState;
   private readonly subscriptions: SubscriptionsController;
@@ -85,10 +93,20 @@ export class PaletteSessionDraft implements ReactiveController {
     return this.draft?.submission.submitting ?? false;
   }
   get messageLocked(): boolean {
-    return this.submitting || Boolean(this.draft?.submission.pendingPlacement.sessionKey);
+    return (
+      this.submitting ||
+      Boolean(this.coldSubmitReadSignal || this.draft?.submission.pendingPlacement.sessionKey)
+    );
+  }
+  get hasPrompt(): boolean {
+    return Boolean(
+      this.message.trim() || this.draft?.submission.attachmentDraft.attachments.length,
+    );
   }
   get canSubmit(): boolean {
-    return Boolean(this.message.trim() && this.draft?.submission.canSubmit());
+    return (
+      !this.coldSubmitReadSignal && this.hasPrompt && Boolean(this.draft?.submission.canSubmit())
+    );
   }
   get error(): string | null {
     const submission = this.draft?.submission;
@@ -104,7 +122,7 @@ export class PaletteSessionDraft implements ReactiveController {
   }
 
   setMessage(value: string) {
-    if (!this.draft || this.submitting || this.draft.submission.pendingPlacement.sessionKey) {
+    if (!this.draft || this.messageLocked) {
       return;
     }
     if (value !== this.message) {
@@ -112,6 +130,66 @@ export class PaletteSessionDraft implements ReactiveController {
       this.draft.submission.clearError();
     }
     this.draft.submission.setMessage(value);
+  }
+
+  private attachmentProps(): ChatAttachmentControlsProps | undefined {
+    const attachmentDraft = this.draft?.submission.attachmentDraft;
+    if (!attachmentDraft) {
+      return undefined;
+    }
+    const readSignal = attachmentDraft.readSignal;
+    return {
+      attachments: attachmentDraft.attachments,
+      attachmentReads: attachmentDraft.reads,
+      attachmentLimits: this.read().context?.gateway.snapshot.hello?.policy?.attachments,
+      disabled: this.messageLocked,
+      getAttachments: () => attachmentDraft.attachments,
+      readSignal,
+      onPendingReadsChange: (delta) => attachmentDraft.updatePending(readSignal, delta),
+      onAttachmentsChange: (attachments) => {
+        if (
+          readSignal.aborted ||
+          !this.read().open ||
+          this.submitting ||
+          this.draft?.submission.pendingPlacement.sessionKey
+        ) {
+          return;
+        }
+        this.rejectedOpen = undefined;
+        this.draft?.submission.clearError();
+        attachmentDraft.replace(attachments);
+      },
+    };
+  }
+
+  readonly pasteImages = (event: ClipboardEvent) => {
+    this.synchronizePresentationScope();
+    const props = this.attachmentProps();
+    if (this.read().open && !this.messageLocked && props) {
+      handleChatAttachmentPaste(event, props, { imagesOnly: true });
+    }
+  };
+
+  adoptImageFiles(files: readonly File[], submitRequested = false) {
+    const props = this.attachmentProps();
+    if (!this.read().open || this.messageLocked || !props) {
+      return;
+    }
+    const admitted = appendChatAttachmentFiles(files, props);
+    if (submitRequested && admitted === files.length) {
+      // The loader accepted Send before the readers existed. Carry that one
+      // intent across preparation, but never across dismissal or invalidation.
+      this.coldSubmitReadSignal = props.readSignal;
+      this.host.requestUpdate();
+    }
+  }
+
+  renderAttachments() {
+    const props = this.attachmentProps();
+    const preview = props ? renderAttachmentPreview(props) : nothing;
+    return preview === nothing
+      ? nothing
+      : html`<div class="cmd-palette__attachments">${preview}</div>`;
   }
 
   open() {
@@ -163,6 +241,7 @@ export class PaletteSessionDraft implements ReactiveController {
       );
     }
     this.rejectedOpen = undefined;
+    this.coldSubmitReadSignal = undefined;
     this.draft.place.resetDraft();
     this.draft.submission.resetDraft();
     this.draft.place.setAgentsHydrated(this.draft.agentsReady());
@@ -172,6 +251,21 @@ export class PaletteSessionDraft implements ReactiveController {
   }
 
   close() {
+    this.coldSubmitReadSignal = undefined;
+    const submission = this.draft?.submission;
+    // A failed create or rejected turn retains the same retry/recovery draft.
+    // Ordinary dismissal discards its previews immediately, not on next open.
+    if (
+      submission &&
+      !this.submitting &&
+      !submission.pendingPlacement.sessionKey &&
+      !submission.submissionOutcomeUnknown &&
+      !submission.error
+    ) {
+      submission.attachmentDraft.reset({ release: true });
+    } else {
+      submission?.attachmentDraft.abortReads();
+    }
     this.settings.close();
     this.draft?.browser.close();
     this.connectMachine.close();
@@ -180,7 +274,7 @@ export class PaletteSessionDraft implements ReactiveController {
 
   async submit(): Promise<void> {
     this.synchronizePresentationScope();
-    if (!this.read().open || !this.message.trim() || !this.draft) {
+    if (!this.read().open || this.coldSubmitReadSignal || !this.hasPrompt || !this.draft) {
       return;
     }
     await this.draft.submission.submit(undefined, true);
@@ -221,6 +315,22 @@ export class PaletteSessionDraft implements ReactiveController {
     this.preferences.synchronize();
     draft.synchronizeSelections();
     draft.submission.resumeInterruptedSubmission();
+    const attachmentDraft = draft.submission.attachmentDraft;
+    if (
+      this.coldSubmitReadSignal &&
+      (this.coldSubmitReadSignal.aborted || attachmentDraft.pendingReads === 0)
+    ) {
+      const ready =
+        !this.coldSubmitReadSignal.aborted &&
+        !attachmentDraft.reads
+          .project(attachmentDraft.attachments)
+          .some((entry) => entry.state === "error");
+      this.coldSubmitReadSignal = undefined;
+      this.host.requestUpdate();
+      if (ready) {
+        void this.submit();
+      }
+    }
     if (this.read().open) {
       void this.read().context?.agentIdentity.ensure(
         this.agentPickerOpen

@@ -100,7 +100,7 @@ export function registerPackageLifecycleStopTests(fixtures: UpdateRespawnFixture
                 await handoff.parkForegroundUpdateHandoff({ root, run });
               },
               runStep: async (step) => {
-                if (step.name === "global update") {
+                if (step.name === "package-install") {
                   const prefix = step.argv[step.argv.indexOf("--prefix") + 1];
                   const candidate = path.join(prefix, "lib", "node_modules", "openclaw");
                   await fs.cp(root, candidate, { recursive: true });

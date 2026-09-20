@@ -195,6 +195,91 @@ describe("task agent event preparation", () => {
     });
   });
 
+  it.each(["commit", "rollback"] as const)(
+    "joins an in-flight preparation read without retrying after native %s",
+    async (outcome) => {
+      await withOpenClawTestState({ layout: "state-only" }, async () => {
+        const task = createTaskFixture("cli", {
+          requesterSessionKey: "agent:main:main",
+          runId: `consumed-during-snapshot-${outcome}`,
+          task: "Settle native work before releasing the event fence",
+          status: "queued",
+          notifyPolicy: "state_changes",
+          deliveryStatus: "pending",
+        });
+        const store = await prepareTaskFixtureRead(task);
+        const readSnapshot = store.loadMutationSnapshotAsync.bind(store);
+        const entered = createDeferred();
+        const release = createDeferred();
+        const failure = new Error("Synthetic native rollback during projection read");
+        const writes = vi.spyOn(store, "runAgentEventMutationAsync");
+        vi.spyOn(taskRegistryState.taskRegistryLog, "warn").mockImplementation(() => {});
+        let projectionReads = 0;
+        vi.spyOn(store, "loadMutationSnapshotAsync").mockImplementation(async (...args) => {
+          const snapshot = await readSnapshot(...args);
+          if (args[1] === undefined && ++projectionReads === 1) {
+            entered.resolve();
+            await release.promise;
+          }
+          return snapshot;
+        });
+        let fenceSettled = false;
+        let fence: Promise<unknown> | undefined;
+        try {
+          emitAgentEvent({
+            runId: task.runId!,
+            stream: "lifecycle",
+            data: { phase: "start", startedAt: task.createdAt + 1 },
+          });
+          taskRegistryState.invalidateTaskRegistryProjection();
+          await withTestTimeout(entered.promise, 5_000, "Projection read did not begin");
+          fence = prepareTaskRegistryReadOwner().then(
+            () => {
+              fenceSettled = true;
+            },
+            (error: unknown) => {
+              fenceSettled = true;
+              return error;
+            },
+          );
+          const consume = () =>
+            runOpenClawStateWriteTransaction(() => {
+              expect(getTaskById(task.taskId)?.status).toBe("running");
+              expect(peekSystemEvents(task.ownerKey)).toEqual([]);
+              if (outcome === "rollback") {
+                throw failure;
+              }
+            });
+          if (outcome === "rollback") {
+            expect(consume).toThrow(failure);
+          } else {
+            consume();
+          }
+          // Force the held pre-consumption snapshot to require another read if
+          // preparation keeps retrying after its event lost write ownership.
+          taskRegistryState.invalidateTaskRegistryProjection();
+          await Promise.resolve();
+          expect(fenceSettled).toBe(false);
+        } finally {
+          release.resolve();
+          await joinEvents();
+        }
+        expect(await fence).toBe(outcome === "rollback" ? failure : undefined);
+        expect(projectionReads).toBe(1);
+        expect(writes).not.toHaveBeenCalled();
+        const durable = loadTaskRegistryStateFromSqliteReadOnly().tasks.get(task.taskId);
+        expect(durable).toMatchObject({
+          status: outcome === "commit" ? "running" : "queued",
+          runId: task.runId,
+        });
+        expect(peekSystemEvents(task.ownerKey)).toHaveLength(outcome === "commit" ? 1 : 0);
+        const read = await prepareTaskRegistryRead();
+        expect(read?.isTaskSettled(task.taskId)).toBe(true);
+        expect(read?.getTaskById(task.taskId)).toEqual(durable);
+      });
+    },
+  );
+
   it.each([
     "native commit",
     "native rollback",

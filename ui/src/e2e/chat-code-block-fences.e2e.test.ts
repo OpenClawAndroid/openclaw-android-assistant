@@ -379,6 +379,10 @@ describeControlUiE2e("Control UI fenced code blocks", () => {
           });
         }
 
+        // JSON starts in Tree; Raw retains the shared fence preview and wrap contract.
+        await shortBubble.getByRole("button", { name: "Raw", exact: true }).click();
+        await longBubble.getByRole("button", { name: "Raw", exact: true }).click();
+
         // A fence at or under the preview budget stays whole and offers no reveal.
         expect(await shortBubble.locator(".code-block-wrapper.is-collapsible").count()).toBe(0);
         expect(await shortBubble.locator(".code-block-expand").count()).toBe(0);

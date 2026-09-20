@@ -74,6 +74,26 @@ the job's uploaded artifacts.
 | `openclaw-performance`           | Separate workflow: daily/on-demand Kova runtime performance reports with mock-provider, deep-profile, and GPT 5.6 live lanes                                                                                                                                                                             | Scheduled and manual dispatch                      |
 | `docs-external-links`            | Separate workflow: Docs External Link Audit checks external documentation links with lychee and uploads a report; it reports findings without failing, so it never blocks a pull request                                                                                                                 | Scheduled and manual dispatch                      |
 
+### macOS Swift phases
+
+`macos-swift (tests)` builds and runs the app's complete default- and named-profile
+test partitions with coverage. `macos-swift (packages)` independently runs the
+OpenClawKit Talk-trait opt-out build, OpenClawKit tests, and Swabble tests. These
+separate package graphs previously ran before the app build in one job; a hosted
+baseline spent 7m57s on them in a 21m48s job. Separating them gives app compilation
+and tests their own 30-minute budget without removing coverage or increasing
+test-process parallelism.
+
+Both phases use `macos-26`, with at most two concurrent jobs. Full manual
+validation adds the existing `release` phase under the same cap. This adds one
+hosted Mac job and its checkout/setup cost per selected run, with no additional
+Blacksmith registrations. Compare complete hosted timings, including queue and
+setup time, before treating the removed serial work as an observed speedup.
+
+Only the app phases restore the app build cache. SwiftPM dependency caches remain
+restore-only in `packages`; the existing primary phase owns shared cache writes.
+The aggregate gate requires every selected phase to succeed.
+
 Ordinary Markdown and MDX pages under `docs/`, plus root `README.md`, retain
 their separate `check-docs` coverage beside precise pull-request Node tests.
 Page deletions and renames preserve this targeting. Explicit Node owners for

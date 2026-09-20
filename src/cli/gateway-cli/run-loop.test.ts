@@ -15,7 +15,6 @@ import type { GatewayServer, GatewayStartupOperation } from "../../gateway/serve
 import type { GatewayActiveWorkSnapshot } from "../../infra/gateway-active-work.js";
 import type { GatewayBootLifecycleCompletion } from "../../infra/gateway-boot-lifecycle.js";
 import type { GatewayRestartIntent } from "../../infra/restart-intent.js";
-import { GATEWAY_STARTUP_MAINTENANCE_REQUIRED_REASON } from "../../infra/startup-maintenance-required.js";
 import { SUPERVISOR_HINT_ENV_VARS } from "../../infra/supervisor-markers.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { resolveGlobalMap } from "../../shared/global-singleton.js";
@@ -23,6 +22,7 @@ import { captureEnv, deleteTestEnvValue } from "../../test-utils/env.js";
 import type { GatewayRestartSnapshot } from "../daemon-cli/restart-health.js";
 import { registerHostedUpdateStopTests } from "./run-loop-hosted-stop.test-support.js";
 import { registerGatewayRequestTests } from "./run-loop-request.test-support.js";
+import { registerGatewayStartupFailureTests } from "./run-loop-startup.test-support.js";
 import { registerUpdateRespawnTests } from "./run-loop-update-respawn.test-support.js";
 import {
   createActiveWorkSnapshot,
@@ -199,7 +199,10 @@ const respawnGatewayProcessForUpdate = vi.fn<
   (_opts?: { env?: NodeJS.ProcessEnv }) => UpdateRespawnResultFixture
 >(() => ({ mode: "disabled", detail: "OPENCLAW_NO_RESPAWN" }));
 const { killProcessTree } = vi.hoisted(() => ({ killProcessTree: vi.fn() }));
-vi.mock("../../process/kill-tree.js", () => ({ killProcessTree }));
+vi.mock("../../process/kill-tree.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../process/kill-tree.js")>()),
+  killProcessTree,
+}));
 const markUpdateRestartSentinelFailure = vi.fn<(reason: string) => Promise<null>>(async () => null);
 const writeRestartSentinelIfUnchanged = vi.fn<
   typeof import("../../infra/restart-sentinel.js").writeRestartSentinelIfUnchanged
@@ -1105,96 +1108,7 @@ describe("runGatewayLoop", () => {
     });
   });
 
-  it("keeps truncated startup failure reasons free of lone surrogates", async () => {
-    await withIsolatedSignals(async () => {
-      const failure = `${"a".repeat(499)}😀tail`;
-      const { runtime } = createRuntimeWithExitSignal();
-      const completeBoot = vi.fn();
-      const { runGatewayLoop } = await import("./run-loop.js");
-      await expect(
-        runGatewayLoop({
-          start: vi.fn(async () => {
-            throw new Error(failure);
-          }) as unknown as Parameters<typeof runGatewayLoop>[0]["start"],
-          runtime: runtime as unknown as Parameters<typeof runGatewayLoop>[0]["runtime"],
-          completeBoot,
-        }),
-      ).rejects.toThrow(failure);
-
-      const reason =
-        (completeBoot.mock.calls[0]?.[0] as { reason?: string } | undefined)?.reason ?? "";
-      expect(reason).toHaveLength(499);
-      expect(Buffer.from(reason).toString()).toBe(reason);
-    });
-  });
-
-  it.each([
-    [
-      "agent media",
-      async () =>
-        new (
-          await import("../../state/openclaw-agent-db-migration-required.js")
-        ).OpenClawAgentDatabaseMediaMigrationRequiredError("/tmp/agent.sqlite", 14),
-    ],
-    [
-      "audit ledger",
-      async () =>
-        new (
-          await import("../../state/openclaw-state-db-schema-migration-required.js")
-        ).OpenClawStateDatabaseSchemaMigrationRequiredError("audit-events-v2", "/tmp/state.sqlite"),
-    ],
-    [
-      "agent registry",
-      async () =>
-        new (
-          await import("../../state/openclaw-state-db-schema-migration-required.js")
-        ).OpenClawStateDatabaseSchemaMigrationRequiredError(
-          "agent-databases-composite-primary-key",
-          "/tmp/state.sqlite",
-        ),
-    ],
-    [
-      "session store",
-      async () =>
-        new (
-          await import("../../config/sessions/migration-required.js")
-        ).SessionStoreMigrationRequiredError("legacy session store"),
-    ],
-    [
-      "newer schema",
-      async () =>
-        new (await import("../../infra/sqlite-user-version.js")).SqliteSchemaVersionError(
-          "newer schema version",
-        ),
-    ],
-  ] as const)(
-    "records a maintenance reason for %s startup failures",
-    async (_kind, createFailure) => {
-      await withIsolatedSignals(async () => {
-        // Earlier lifecycle tests reload the runtime; create the error in that same module graph.
-        const failure = await createFailure();
-        const { runtime } = createRuntimeWithExitSignal();
-        const completeBoot = vi.fn();
-        const { runGatewayLoop } = await import("./run-loop.js");
-
-        await expect(
-          runGatewayLoop({
-            start: vi.fn(async () => {
-              throw failure;
-            }) as unknown as Parameters<typeof runGatewayLoop>[0]["start"],
-            runtime: runtime as unknown as Parameters<typeof runGatewayLoop>[0]["runtime"],
-            completeBoot,
-          }),
-        ).rejects.toBe(failure);
-
-        expect(completeBoot).toHaveBeenCalledWith({
-          outcome: "startup_failed",
-          reason: failure.message,
-          startupReason: GATEWAY_STARTUP_MAINTENANCE_REQUIRED_REASON,
-        });
-      });
-    },
-  );
+  registerGatewayStartupFailureTests();
 
   it("exits 0 on SIGTERM after graceful close", async () => {
     vi.clearAllMocks();

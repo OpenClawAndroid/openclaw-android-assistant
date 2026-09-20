@@ -1096,8 +1096,7 @@
 .chat-activity-group__body .chat-tool-term__out,
 .chat-activity-group__body .chat-tool-card__block-content,
 .chat-activity-group__body .chat-diff,
-.chat-activity-group__body .chat-tool-msg-body > .chat-text,
-.chat-activity-group__body .chat-json-content {
+.chat-activity-group__body .chat-tool-msg-body > .chat-text {
   max-height: none;
 }
 

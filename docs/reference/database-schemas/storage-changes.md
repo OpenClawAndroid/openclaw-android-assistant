@@ -927,12 +927,17 @@ Meeting transcript identity, descriptor, notes, summary, and utterance reads use
 the shared-state worker. Typed commands call the existing synchronous query
 kernels, preserve complete stored results and library error fields, and retain
 first-use schema creation. Compound enumeration, matching, and library reads
-use one deferred read snapshot, keeping their queries coherent while capture
-writes still run on the parent connection. Schema creation finishes before the
+use one deferred read snapshot, keeping their queries coherent with concurrent
+capture writes. Schema creation finishes before the
 read transaction, and domain errors are translated after it settles. Canonical
-close drains these reads before closing their worker connection. Chronological
+close drains these reads before closing their worker connection. Capture utterance
+appends also run their existing deduplication, sequence allocation, and insertion
+transaction on that worker. The capture records accepted speech before preparing
+its immutable input, preserves its order, and retains authority through native
+settlement. Terminal notes and failed-start restoration wait for accepted appends;
+terminal callbacks cannot admit new speech. Chronological
 list reads still use the parent process because their SQL date function observes
-its current timezone. Streamed reads, export snapshots, and capture writes retain
+its current timezone. Streamed reads, export snapshots, and session and summary writes retain
 their existing owners until their snapshot and write-drainage lifecycles move
 together.
 

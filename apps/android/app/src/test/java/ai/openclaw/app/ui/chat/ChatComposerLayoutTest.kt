@@ -3591,6 +3591,51 @@ class ChatComposerLayoutTest {
   }
 
   @Test
+  fun nativeTalkFallbackIsVisibleInTheChatScreen() {
+    val model = showChat(viewportHeight = { 720.dp }, talkActive = true)
+    shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
+    val service = android.content.ComponentName(app, "TestSpeechRecognitionService")
+    shadowOf(app.packageManager).apply {
+      addServiceIfNotPresent(service)
+      addIntentFilterForService(service, android.content.IntentFilter(android.speech.RecognitionService.SERVICE_INTERFACE))
+    }
+    @Suppress("UNCHECKED_CAST")
+    val manager =
+      (
+        NodeRuntime::class.java
+          .getDeclaredField("talkMode\$delegate")
+          .apply { isAccessible = true }
+          .get(runtime)
+          as Lazy<ai.openclaw.app.voice.TalkModeManager>
+      ).value
+    // Seed only the existing config cache; startup and status still belong to the real manager.
+    val config =
+      ai.openclaw.app.voice.TalkModeGatewayConfigParser.parse(
+        Json.parseToJsonElement("""{"talk":{"realtime":{"model":"gpt-live-1-codex"}}}""").jsonObject,
+      )
+    val cacheClass = Class.forName("ai.openclaw.app.voice.TalkConfigCache")
+    val cache =
+      cacheClass
+        .getDeclaredConstructor(config.javaClass, Boolean::class.javaPrimitiveType)
+        .apply { isAccessible = true }
+        .newInstance(config, true)
+
+    @Suppress("UNCHECKED_CAST")
+    val cacheOwner =
+      ai.openclaw.app.voice.TalkModeManager::class.java
+        .getDeclaredField("configCache")
+        .apply { isAccessible = true }
+        .get(manager) as java.util.concurrent.atomic.AtomicReference<Any>
+    cacheOwner.set(cache)
+    composeRule.runOnIdle { manager.setEnabled(true) }
+    composeRule.waitUntil { composeRule.runOnIdle { manager.isListening.value } }
+    captureComposerProof("native-talk-fallback")
+    composeRule.onNodeWithText("Gateway did not advertise GPT-Live relay support", substring = true).assertIsDisplayed()
+    assertEquals(manager.statusText.value, model.talkModeStatusText.value)
+    composeRule.onNodeWithText(nativeString("Talk stopped")).assertDoesNotExist()
+  }
+
+  @Test
   fun compactPickersExposeFullSettingsWithoutExpandingTheComposer() {
     showChat(viewportWidth = 320.dp, fontScale = { 1.5f }, talkActive = true)
     composeRule.runOnIdle {

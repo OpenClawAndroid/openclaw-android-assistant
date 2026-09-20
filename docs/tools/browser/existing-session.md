@@ -129,6 +129,11 @@ Notes:
   target before target-specific work, and take a new snapshot before using refs.
   Each ref is valid only for its target and latest snapshot. Old aliases are not
   transferred to a replacement tab, even when its URL matches.
+- Starting a snapshot refresh invalidates that tab's earlier refs, even if the
+  refresh fails. Condition waits refresh snapshots internally; take a fresh
+  snapshot after such a wait before performing another ref-based action.
+- Labeled screenshots can include controls in multiple frames. Successful
+  captures remove their temporary labels from each frame before returning.
 - Chrome DevTools MCP currently routes page tools by a process-local numeric page
   ID. Process-scoped handles prevent reuse across subprocess replacement, but an
   in-process browser-context replacement between adjacent tool calls can still
@@ -179,6 +184,7 @@ running browser behind that endpoint rather than opening a profile directory.
 
 Compared to the managed `openclaw` profile, existing-session drivers are more constrained:
 
+- **Ambiguous iframe refs** - Chrome MCP can return the same element ID for different documents on pages with cross-origin frames. OpenClaw discards these snapshots and invalidates their refs to prevent actions from targeting the wrong element. Ref-free page screenshots remain available; use a managed browser profile for ref-based work on affected pages.
 - **Screenshots** - page captures and `--ref` element captures work; CSS `--element` selectors do not. Playwright is not required for page or ref-based element screenshots. (`--full-page` cannot combine with `--ref` or `--element` on any profile, not just existing-session.)
 - **Actions** - `click`, `type`, `hover`, `scrollIntoView`, `drag`, and `select` require snapshot refs (no CSS selectors). `click-coords` sends native input at visible viewport coordinates without a snapshot ref, supporting left clicks and double clicks. Right/middle buttons and nonzero delays return an unsupported-operation error. `click` is left-button only (no button overrides or modifiers). `type` does not support `slowly=true`; use `fill` or `press`. `press` does not support `delayMs`. `type`, `hover`, `scrollIntoView`, `drag`, `select`, and `fill` do not support per-call `timeoutMs` overrides; `evaluate` does. `select` accepts one exact HTML option value, including empty or whitespace values; duplicate display labels do not change which value is selected. `batch` is not supported; send actions individually.
 - **Wait / upload / dialog** - `wait --url` supports exact, substring, and glob patterns (same as managed); `wait --load networkidle` is not supported on existing-session profiles (it works on managed and raw/remote CDP profiles). Upload hooks require `ref` or `inputRef` and do not support CSS `element`; pass multiple paths when the page's file input accepts multiple files. Dialog hooks do not support timeout overrides or `dialogId`.

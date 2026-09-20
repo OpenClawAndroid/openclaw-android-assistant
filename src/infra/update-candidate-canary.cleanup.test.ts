@@ -254,8 +254,8 @@ describe("canary teardown evidence", () => {
           signal: controller.signal,
           onStep,
         });
-        const name = duringDoctor ? "Checking data migrations" : "Checking Gateway startup";
-        const cleanup = result.steps.find((step) => step.name === `${name} cleanup`);
+        const name = duringDoctor ? "candidate-doctor" : "candidate-gateway-startup";
+        const cleanup = result.steps.find((step) => step.name === `${name}-cleanup`);
         expect(cleanup).toMatchObject({
           exitCode: null,
           advisory: {
@@ -348,7 +348,7 @@ describe("canary teardown evidence", () => {
     try {
       termComplete = await term.promise;
       expect(onStep).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "Checking Gateway startup", exitCode: 0 }),
+        expect.objectContaining({ name: "candidate-gateway-startup", exitCode: 0 }),
       );
       gateway!.emit("close", 0);
       await Promise.resolve();

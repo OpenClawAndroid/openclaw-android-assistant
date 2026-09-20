@@ -71,6 +71,17 @@ function read(repo, endpoint, paginate = false) {
   );
 }
 
+function readMain(repo) {
+  const reference = read(repo, "/git/ref/heads/main");
+  requireEvidence(
+    reference?.ref === "refs/heads/main" &&
+      reference.object?.type === "commit" &&
+      OID.test(reference.object.sha ?? ""),
+    "main is unavailable",
+  );
+  return reference.object.sha;
+}
+
 function pageArrays(pages) {
   requireEvidence(
     Array.isArray(pages) && pages.length > 0 && pages.every(Array.isArray),
@@ -202,11 +213,7 @@ function beginRead(repo, pr, observe) {
       authority.html_url === repo.url,
     "repository identity changed",
   );
-  const branch = read(repo, "/branches/main");
-  requireEvidence(
-    branch?.name === "main" && OID.test(branch.commit?.sha ?? ""),
-    "main is unavailable",
-  );
+  const mainSha = readMain(repo);
   const record = readPullRequest(repo, authority, pr);
   // An already-merged receipt proves a historical action. New protection or
   // reduced privileges cannot invalidate the retained head and tree proof.
@@ -216,7 +223,7 @@ function beginRead(repo, pr, observe) {
     "policy-reader admin access changed",
   );
   const policy = receipt ? null : readPolicy(repo);
-  return { authority, main: branch.commit.sha, record, policy };
+  return { authority, main: mainSha, record, policy };
 }
 
 function finishRead(repo, pr, snapshot) {
@@ -233,14 +240,12 @@ function finishRead(repo, pr, snapshot) {
     JSON.stringify(identity(current)) === JSON.stringify(identity(snapshot.record)),
     "PR identity, head, or lifecycle changed while reading evidence",
   );
-  const mainRef = read(repo, "/branches/main");
+  const mainSha = readMain(repo);
   requireEvidence(
-    mainRef?.name === "main" &&
-      OID.test(mainRef.commit?.sha ?? "") &&
-      (current.merged || mainRef.commit.sha === snapshot.main),
+    current.merged || mainSha === snapshot.main,
     "main changed while reading evidence",
   );
-  snapshot.main = mainRef.commit.sha;
+  snapshot.main = mainSha;
   return current;
 }
 
@@ -383,9 +388,12 @@ function requiredChecks(repo, snapshot) {
       ({ context, app }) => check.name === context && (app === null || check.app.id === app),
     );
   const head = snapshot.record.head.sha;
+  const contexts = new Set(required.map(({ context }) => context));
+  const nameFilter =
+    contexts.size === 1 ? `&check_name=${encodeURIComponent(required[0].context)}` : "";
   const checks = checkPages(
     repo,
-    `/commits/${head}/check-runs?filter=latest&per_page=100`,
+    `/commits/${head}/check-runs?filter=latest${nameFilter}&per_page=100`,
     "check_runs",
     head,
   );

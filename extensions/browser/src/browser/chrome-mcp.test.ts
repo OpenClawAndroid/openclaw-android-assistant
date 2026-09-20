@@ -6,7 +6,7 @@ import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import { createOpenClawTestState } from "openclaw/plugin-sdk/test-state";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { normalizeChromeMcpOptions } from "./chrome-mcp-options.js";
 import { refreshChromeMcpCleanupProcess } from "./chrome-mcp-process.js";
 import { getChromeMcpPid, getChromeMcpSessionOwner } from "./chrome-mcp-session.js";
@@ -38,11 +38,13 @@ import {
   withChromeMcpDocument,
 } from "./chrome-mcp.js";
 import type { ChromeMcpSnapshotNode } from "./chrome-mcp.snapshot.js";
+import {
+  createPageSession,
+  installChromeMcpSessionTestHooks,
+  type SessionPage,
+  type ToolCall,
+} from "./chrome-mcp.test-support.js";
 
-type ToolCall = {
-  name: string;
-  arguments?: Record<string, unknown>;
-};
 type ToolCallMock = {
   mock: {
     calls: Array<[ToolCall, unknown?, { signal?: AbortSignal; timeout?: number }?]>;
@@ -186,54 +188,8 @@ function createFakeSession(screenshotError?: string): ChromeMcpSession {
   } as unknown as ChromeMcpSession;
 }
 
-type SessionPage = { id: number; url: string; selected?: boolean };
-
-function createPageSession(params: {
-  pages: SessionPage[];
-  pid: number;
-  onTool?: (call: ToolCall) => unknown;
-}): ChromeMcpSession {
-  const callTool = vi.fn(async (call: ToolCall) => {
-    const custom = await params.onTool?.(call);
-    if (custom !== undefined) {
-      return custom;
-    }
-    if (call.name === "list_pages") {
-      return {
-        structuredContent: {
-          pages: params.pages.map(({ id, url, selected }) => ({ id, url, selected })),
-        },
-      };
-    }
-    if (call.name === "evaluate_script") {
-      return { content: [{ type: "text", text: "```json\nnull\n```" }] };
-    }
-    throw new Error(`unexpected tool ${call.name}`);
-  });
-  const client = {
-    callTool,
-    listTools: vi.fn(),
-    close: vi.fn().mockResolvedValue(undefined),
-    connect: vi.fn(),
-  };
-  return {
-    client,
-    transport: { pid: params.pid },
-    closeTransport: () => client.close(),
-    ready: Promise.resolve(),
-  } as unknown as ChromeMcpSession;
-}
-
 describe("chrome MCP page parsing", () => {
-  beforeEach(async () => {
-    await resetChromeMcpSessionsForTest();
-    vi.useRealTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllEnvs();
-  });
+  installChromeMcpSessionTestHooks();
 
   const credentialEndpointUrl = new URL("https://browser.example/?token=fixture-token");
   credentialEndpointUrl.username = "fixture-user";

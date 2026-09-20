@@ -377,7 +377,14 @@ async function persist(pending: PendingEvent): Promise<void> {
           admission: context.admission,
           readIdentity: "preserved",
           prepare: async () => {
-            await taskFlowSyncOwner(taskId).prepare(context, store, Number.POSITIVE_INFINITY);
+            const owner = taskFlowSyncOwner(taskId);
+            // Native consumption owns settlement even when a held snapshot becomes stale.
+            // Join that read, then let the mutation callback await native commit or rollback.
+            while (pending.phase.kind !== "consumed") {
+              if (await owner.prepare(context, store, 1)) {
+                return;
+              }
+            }
           },
           onPublicationError: (error) => {
             publicationFailure = { error };

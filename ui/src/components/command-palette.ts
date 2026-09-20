@@ -257,7 +257,9 @@ export class CommandPalette extends OpenClawLightDomContentsElement {
         ?.setReturnFocusTarget(input.returnFocus);
     }
     element.setSelectionRange(input.selectionStart, input.selectionEnd, input.selectionDirection);
-    if (input.submitRequested) {
+    if (input.imageFiles?.length) {
+      this.draft.adoptImageFiles(input.imageFiles, input.submitRequested);
+    } else if (input.submitRequested) {
       void this.draft.submit();
     }
   };

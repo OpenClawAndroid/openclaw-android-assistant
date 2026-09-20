@@ -571,21 +571,21 @@ describe("DraftPlaceState cloud machine selection", () => {
     ]);
     state.select("aws", "large", profiles);
     state.select("aws", "tiny", profiles);
-    expect(state.resolve("aws")).toBe("");
+    expect(state.resolve("aws")).toBe("tiny");
     expect(state.resolveOs("aws")).toBe("windows/wsl2");
     state.select("aws", "custom", profiles);
     state.selectOs("aws", "linux", profiles);
     expect(state.resolve("aws")).toBe("custom");
-    expect(state.resolveOs("aws")).toBe("");
+    expect(state.resolveOs("aws")).toBe("linux");
     state.applyPending("other", "large", "other-os");
     expect(state.resolve("aws")).toBe("custom");
     expect(state.resolveOs("other")).toBe("other-os");
     expect(state.selectOs("aws", "windows/wsl2", profiles, true)).toBe(false);
     expect(state.selectOs("aws", "macos", profiles)).toBe(false);
-    expect(state.resolveOs("aws")).toBe("");
+    expect(state.resolveOs("aws")).toBe("linux");
   });
 
-  it("uses each profile default and retains only non-default overrides per destination", () => {
+  it("submits each profile's displayed machine and retains selections per destination", () => {
     const requestUpdate = vi.fn();
     const gateway = {
       cloudProfiles: [
@@ -627,21 +627,21 @@ describe("DraftPlaceState cloud machine selection", () => {
     );
 
     state.applyPendingPlacement({ agentId: "main", profileId: "aws" });
-    expect(state.cloudSelection.machineClass).toBe("");
+    expect(state.cloudSelection.machineClass).toBe("standard");
 
     state.cloudMachines.select("aws", "fast", gateway.cloudProfiles);
     expect(state.cloudSelection.machineClass).toBe("fast");
 
     vi.spyOn(state, "worktreeAvailable").mockReturnValue(true);
     state.selectCloudProfile("hetzner");
-    expect(state.cloudSelection.machineClass).toBe("");
+    expect(state.cloudSelection.machineClass).toBe("large");
     state.cloudMachines.select("hetzner", "beast", gateway.cloudProfiles);
     expect(state.cloudSelection.machineClass).toBe("beast");
 
     state.selectCloudProfile("aws");
     expect(state.cloudSelection.machineClass).toBe("fast");
     state.cloudMachines.select("aws", "standard", gateway.cloudProfiles);
-    expect(state.cloudSelection.machineClass).toBe("");
+    expect(state.cloudSelection.machineClass).toBe("standard");
     expect(requestUpdate).toHaveBeenCalled();
   });
 

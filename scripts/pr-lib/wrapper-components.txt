@@ -761,6 +761,7 @@ src/infra/update-run-limits.ts
 src/infra/update-run-schema.ts
 src/infra/update-run-timeouts.ts
 src/infra/update-snapshot-capacity-schema.ts
+src/infra/update-step-identity.ts
 src/infra/warning-filter.ts
 src/infra/windows-encoding.ts
 src/infra/windows-install-roots.ts

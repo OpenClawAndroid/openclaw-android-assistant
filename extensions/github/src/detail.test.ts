@@ -30,6 +30,8 @@ function item(overrides: Record<string, unknown> = {}) {
     comments: 0,
     review_comments: 0,
     changed_files: 0,
+    head: { sha, ref: "feature" },
+    base: { sha: "b".repeat(40), ref: "main" },
     ...overrides,
   };
 }
@@ -67,6 +69,16 @@ function commentItem(overrides: Record<string, unknown> = {}) {
 function publicFetch(payload: unknown) {
   return vi
     .fn<typeof fetch>()
+    .mockImplementation(async (url) => {
+      const requestUrl = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      if (requestUrl.endsWith("/check-runs?filter=latest&per_page=100")) {
+        return json({ total_count: 0, check_runs: [] });
+      }
+      if (requestUrl.endsWith("/status?per_page=100")) {
+        return json({ sha, total_count: 0, state: "pending", statuses: [] });
+      }
+      throw new Error("Unexpected request " + requestUrl);
+    })
     .mockResolvedValueOnce(json({ private: false }))
     .mockResolvedValueOnce(json(payload));
 }
@@ -108,6 +120,7 @@ describe("GitHub detail public read boundary", () => {
         expect(first.metadata).toEqual([
           { label: "Files", value: "0" },
           { label: "Comments", value: "0" },
+          { label: "Branch", value: "feature → main" },
         ]);
       }
       expect(first.url).toBe(
@@ -118,7 +131,10 @@ describe("GitHub detail public read boundary", () => {
           "/" +
           (kind === "commit" ? sha : "1"),
       );
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(kind === "pull" ? 4 : 2);
+      if (kind !== "pull") {
+        expect(first).not.toHaveProperty("checks");
+      }
       for (const [url, options] of fetchMock.mock.calls) {
         expect(url).toMatch(/^https:\/\/api\.github\.com\/repos\/octocat\//u);
         expect(options?.headers).not.toHaveProperty("Authorization");
@@ -295,7 +311,7 @@ describe("GitHub detail public read boundary", () => {
         (entry) => entry.patchTruncated && (entry.patch?.length ?? 0) <= 16 * 1024,
       ),
     ).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(fetchMock.mock.calls[2]?.[0]).toContain("/issues/1/comments?per_page=20");
     expect(fetchMock.mock.calls[3]?.[0]).toContain(
       "/pulls/1/comments?per_page=20&sort=created&direction=asc",

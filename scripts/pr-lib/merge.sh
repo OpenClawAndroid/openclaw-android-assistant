@@ -392,9 +392,14 @@ prepare_squash_merge_body() {
     [ -n "$oid" ] || continue
     parent_tree=""
     [ -z "$parent" ] || parent_tree=$(pr_git rev-parse "$parent^{tree}") || exit 1
-    pr_gh api "repos/$repo_nwo/commits/$oid" --jq \
-      '{name:.commit.author.name,email:.commit.author.email,user:(.author | if . == null then null else {login,type} end)}' |
-      jq --arg tree "$tree" --arg parentTree "$parent_tree" '. + {changesTree: ($tree != $parentTree)}' || exit 1
+    pr_gh api "repos/$repo_nwo/commits?sha=$oid&per_page=1" |
+      jq -e --arg oid "$oid" --arg tree "$tree" --arg parentTree "$parent_tree" '
+        if type == "array" and length == 1 and .[0].sha == $oid then
+          .[0] | {name:.commit.author.name,email:.commit.author.email,
+            user:(.author | if . == null then null else {login,type} end),
+            changesTree:($tree != $parentTree)}
+        else error("Cannot establish the requested source commit author") end
+      ' || exit 1
   done) || return 1
   authors=$(printf '%s\n' "$authors" | jq -s .) || return 1
   if [ "${MERGE_TRANSPORT:-graphql}" = rest ]; then

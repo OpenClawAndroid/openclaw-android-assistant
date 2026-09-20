@@ -209,7 +209,7 @@ export async function resolveSettledUpdateCommandResult(
   );
   const failedStep: UpdateStepResult | undefined = settlementFailed
     ? {
-        name: "update executor settlement",
+        name: "update-executor-settlement",
         command: "openclaw update",
         cwd: pendingResult.root ?? params.root,
         durationMs: 0,
@@ -273,7 +273,7 @@ export async function recordUpdatePackageCompletion(
     assertCurrent();
     const message = `Gateway readiness is pending; backup retirement deferred for ${transaction.backupRoot}. Verify readiness before cleanup.`;
     result.steps.push({
-      name: "global install backup retention",
+      name: "package-backup-retention",
       command: "openclaw update",
       cwd: result.root ?? params.root,
       durationMs: 0,
@@ -293,7 +293,7 @@ export async function recordUpdatePackageCompletion(
       }
       cleanupFailure = error;
       return {
-        name: "global install backup retention",
+        name: "package-backup-retention",
         command: "openclaw update",
         cwd: result.root ?? params.root,
         durationMs: 0,

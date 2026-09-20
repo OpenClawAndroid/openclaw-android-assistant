@@ -18,8 +18,10 @@ import {
   getChromeMcpRoutingState,
   listChromeMcpTargetsWithLease,
   resolveChromeMcpSnapshotRef,
+  validateChromeMcpSnapshotRefs,
   wrapChromeMcpSnapshotRefs,
   withChromeMcpTarget,
+  type ChromeMcpPinnedTarget,
 } from "./chrome-mcp-routing.js";
 import type { ChromeMcpSnapshotNode } from "./chrome-mcp.snapshot.js";
 
@@ -131,6 +133,10 @@ export async function takeChromeMcpSnapshot(
   params: ChromeMcpTargetOperation,
 ): Promise<ChromeMcpSnapshotNode> {
   return await withChromeMcpTarget(params, async (target) => {
+    clearChromeMcpSnapshotRefsForTarget(
+      getChromeMcpRoutingState(target.lease.session),
+      params.targetId,
+    );
     const result = await callTool(
       params.profileName,
       target.profileOptions,
@@ -153,6 +159,10 @@ export async function withChromeMcpDocument<T>(
   task: (document: { evaluate: (fn: string) => Promise<unknown> }) => Promise<T>,
 ): Promise<T> {
   return await withChromeMcpTarget(params, async (target) => {
+    clearChromeMcpSnapshotRefsForTarget(
+      getChromeMcpRoutingState(target.lease.session),
+      params.targetId,
+    );
     let snapshot: ChromeMcpSnapshotNode;
     try {
       snapshot = extractSnapshot(
@@ -168,6 +178,7 @@ export async function withChromeMcpDocument<T>(
     } catch (error) {
       rethrowChromeMcpDocumentError(error);
     }
+    validateChromeMcpSnapshotRefs(snapshot);
     const uid = normalizeOptionalString(snapshot.id);
     if (!uid || snapshot.role?.trim().toLowerCase() !== "rootwebarea") {
       throw new Error("Chrome MCP snapshot did not contain a top-level document uid");
@@ -193,28 +204,51 @@ export async function withChromeMcpDocument<T>(
   });
 }
 
-/** Take a screenshot via Chrome MCP and return the image bytes. */
-export async function takeChromeMcpScreenshot(
-  params: ChromeMcpTargetOperation & {
-    uid?: string;
-    fullPage?: boolean;
-    format?: "png" | "jpeg";
-  },
+export type ChromeMcpScreenshotOptions = {
+  uid?: string;
+  fullPage?: boolean;
+  format?: "png" | "jpeg";
+};
+
+/** Capture within an existing target operation, including its snapshot ref lifetime. */
+export async function takeChromeMcpScreenshotOnTarget(
+  params: ChromeMcpTargetOperation & ChromeMcpScreenshotOptions,
+  target: ChromeMcpPinnedTarget,
 ): Promise<Buffer> {
   return await withTempDownloadPath(
     { prefix: "openclaw-chrome-mcp", fileName: "screenshot" },
     async (filePath) => {
       const format = params.format ?? "png";
-      await callTargetTool(params, "take_screenshot", (session) => ({
-        filePath,
-        format,
-        ...(params.uid
-          ? { uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid) }
-          : {}),
-        ...(params.fullPage ? { fullPage: true } : {}),
-      }));
+      await callTool(
+        params.profileName,
+        target.profileOptions,
+        "take_screenshot",
+        {
+          pageId: target.pageId,
+          filePath,
+          format,
+          ...(params.uid
+            ? {
+                uid: resolveChromeMcpSnapshotRef(target.lease.session, params.targetId, params.uid)
+                  .uid,
+              }
+            : {}),
+          ...(params.fullPage ? { fullPage: true } : {}),
+        },
+        params,
+        target.lease,
+      );
       return await fs.readFile(`${filePath}.${format}`);
     },
+  );
+}
+
+/** Take a screenshot via Chrome MCP and return the image bytes. */
+export async function takeChromeMcpScreenshot(
+  params: ChromeMcpTargetOperation & ChromeMcpScreenshotOptions,
+): Promise<Buffer> {
+  return await withChromeMcpTarget(params, (target) =>
+    takeChromeMcpScreenshotOnTarget(params, target),
   );
 }
 
@@ -226,7 +260,7 @@ export async function clickChromeMcpElement(
   },
 ): Promise<void> {
   await callTargetTool(params, "click", (session) => ({
-    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid),
+    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid).uid,
     ...(params.doubleClick ? { dblClick: true } : {}),
   }));
 }
@@ -271,7 +305,7 @@ export async function fillChromeMcpElement(
   params: ChromeMcpTargetOperation & { uid: string; value: string },
 ): Promise<void> {
   await callTargetTool(params, "fill", (session) => ({
-    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid),
+    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid).uid,
     value: params.value,
   }));
 }
@@ -285,7 +319,7 @@ export async function fillChromeMcpForm(
   await callTargetTool(params, "fill_form", (session) => ({
     elements: params.elements.map((element) => ({
       ...element,
-      uid: resolveChromeMcpSnapshotRef(session, params.targetId, element.uid),
+      uid: resolveChromeMcpSnapshotRef(session, params.targetId, element.uid).uid,
     })),
   }));
 }
@@ -295,7 +329,7 @@ export async function hoverChromeMcpElement(
   params: ChromeMcpTargetOperation & { uid: string },
 ): Promise<void> {
   await callTargetTool(params, "hover", (session) => ({
-    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid),
+    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid).uid,
   }));
 }
 
@@ -304,8 +338,8 @@ export async function dragChromeMcpElement(
   params: ChromeMcpTargetOperation & { fromUid: string; toUid: string },
 ): Promise<void> {
   await callTargetTool(params, "drag", (session) => ({
-    from_uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.fromUid),
-    to_uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.toUid),
+    from_uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.fromUid).uid,
+    to_uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.toUid).uid,
   }));
 }
 
@@ -314,7 +348,7 @@ export async function uploadChromeMcpFile(
   params: ChromeMcpTargetOperation & { uid: string; filePaths: string[] },
 ): Promise<void> {
   await callTargetTool(params, "upload_file", (session) => ({
-    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid),
+    uid: resolveChromeMcpSnapshotRef(session, params.targetId, params.uid).uid,
     filePaths: params.filePaths,
   }));
 }
@@ -346,8 +380,8 @@ export async function evaluateChromeMcpScript(
     function: params.fn,
     ...(params.args?.length
       ? {
-          args: params.args.map((ref) =>
-            resolveChromeMcpSnapshotRef(session, params.targetId, ref),
+          args: params.args.map(
+            (ref) => resolveChromeMcpSnapshotRef(session, params.targetId, ref).uid,
           ),
         }
       : {}),

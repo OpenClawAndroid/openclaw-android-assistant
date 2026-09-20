@@ -459,7 +459,14 @@ export function createUpdateRunProgress(
       pendingSteps.push(step);
       return undefined;
     }
-    return recordUpdateRunStep(run.runId, step, { env: run.env });
+    try {
+      return recordUpdateRunStep(run.runId, step, { env: run.env });
+    } catch (cause) {
+      throw new Error(
+        `Could not record update step "${step.step}" (${step.status}): ${formatErrorMessage(cause)}`,
+        { cause },
+      );
+    }
   };
   return {
     pendingSteps,

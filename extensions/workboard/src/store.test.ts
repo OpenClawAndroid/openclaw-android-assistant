@@ -1859,7 +1859,7 @@ describe("WorkboardStore", () => {
   });
 
   it("adds comments, links, proof, and archive metadata", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Track proof" });
 
     const commented = await store.addComment(card.id, { body: "Reviewer asked for screenshots." });
@@ -2308,7 +2308,7 @@ describe("WorkboardStore", () => {
   });
 
   it("keeps metadata under the keyed-store value budget", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Collect a lot of notes" });
 
     for (let index = 0; index < 50; index += 1) {
@@ -2326,7 +2326,7 @@ describe("WorkboardStore", () => {
   });
 
   it("records append events when metadata retention drops old comments", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Track retained comments" });
 
     let updated = card;
@@ -2364,7 +2364,7 @@ describe("WorkboardStore", () => {
   });
 
   it("exports card records with metadata", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Export me", templateId: "docs" });
 
     await expect(store.exportCards()).resolves.toMatchObject({
@@ -3647,7 +3647,7 @@ describe("WorkboardStore", () => {
   });
 
   it("builds bounded worker context from card metadata", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({
       title: "Write docs",
       notes: "Acceptance:\n- mention tools",
@@ -3667,7 +3667,7 @@ describe("WorkboardStore", () => {
   });
 
   it("keeps worker-context text bounds UTF-16 safe", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({
       title: "Bound context",
       metadata: {
@@ -3922,7 +3922,7 @@ describe("WorkboardStore", () => {
   });
 
   it("includes parent results and recent assignee work in worker context", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const parent = await store.create({
       title: "Design",
       status: "running",
@@ -3963,7 +3963,7 @@ describe("WorkboardStore", () => {
     const {
       store,
       stores: { cards, boards, subscriptions },
-    } = createWorkboardSqliteTestHarness();
+    } = createWorkboardSqliteTestHarness({ createStores: createKernelStores });
 
     const board = await store.upsertBoard({
       id: "ops",
@@ -4749,7 +4749,7 @@ describe("WorkboardStore", () => {
   });
 
   it("deletes card notification subscriptions with the card", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Notify me" });
     await store.subscribeNotifications({
       cardId: card.id,

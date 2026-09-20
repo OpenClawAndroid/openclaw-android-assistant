@@ -429,7 +429,7 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
         expect(report.body).toContain("Update target: 2026.9.4");
         expect(report.body).toContain("Update mode: package");
         expect(report.body).toContain("Reason code: doctor-failed");
-        expect(report.body).toContain("Failed phase finalize:doctor: exit 1");
+        expect(report.body).toContain("Failed phase finalize-doctor: exit 1");
         expect(report.body).toContain(
           "Recovery outcome: package rollback not needed: no package mutation",
         );

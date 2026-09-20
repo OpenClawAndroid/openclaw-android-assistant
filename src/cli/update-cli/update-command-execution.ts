@@ -448,7 +448,7 @@ export async function executeMutableUpdate(
           gatewayRestartCompletion = validation.gatewayRestartCompletion === true;
           doctorConfigWrites = validation.doctorConfigWrites === true;
           observedGatewayStartupMs = validation.steps.find(
-            (step) => step.name === "Checking Gateway startup" && step.exitCode === 0,
+            (step) => step.name === "candidate-gateway-startup" && step.exitCode === 0,
           )?.durationMs;
         }
         return validation;

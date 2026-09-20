@@ -283,7 +283,7 @@ describe("failed update recovery restart", () => {
       [
         { mode: "git", status: "error", reason: "doctor-failed" },
         { mode: "git", status: "skipped", reason: "dirty" },
-        { mode: "pnpm", status: "error", reason: "global install swap" },
+        { mode: "pnpm", status: "error", reason: "package-swap" },
       ] as const
     ).flatMap(({ mode, status, reason }) =>
       (["healthy", "failed"] as const).map((service) => ({ mode, status, reason, service })),
@@ -832,19 +832,19 @@ describe("failed package update recovery safety", () => {
   );
 
   it.each([
-    "global install verify",
-    "global install swap",
-    "pnpm package lifecycle marker",
-    "pnpm package preinstall",
-    "pnpm package postinstall",
-    "pnpm package lifecycle finalize",
+    "package-verify",
+    "package-swap",
+    "pnpm-package-lifecycle-marker",
+    "pnpm-package-preinstall",
+    "pnpm-package-postinstall",
+    "pnpm-package-lifecycle-finalize",
   ])("keeps the replaced package stopped after %s fails", async (name) => {
     const failure = await finishFailedUpdate({
       status: "error",
       mode: name.startsWith("pnpm ") ? "pnpm" : "npm",
       reason: "global-install-failed",
       steps: [
-        { name: "global update", command: "npm", cwd: "/", durationMs: 1, exitCode: 0 },
+        { name: "package-install", command: "npm", cwd: "/", durationMs: 1, exitCode: 0 },
         {
           name,
           command: "verify",
@@ -868,7 +868,7 @@ describe("failed package update recovery safety", () => {
       mode: "npm",
       reason: "doctor-failed",
       steps: [
-        { name: "global update", command: "npm", cwd: "/", durationMs: 1, exitCode: 0 },
+        { name: "package-install", command: "npm", cwd: "/", durationMs: 1, exitCode: 0 },
         { name: "openclaw doctor", command: "doctor", cwd: "/", durationMs: 1, exitCode: 1 },
       ],
       recovery: {

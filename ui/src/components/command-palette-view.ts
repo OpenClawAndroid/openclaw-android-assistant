@@ -221,8 +221,9 @@ export function renderCommandPalette(props: CommandPaletteProps) {
   const activeOptionId = items[activeIndex] ? getOptionId(activeIndex) : undefined;
   const paletteLabel = t("palette.placeholder");
   const startLabel = t(props.draft.submitting ? "palette.startingSession" : "palette.startSession");
-  const startDisabled = !props.query.trim() || !props.draft.canSubmit;
-  const startReason = props.query.trim() ? props.draft.disabledReason : t("palette.promptRequired");
+  const startDisabled = !props.draft.canSubmit;
+  const startReason =
+    props.draft.disabledReason ?? (props.draft.hasPrompt ? undefined : t("palette.promptRequired"));
   const startShortcut = formatKeyboardShortcutCombo(KEYBOARD_SHORTCUT_COMBOS.modifiedEnter);
   const searchSettled =
     Boolean(props.query.trim()) &&
@@ -259,6 +260,7 @@ export function renderCommandPalette(props: CommandPaletteProps) {
           placeholder: paletteLabel,
           onInputRef: props.onInputRef,
           onValueChange: props.onQueryChange,
+          onPaste: props.draft.pasteImages,
           disabled: props.draft.submitting,
           readOnly: props.draft.messageLocked,
           controls: props.promptMode ? undefined : paletteListboxId,
@@ -280,6 +282,7 @@ export function renderCommandPalette(props: CommandPaletteProps) {
             ${props.draft.renderControls()}
           `,
         })}
+        ${props.draft.renderAttachments()}
         <div
           class="cmd-palette__search"
           ?inert=${props.promptMode}

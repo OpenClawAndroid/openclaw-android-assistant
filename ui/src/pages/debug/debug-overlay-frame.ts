@@ -1,5 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
 import type { DirectiveResult } from "lit/directive.js";
+import { icons } from "../../components/icons.ts";
 import {
   renderLazyViewError,
   type renderLazyElementModal,
@@ -105,7 +106,7 @@ export function renderDebugOverlayFrame({
             title=${t(mode === "minimized" ? "debug.overlay.expand" : "debug.overlay.minimize")}
             @click=${onToggleMode}
           >
-            <span aria-hidden="true">${mode === "minimized" ? "↗" : "↙"}</span>
+            ${mode === "minimized" ? icons.maximize : icons.minimize}
           </button>
           <button
             type="button"
@@ -113,7 +114,7 @@ export function renderDebugOverlayFrame({
             aria-label=${t("common.close")}
             @click=${onClose}
           >
-            ×
+            ${icons.x}
           </button>
         </div>
       </header>

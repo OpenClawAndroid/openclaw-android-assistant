@@ -233,10 +233,11 @@ export function ensureTaskFlowRegistryReady(options?: { refreshProjection?: bool
   if (options?.refreshProjection === false || (!projectionDirty && dirtyFlowIds.size === 0)) {
     return;
   }
-  const restored = getTaskFlowRegistryStore().loadSnapshot();
+  const flowIds = projectionDirty ? undefined : [...dirtyFlowIds];
+  const restored = getTaskFlowRegistryStore().loadSnapshot(flowIds);
   const previous = flows;
   const next = new Map(previous);
-  for (const flowId of next.keys()) {
+  for (const flowId of flowIds ?? next.keys()) {
     if (!restored.flows.has(flowId)) {
       next.delete(flowId);
     }

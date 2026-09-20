@@ -93,6 +93,7 @@ const PROVIDER_ICON_NAMES = new Set([
 // Canonical provider id → icon asset name for providers whose brand mark ships
 // under a different slug than their catalog id.
 const PROVIDER_ICON_ALIASES: Readonly<Record<string, string>> = {
+  "acp-copilot": "copilot",
   anthropic: "claude",
   "amazon-bedrock": "bedrock",
   "aws-bedrock": "bedrock",
@@ -129,6 +130,7 @@ const PROVIDER_ICON_ALIASES: Readonly<Record<string, string>> = {
 
 // Brand display names for provider ids whose title-cased id reads wrong.
 const PROVIDER_DISPLAY_LABELS: Readonly<Record<string, string>> = {
+  "acp-copilot": "GitHub Copilot CLI",
   anthropic: "Anthropic",
   "claude-cli": "Claude CLI",
   google: "Google",

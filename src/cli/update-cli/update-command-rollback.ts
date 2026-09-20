@@ -239,7 +239,7 @@ export async function rollbackFailedUpdate(params: {
         steps: [
           ...result.steps,
           {
-            name: "config rollback",
+            name: "config-rollback",
             command: "restore pre-update config",
             cwd: params.previousRoot,
             durationMs: 0,

@@ -33,7 +33,7 @@ export type ChromeMcpRoutingState = {
   withOperationLock: ReturnType<typeof createAsyncLock>;
   targetIdByPageId: Map<number, string>;
   nextTargetHandleId: number;
-  snapshotRefById: Map<string, { targetId: string; uid: string }>;
+  snapshotRefById: Map<string, { targetId: string; uid: string; documentUid?: string }>;
   nextSnapshotRefId: number;
 };
 

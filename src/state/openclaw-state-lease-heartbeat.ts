@@ -27,6 +27,10 @@ export function startOpenClawStateLeaseHeartbeat(
   const shared = new BigInt64Array(new SharedArrayBuffer(4 * BigInt64Array.BYTES_PER_ELEMENT));
   Atomics.store(shared, state.expiresAt, BigInt(params.expiresAt));
   const url = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.stateLeaseHeartbeat);
+  const workerArgv = resolveRuntimeWorkerArgv(url);
+  // Source aliases belong to the parent-selected tsconfig, not an unrelated cwd.
+  // Keep the lease worker isolated from every other ambient environment setting.
+  const sourceTsconfig = workerArgv.length > 1 ? process.env.TSX_TSCONFIG_PATH : undefined;
   // Retain a parent-owned physical lease through native worker teardown. A forced
   // Worker.terminate() need not run JS cleanup; the exit event does attest that
   // native source handles have settled before this last guard is released.
@@ -65,8 +69,8 @@ export function startOpenClawStateLeaseHeartbeat(
             processOwner: params.processOwner,
             shared: shared.buffer,
           } satisfies LeaseHeartbeatWorkerData,
-          env: {},
-          execArgv: resolveRuntimeWorkerArgv(url).slice(0, -1),
+          env: sourceTsconfig ? { TSX_TSCONFIG_PATH: sourceTsconfig } : {},
+          execArgv: workerArgv.slice(0, -1),
           stdout: true,
           stderr: true,
         }),

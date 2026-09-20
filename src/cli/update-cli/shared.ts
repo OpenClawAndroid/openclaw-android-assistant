@@ -343,7 +343,7 @@ async function cloneGitCheckoutTransactionally(params: {
 
   try {
     const result = await runUpdateStep({
-      name: "git clone",
+      name: "git-clone",
       argv: ["git", "clone", GIT_CLONE_BLOB_FILTER, UPSTREAM_REPOSITORY_URL, stagingDir],
       env: params.env,
       timeoutMs: params.timeoutMs,

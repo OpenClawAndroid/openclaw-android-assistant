@@ -173,6 +173,18 @@ runtime-compatible schema filtering, hidden catalog execution, directory
 hydration, and catalog cleanup. Harnesses still own their SDK-specific tool
 conversion and native execution callback.
 
+Native tool adapters may use `runWithAsyncWorkResources(...)` from the same
+subpath to retain operation cleanup through host-owned admitted work without
+withholding the tool result. Register cleanup with its `onAcquired` callback;
+keep real cancellation active until cleanup releases it. Set
+`releaseBeforeResultWhenIdle: true` on the acquired resources when ordinary
+operation cleanup must complete before returning a result; accepted tracked
+work still returns its logical result without waiting for admission. This retains resources,
+not permission: queued work must still revalidate its original run, caller,
+expiry, and commit guards. Timeout, abort, and failed outcomes must close their
+operation immediately. Manual automation admission uses the existing per-call
+mutation receipt to join only activation, not the scheduled payload's lifetime.
+
 After the last policy filter, schema quarantine, and native registration
 intersection, call `finalizeAgentToolAvailability(tools, options?)` from
 `openclaw/plugin-sdk/agent-harness-runtime` before snapshotting tool definitions.

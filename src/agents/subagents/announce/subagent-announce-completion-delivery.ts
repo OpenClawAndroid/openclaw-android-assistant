@@ -43,6 +43,7 @@ import { inferDeliveryTargetChatType } from "./subagent-announce-origin.js";
 export async function runAnnounceAgentCall(params: {
   agentParams: Record<string, unknown>;
   privateCompletion?: true;
+  settleWakeSourceSessionKeys?: readonly string[];
   delegatedToolPolicyHandoff?: SubagentCompletionToolHandoffRegistration;
   expectFinal?: boolean;
   signal?: AbortSignal;
@@ -74,6 +75,16 @@ export async function runAnnounceAgentCall(params: {
     const dispatch = dispatchSubagentAnnounceAgent(params.agentParams, {
       cancelOnDeadline: true,
       privateCompletion: params.privateCompletion,
+      settleWakeReplay: params.settleWakeSourceSessionKeys
+        ? {
+            sourceSessionKeys: params.settleWakeSourceSessionKeys,
+            assertCurrent: () => {
+              if (!params.isExecutionAllowed()) {
+                throw new SourceOwnerChangedError();
+              }
+            },
+          }
+        : undefined,
       expectFinal: params.expectFinal,
       forceSyntheticClient: shouldPreserveUserFacingSessionStateForInputProvenance(
         params.agentParams.inputProvenance,

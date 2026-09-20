@@ -60,6 +60,24 @@ export type ControlUiLinkReaderDocument = ControlUiLinkReaderPreview & {
   body: string;
   bodyTruncated?: boolean;
   partial?: boolean;
+  /** Passive provider-reported checks, not a mergeability or approval decision. */
+  checks?: {
+    state: "success" | "failure" | "pending" | "neutral" | "unavailable";
+    summary: string;
+    /** Known total; may be incomplete when truncated or unavailable. */
+    total: number;
+    items: Array<{
+      name: string;
+      state: "success" | "failure" | "pending" | "neutral";
+      detail?: string;
+      url?: string;
+    }>;
+    /** The item list is incomplete, including when a source could not be read. */
+    truncated?: boolean;
+    url?: string;
+    /** Exact source revision these checks describe, when available. */
+    commit?: string;
+  };
   comments?: Array<{
     id: string;
     url: string;

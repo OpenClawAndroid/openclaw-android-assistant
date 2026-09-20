@@ -504,6 +504,7 @@ export async function prepareAgentRunDispatch(
       getAbortStopReason: () => activeRunAbort.entry?.abortStopReason ?? "rpc",
       deferTimeoutCompletion: activeRunAbort.deferTimeoutCompletion,
       privateCompletion: params.privateCompletion,
+      settleWakeReplay: params.settleWakeReplay,
       request: params.request,
       cfg: params.cfg,
       cfgForAgent: params.cfgForAgent,
@@ -578,7 +579,7 @@ export async function prepareAgentRunDispatch(
               followup: taskTrackingMode,
               runId: params.runId,
               sessionKey,
-              task: annotateInterSessionPromptText(userTurn.message, params.inputProvenance),
+              task: annotateInterSessionPromptText(userTurn.message, userTurn.inputProvenance),
               requesterOrigin: normalizeDeliveryContext({
                 channel: params.delivery.originMessageChannel
                   ? params.delivery.resolvedChannel
@@ -650,7 +651,11 @@ export async function prepareAgentRunDispatch(
     // may reject its execution after this synchronous ownership transfer.
     assertInputAdmissionCurrent = undefined;
     params.io.emitAcceptance([true, accepted, undefined], { runId: params.runId });
-    recordAgentRunUserTurnParticipant(params, userTurn, lifecycleStorePath);
+    recordAgentRunUserTurnParticipant(
+      { ...params, inputProvenance: userTurn.inputProvenance },
+      userTurn,
+      lifecycleStorePath,
+    );
     const cronCreatorAuthority = resolveGatewayCronCreatorAuthorityAdmission({
       runId: params.runId,
       resolvedSessionKey: params.resolvedSessionKey,
@@ -659,7 +664,7 @@ export async function prepareAgentRunDispatch(
       client: params.client,
       request: params.request,
       isCurrent: params.hasCurrentClientAuthority,
-      inputProvenance: params.inputProvenance,
+      inputProvenance: userTurn.inputProvenance,
       hasRestoredCronContinuation: params.restoredCronContinuation !== undefined,
       isOneShotModelRun: params.isOneShotModelRun,
       isRestartRecoveryResumeRun: params.isRestartRecoveryResumeRun,

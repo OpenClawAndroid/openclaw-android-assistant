@@ -97,6 +97,11 @@ export async function resumePostCoreUpdate(params: ResumePostCoreUpdateParams): 
     );
     const record =
       runId && !params.opts.run && !parentOwnsCompletion ? getUpdateRun(runId, { env }) : undefined;
+    if (runId && !params.opts.run && !parentOwnsCompletion && !record) {
+      throw new UpdateCommandRecoveryPendingError(
+        "Post-core update run is unavailable; resume cannot verify its owner.",
+      );
+    }
     let completed: Awaited<ReturnType<typeof resumePostCoreUpdateInternal>>;
     if (runId && record && isUnfencedUpdateDriver(record.before.version)) {
       if (!parent) {

@@ -11,7 +11,8 @@ import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snaps
 import { createPluginMetadataSnapshotFixture } from "../../plugins/plugin-metadata.test-support.js";
 import type { ProviderCatalogOutcome } from "../../plugins/provider-catalog-outcome.js";
 import { setActivePluginRegistry } from "../../plugins/runtime.js";
-import { buildPreparedModelsProviderData, handleModelsCommand } from "./commands-models.js";
+import { buildPreparedModelsProviderData } from "./commands-models-catalog.js";
+import { handleModelsCommand } from "./commands-models.js";
 import {
   createModelsTestRegistry,
   createModelsTestOwner,

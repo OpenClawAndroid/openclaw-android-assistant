@@ -22,6 +22,7 @@ type UpdateStepAdvisory =
   | { kind: "candidate-runtime-unavailable" | "recoverable-maintenance"; message: string };
 
 export type UpdateStepResult = {
+  /** Stable public identifier; released recovery keys retain their persisted spelling. */
   name: string;
   command: string;
   cwd: string;

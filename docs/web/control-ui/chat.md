@@ -35,8 +35,8 @@ button deletes the comment. Hover, keyboard-focus, or click the composer's comme
 count to open its preview. Deleting one comment keeps the remaining list open;
 Escape, a click outside, or moving the pointer away dismisses it. The count's
 **Remove all comments** action clears pending comments in one click and returns
-focus to the composer. **Undo** in the removal notification restores them. The
-clear action appears on hover or keyboard focus and stays visible on touch.
+focus to the composer without showing a notification. Cleared comments cannot
+be undone. The clear action appears on hover or keyboard focus and stays visible on touch.
 Clearing pending comments preserves ordinary attachments, the message draft,
 and comments already sent in the conversation.
 Archiving another split pane leaves the current comment editor and keyboard focus in place.
@@ -120,6 +120,18 @@ emoji directly into your draft. Code spans and code blocks, URLs, escaped
 shortcodes, and unknown names stay literal. Existing messages are not rewritten.
 You can still paste emoji or use your operating system’s emoji keyboard; there
 is no separate emoji picker in the composer.
+
+## JSON in chat
+
+Completed JSON objects and arrays in assistant messages and code fences share a
+**Tree** view with expandable nested values and a **Raw** view of the original
+source. **Copy** copies the source in either view, preserving duplicate keys,
+large numbers, and escape sequences. Raw keeps the usual long-code preview,
+reveal control, and word wrapping.
+
+Unfinished streaming fences, invalid JSON, and JSON beyond the tree rendering
+budget stay readable as source. User-message fences and passive previews remain
+plain code without interactive controls.
 
 ## Chat behavior
 
@@ -299,9 +311,12 @@ Run-error banners offer **Refresh** to reload the conversation without resending
 
 ### ClawHub recommendation cards
 
-Ask about a capability, such as “Can you install WhatsApp?”, to let the agent find
-an official plugin or skill on ClawHub. When the `message` tool is available, it
-can present up to three matching cards in the conversation.
+Ask to find or install a plugin or skill, such as “Find the WhatsApp plugin”, to
+let the agent search ClawHub. The agent uses available tools and skills first;
+it suggests cards for explicit discovery or installation requests, or when a
+needed capability is missing. Routine tasks, tool errors, and permission fixes
+do not call for a catalog search. When the `message` tool is available, it can
+present up to three matching cards in the conversation.
 
 If you use the `coding` tool profile, include `"message"` in `tools.alsoAllow`
 (for example, `tools: { profile: "coding", alsoAllow: ["message"] }`). Existing

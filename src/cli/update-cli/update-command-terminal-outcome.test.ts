@@ -571,7 +571,7 @@ describe("composed cleanup and terminal outcome", () => {
         status: "error",
         reason,
         failedStep: {
-          name: settlementFailed ? "update executor settlement" : "global install backup retention",
+          name: settlementFailed ? "update-executor-settlement" : "package-backup-retention",
         },
       });
       expect(value.sentinel).toMatchObject({ payload: { status: "error", stats: { reason } } });

@@ -320,7 +320,7 @@ export async function finishUpdate(
         result.status === "error" ? result.reason : "windows-task-autostart-restore-failed";
       finalResult.recovery = { serviceRestartSafe: false, reason: "runtime-verification-failed" };
       finalResult.steps = finalResult.steps.concat({
-        name: "Windows task autostart recovery",
+        name: "windows-task-autostart-recovery",
         command: "openclaw update",
         cwd: finalResult.root ?? params.root,
         durationMs: 0,

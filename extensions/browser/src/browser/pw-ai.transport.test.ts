@@ -1,4 +1,3 @@
-// Browser tests cover pw ai plugin behavior.
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { WebSocketServer } from "openclaw/plugin-sdk/websocket-runtime";
@@ -41,7 +40,7 @@ type FakeSession = {
   detach: ReturnType<typeof vi.fn>;
 };
 
-function createPage(opts: { targetId: string; snapshotFull?: string; hasAriaSnapshot?: boolean }) {
+function createPage(opts: { targetId: string; snapshotFull?: string }) {
   const session: FakeSession = {
     send: vi.fn().mockResolvedValue({
       targetInfo: { targetId: opts.targetId },
@@ -54,9 +53,7 @@ function createPage(opts: { targetId: string; snapshotFull?: string; hasAriaSnap
   };
 
   const click = vi.fn().mockResolvedValue(undefined);
-  const dblclick = vi.fn().mockResolvedValue(undefined);
-  const fill = vi.fn().mockResolvedValue(undefined);
-  const locator = vi.fn().mockReturnValue({ click, dblclick, fill });
+  const locator = vi.fn().mockReturnValue({ click });
 
   const page = {
     context: () => context,
@@ -64,14 +61,10 @@ function createPage(opts: { targetId: string; snapshotFull?: string; hasAriaSnap
     on: vi.fn(),
     off: vi.fn(),
     url: vi.fn(() => `https://example.test/${opts.targetId}`),
-    ...(opts.hasAriaSnapshot === false
-      ? {}
-      : {
-          ariaSnapshot: vi.fn().mockResolvedValue(opts.snapshotFull ?? "SNAP"),
-        }),
+    ariaSnapshot: vi.fn().mockResolvedValue(opts.snapshotFull ?? "SNAP"),
   };
 
-  return { page, session, locator, click, fill };
+  return { page, session, locator, click };
 }
 
 function createBrowser(pages: unknown[]) {
@@ -98,7 +91,7 @@ function createBrowser(pages: unknown[]) {
   });
 }
 
-let snapshotAiViaPlaywright: typeof import("./pw-tools-core.snapshot.js").snapshotAiViaPlaywright;
+let snapshotRoleViaPlaywright: typeof import("./pw-tools-core.snapshot.js").snapshotRoleViaPlaywright;
 let clickViaPlaywright: typeof import("./pw-tools-core.interactions.js").clickViaPlaywright;
 let closePlaywrightBrowserConnection: typeof import("./pw-session.js").closePlaywrightBrowserConnection;
 
@@ -106,7 +99,7 @@ beforeAll(async () => {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   cdpUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  ({ snapshotAiViaPlaywright } = await import("./pw-tools-core.snapshot.js"));
+  ({ snapshotRoleViaPlaywright } = await import("./pw-tools-core.snapshot.js"));
   ({ clickViaPlaywright } = await import("./pw-tools-core.interactions.js"));
   ({ closePlaywrightBrowserConnection } = await import("./pw-session.js"));
 });
@@ -134,7 +127,8 @@ describe("pw-ai", () => {
     const p2 = createPage({ targetId: "T2", snapshotFull: "TWO" });
     createBrowser([p1.page, p2.page]);
 
-    const res = await snapshotAiViaPlaywright({
+    const res = await snapshotRoleViaPlaywright({
+      refsMode: "aria",
       cdpUrl,
       targetId: "T2",
     });
@@ -151,7 +145,8 @@ describe("pw-ai", () => {
     const p1 = createPage({ targetId: "T1", snapshotFull: snapshot });
     createBrowser([p1.page]);
 
-    const res = await snapshotAiViaPlaywright({
+    const res = await snapshotRoleViaPlaywright({
+      refsMode: "aria",
       cdpUrl,
       targetId: "T1",
     });
@@ -176,7 +171,8 @@ describe("pw-ai", () => {
     const p1 = createPage({ targetId: "T1", snapshotFull: longSnapshot });
     createBrowser([p1.page]);
 
-    const res = await snapshotAiViaPlaywright({
+    const res = await snapshotRoleViaPlaywright({
+      refsMode: "aria",
       cdpUrl,
       targetId: "T1",
       maxChars: firstLine.length + 2 + marker.length,
@@ -191,7 +187,8 @@ describe("pw-ai", () => {
     const p1 = createPage({ targetId: "T1", snapshotFull: snapshot });
     createBrowser([p1.page]);
 
-    const res = await snapshotAiViaPlaywright({
+    const res = await snapshotRoleViaPlaywright({
+      refsMode: "aria",
       cdpUrl,
       targetId: "T1",
     });
@@ -229,13 +226,14 @@ describe("pw-ai", () => {
     const p1 = createPage({ targetId: "T1", snapshotFull: "ONE" });
     createBrowser([p1.page]);
 
-    await snapshotAiViaPlaywright({
+    await snapshotRoleViaPlaywright({
+      refsMode: "aria",
       cdpUrl,
       targetId: "T1",
       timeoutMs: 1234,
     });
 
-    expect("ariaSnapshot" in p1.page ? p1.page.ariaSnapshot : undefined).toHaveBeenCalledWith({
+    expect(p1.page.ariaSnapshot).toHaveBeenCalledWith({
       mode: "ai",
       timeout: 1234,
     });
@@ -245,7 +243,8 @@ describe("pw-ai", () => {
     const p1 = createPage({ targetId: "T1", snapshotFull: "ONE" });
     createBrowser([p1.page]);
 
-    await snapshotAiViaPlaywright({
+    await snapshotRoleViaPlaywright({
+      refsMode: "aria",
       cdpUrl,
       targetId: "T1",
     });

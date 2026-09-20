@@ -12,6 +12,7 @@ import {
 } from "./update-run-codec.js";
 import { readUpdateRunRecord } from "./update-run-reader.js";
 import type { UpdateRunRecord, UpdateRunStep } from "./update-run-record.js";
+import { updateRunStepKey } from "./update-run-step-key.js";
 import { recordUpdateRunVerificationRecord } from "./update-run-verification.js";
 
 const schemaStart = OPENCLAW_STATE_SCHEMA_SQL.indexOf("CREATE TABLE IF NOT EXISTS update_runs (");
@@ -25,7 +26,8 @@ export const updateRunLedgerSchema = OPENCLAW_STATE_SCHEMA_SQL.slice(
   schemaEnd + schemaEndMarker.length,
 );
 
-export function upsertStep(record: UpdateRunRecord, step: UpdateRunStep): void {
+export function upsertStep(record: UpdateRunRecord, input: UpdateRunStep): void {
+  const step = { ...input, step: updateRunStepKey(input.step) };
   const index = record.steps.findIndex((existing) => existing.step === step.step);
   if (index >= 0) {
     record.steps[index] = { ...record.steps[index], ...step };

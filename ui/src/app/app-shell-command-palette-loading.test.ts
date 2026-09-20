@@ -48,6 +48,36 @@ function type(input: HTMLTextAreaElement, value: string) {
 }
 
 describe("cold command palette input custody", () => {
+  it.each(["transfer", "dismiss"] as const)("keeps pasted images only until %s", (outcome) => {
+    const { state, input } = mountLoader();
+    const file = new File(["image"], "clipboard.png", { type: "image/png" });
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { items: [{ type: file.type, getAsFile: () => file }], getData: () => "" },
+    });
+    input.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    const take = state.captureHandoff();
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(state.submitRequested).toBe(true);
+    if (outcome === "dismiss") {
+      state.clear();
+      state.begin();
+      expect(take()).toBeUndefined();
+      expect(state.captureHandoff()()?.imageFiles).toBeUndefined();
+    } else {
+      expect(take()).toMatchObject({ value: "", imageFiles: [file], submitRequested: true });
+      expect(take()).toBeUndefined();
+    }
+  });
+
   it.each([{ ctrlKey: true }, { metaKey: true }])(
     "transfers one explicit cold submit intent: %j",
     (modifier) => {

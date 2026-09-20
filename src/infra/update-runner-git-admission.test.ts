@@ -340,13 +340,13 @@ describe("Git database admission", () => {
       expect(state.git(state.install, "rev-parse", "HEAD")).toBe(state.target);
       expect(onStepComplete).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "git target inspection cleanup",
+          name: "git-target-inspection-cleanup",
           advisory: expect.objectContaining({ kind: "recoverable-maintenance" }),
         }),
       );
       expect(result.steps).toContainEqual(
         expect.objectContaining({
-          name: "git target inspection cleanup",
+          name: "git-target-inspection-cleanup",
           advisory: expect.objectContaining({
             message: expect.stringContaining("synthetic inspection cleanup denied"),
           }),

@@ -380,7 +380,7 @@ describe("update plugin lifecycle lease boundaries", () => {
         expect(body).toContain("Reason code: doctor-failed");
         expect(body).toContain("Update mode: package");
         expect(body).toContain("Update target: 2026.9.4");
-        expect(body).toContain("Failed phase finalize:doctor: exit 23");
+        expect(body).toContain("Failed phase finalize-doctor: exit 23");
         expect(body).toContain(`Failing check doctor (doctor-failed): ${message}`);
         expect(body).toContain(
           "Recovery outcome: package rollback not needed: no package mutation",

@@ -17,6 +17,7 @@ import type { AgentDeliveryPhaseResult } from "./agent-delivery-phase.js";
 import type { RestoredCronContinuation } from "./agent-handler-helpers.js";
 import type { GatewayAgentDispatchTaskTracking } from "./agent-run-task-tracking.js";
 import type { PreparedAgentRunUserTurn } from "./agent-run-user-turn.js";
+import type { RequesterSettleWakeReplay } from "./internal-facade.types.js";
 import type { AgentTurnContext, AgentTurnIo, AgentTurnPrincipal } from "./types.js";
 
 export type PreparedAgentRunDispatch = {
@@ -84,6 +85,7 @@ export type PrepareAgentRunDispatchParams = {
   onUserTurnMediaPersisted: () => void;
   requestedPromptPersistenceSuppression: boolean;
   privateCompletion?: true;
+  settleWakeReplay?: RequesterSettleWakeReplay;
   runId: string;
   agentDedupeKeys: readonly string[];
   context: AgentTurnContext;

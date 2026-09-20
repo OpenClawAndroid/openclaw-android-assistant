@@ -69,8 +69,10 @@ function withWriteTransaction(write: (database: FlowRegistryDatabase) => void) {
   });
 }
 
-export function loadTaskFlowRegistryStateFromSqlite(): TaskFlowRegistryStoreSnapshot {
-  return readTaskFlowRegistrySnapshot(openFlowRegistryDatabase().db);
+export function loadTaskFlowRegistryStateFromSqlite(
+  flowIds?: readonly string[],
+): TaskFlowRegistryStoreSnapshot {
+  return readTaskFlowRegistrySnapshot(openFlowRegistryDatabase().db, flowIds);
 }
 
 /** Loads task flows without creating or migrating shared state. */
