@@ -664,6 +664,19 @@ const enSettings = {
         "Allow signed tools to drive UI automation via Peekaboo Bridge. Requires Computer Control; otherwise run Peekaboo's own Mac app.",
       browser: "Browser",
       chromeExtension: "Chrome extension",
+      chromeExtensionOnMac: "Chrome on this Mac",
+      chromeExtensionDetected: "Installed",
+      chromeExtensionNotInstalled: "Not installed",
+      chromeExtensionUnknown: "Status unavailable",
+      chromeExtensionChecking: "Checking installation…",
+      chromeExtensionCheckAgain: "Check again",
+      chromeExtensionRepair: "Repair Mac connection",
+      chromeExtensionRepairHint:
+        "The extension is installed. Repair the Mac connection to enable automatic pairing.",
+      chromeExtensionEnableHint:
+        "The extension is installed but not enabled. Open Chrome and approve or enable OpenClaw.",
+      chromeExtensionStatusFailed:
+        "Could not check Chrome installation. Make sure the OpenClaw CLI is installed on this Mac, then check again.",
       chromeExtensionSetup: "Set up Chrome on this Mac",
       chromeExtensionHint:
         "Prepare the OpenClaw extension on this Mac, then approve it in Chrome. This does not install on a remote Gateway.",
@@ -957,7 +970,7 @@ const enSettings = {
     appearance: {
       intro: "Theme, chat, and sidebar preferences for this Control UI client.",
       theme: "Theme",
-      chooseTheme: "Choose a theme family.",
+      chooseTheme: "Choosing a different theme resets its fonts and accent colors.",
       themeUnavailable: "{id} is unavailable. Using Claw until the theme becomes available again.",
       typography: "Typography",
       fonts: {
@@ -986,6 +999,7 @@ const enSettings = {
       accent: "Accent color",
       accentHint: "Choose an accent color for buttons, highlights, and other controls.",
       customAccent: "Custom color",
+      usingThemeAccent: "Using theme accent",
       usingAccent: "Using {value}",
       accents: {
         default: "Theme default",

@@ -33,6 +33,7 @@ import {
 import { skipCronJobsWithoutOwners } from "./run-owner.js";
 import { emitInterruptedCronRun } from "./run-recovery-events.js";
 import {
+  prepareNonTerminalCronRunRecovery,
   recomputeUnownedCronSchedules,
   recoverNonTerminalCronRunReceipts,
 } from "./run-recovery.js";
@@ -182,6 +183,7 @@ async function onAdmittedTimer(state: CronServiceState) {
   if (state.stopped || state.schedulingPaused || state.startupCatchup) {
     return;
   }
+  const generation = state.lifecycleGeneration;
   state.running = true;
   state.activeTimerTicks += 1;
   // Keep a watchdog timer armed while a tick is executing. If execution hangs
@@ -195,12 +197,21 @@ async function onAdmittedTimer(state: CronServiceState) {
   try {
     const dueJobs = await locked(state, async () => {
       await ensureLoaded(state, { forceReload: true, skipRecompute: true });
-      if (state.stopped || state.startupCatchup) {
+      if (state.stopped || state.startupCatchup || state.lifecycleGeneration !== generation) {
         state.deps.log.warn({}, "cron: due job reservation skipped - scheduler unavailable");
         return [];
       }
       // Timer-owned liveness reconciliation is bounded to durable non-terminal markers.
-      const leaseRecovery = recoverNonTerminalCronRunReceipts(state);
+      const proposals = await prepareNonTerminalCronRunRecovery(state);
+      if (
+        !proposals ||
+        state.stopped ||
+        state.startupCatchup ||
+        state.lifecycleGeneration !== generation
+      ) {
+        return [];
+      }
+      const leaseRecovery = recoverNonTerminalCronRunReceipts(state, proposals);
       runPostPersistCronNotifications(state, leaseRecovery.notifications);
       for (const receipt of leaseRecovery.receipts) {
         enrollForeignReceipt(state, receipt);
@@ -210,6 +221,10 @@ async function onAdmittedTimer(state: CronServiceState) {
       }
       for (const interrupted of leaseRecovery.interruptedRuns) {
         emitInterruptedCronRun(state, interrupted);
+      }
+      // These interruptions already committed; publish them before fencing new scheduling work.
+      if (state.stopped || state.startupCatchup || state.lifecycleGeneration !== generation) {
+        return [];
       }
       const dueCheckNow = state.deps.nowMs();
       const due = skipCronJobsWithoutOwners(
@@ -292,13 +307,15 @@ async function onAdmittedTimer(state: CronServiceState) {
       }
     });
 
-    // Future unclaimed work must stay armed while this batch executes. When
-    // overdue work is capacity-blocked, the release listener is the fast path
-    // and this minute timer is only a bounded safety recheck.
-    if (state.runAdmission.capacityListener) {
-      armRunningRecheckTimer(state);
-    } else {
-      armTimer(state);
+    if (state.lifecycleGeneration === generation) {
+      // Future unclaimed work must stay armed while this batch executes. When
+      // overdue work is capacity-blocked, the release listener is the fast path
+      // and this minute timer is only a bounded safety recheck.
+      if (state.runAdmission.capacityListener) {
+        armRunningRecheckTimer(state);
+      } else {
+        armTimer(state);
+      }
     }
 
     const concurrency = Math.min(resolveRunConcurrency(), Math.max(1, dueJobs.length));
@@ -326,9 +343,12 @@ async function onAdmittedTimer(state: CronServiceState) {
         }
       }
     };
-    if (state.stopped) {
+    // Retired batches still own their reservations until canonical cleanup settles.
+    if (state.stopped || state.lifecycleGeneration !== generation) {
       capacityRechecks.abort();
-      await releaseUnclaimedDueJobReservationsWithRetry();
+      if (dueJobs.length > 0) {
+        await releaseUnclaimedDueJobReservationsWithRetry();
+      }
       return;
     }
     // Skipped mappers must not claim reservations: recovery releases those rows,
@@ -528,7 +548,10 @@ async function onAdmittedTimer(state: CronServiceState) {
     try {
       // Reaper discovery is maintenance: failure must never strand the timer
       // or leave the scheduler's execution slot permanently occupied.
-      if (state.deps.resolveSessionStorePath || state.deps.sessionStorePath) {
+      if (
+        state.lifecycleGeneration === generation &&
+        (state.deps.resolveSessionStorePath || state.deps.sessionStorePath)
+      ) {
         const configuredDefaultAgentId = (
           state.deps.resolveDefaultAgentId?.() ?? state.deps.defaultAgentId
         )?.trim();
@@ -592,7 +615,7 @@ async function onAdmittedTimer(state: CronServiceState) {
     } finally {
       state.activeTimerTicks = Math.max(0, state.activeTimerTicks - 1);
       state.running = state.activeTimerTicks > 0;
-      if (!state.running) {
+      if (!state.running && state.lifecycleGeneration === generation) {
         armTimer(state);
       }
     }

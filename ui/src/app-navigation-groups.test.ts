@@ -35,9 +35,16 @@ describe("sidebar entries", () => {
       openSystemSettings: () => undefined,
       openPanel: () => undefined,
       checkForUpdates: () => undefined,
+      chromeExtensionStatus: async () => ({
+        nativeHostRegistered: false,
+        installRequested: false,
+        installedProfiles: 0,
+        discoveredProfiles: 0,
+      }),
       installChromeExtension: async () => ({
         nativeHostRegistered: false,
         installRequested: false,
+        installedProfiles: 0,
         discoveredProfiles: 0,
       }),
       refresh: () => undefined,

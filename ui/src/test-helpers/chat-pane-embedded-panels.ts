@@ -1,29 +1,33 @@
 import { html, render, type LitElement } from "lit";
 import { onTestFinished, vi } from "vitest";
-import { createDeferred } from "../../../../../test/helpers/promise.js";
-import type { SessionWorkspaceGetResult, SessionWorkspaceListResult } from "../../../api/types.ts";
-import type { TaskSummary } from "../../../lib/tasks/task-summary.ts";
-import { sidebarPanelDefinitions, sidebarPanelTemplates } from "../chat-pane-embedded-panels.ts";
-import { createChatPaneRails } from "../chat-pane-rails.ts";
-import { renderSidebarRegion } from "../chat-pane-sidebar-layout.ts";
+import { createDeferred } from "../../../test/helpers/promise.js";
+import type { SessionWorkspaceGetResult, SessionWorkspaceListResult } from "../api/types.ts";
+import type { TaskSummary } from "../lib/tasks/task-summary.ts";
+import {
+  sidebarPanelDefinitions,
+  sidebarPanelTemplates,
+} from "../pages/chat/chat-pane-embedded-panels.ts";
+import { createChatPaneRails } from "../pages/chat/chat-pane-rails.ts";
+import { renderSidebarRegion } from "../pages/chat/chat-pane-sidebar-layout.ts";
 import {
   createGatewayBrowserClientFixture,
   createInitializationContext,
   createSessionCapabilityFixture,
-} from "../chat-pane.test-support.ts";
-import { createPageState } from "../chat-state-page.ts";
-import type { ChatProps } from "../chat-view.ts";
-import { createBackgroundTasksProps } from "../components/chat-background-tasks.ts";
-import { renderChatDetailSlot } from "../components/chat-detail-slot.ts";
+} from "../pages/chat/chat-pane.test-support.ts";
+import { createPageState } from "../pages/chat/chat-state-page.ts";
+import type { ChatProps } from "../pages/chat/chat-view.ts";
+import { createBackgroundTasksProps } from "../pages/chat/components/chat-background-tasks.ts";
+import { renderChatDetailSlot } from "../pages/chat/components/chat-detail-slot.ts";
+import "../pages/chat/components/chat-detail-panel.ts";
 import {
   createSessionWorkspaceProps,
   renderSessionWorkspaceRail,
-} from "../components/chat-session-workspace.ts";
-import { resetTaskDetail } from "../components/chat-task-detail-state.ts";
-import { threadProps } from "../components/chat-transcript.test-support.ts";
-import type { SidebarLayout, SidebarSlotId } from "../sidebar-layout.ts";
-import "../components/chat-detail-panel.ts";
-import "../components/chat-sidebar-region.runtime.ts";
+} from "../pages/chat/components/chat-session-workspace.ts";
+import "../pages/chat/components/chat-sidebar-region.runtime.ts";
+import { resetTaskDetail } from "../pages/chat/components/chat-task-detail-state.ts";
+import { renderChatTasksPanel } from "../pages/chat/components/chat-tasks-panel.ts";
+import { threadProps } from "../pages/chat/components/chat-transcript.test-support.ts";
+import type { SidebarLayout, SidebarSlotId } from "../pages/chat/sidebar-layout.ts";
 
 export async function renderPanelFixture(
   mount: HTMLElement,
@@ -34,7 +38,7 @@ export async function renderPanelFixture(
   render(
     renderSidebarRegion({
       availableWidth: 1400,
-      availableSlots: ["detail", "workspace"],
+      availableSlots: ["detail", "workspace", "tasks"],
       callbacks: {
         activatePanel: vi.fn(),
         togglePanelExpanded: vi.fn(),
@@ -86,8 +90,10 @@ export function createReviewFixture(taskFields: Partial<TaskSummary> = {}, resto
       method === "tasks.history"
         ? history(params)
         : method === "tasks.list"
-          ? { tasks: [] }
-          : { artifacts: [] },
+          ? { tasks: [task] }
+          : method === "tasks.get"
+            ? { task }
+            : { artifacts: [] },
   });
   state.connected = true;
   state.connectionEpoch = 1;
@@ -109,11 +115,6 @@ export function createReviewFixture(taskFields: Partial<TaskSummary> = {}, resto
     updatedAt: 2,
     ...taskFields,
   } satisfies TaskSummary;
-  const backgroundTasks = {
-    ...createBackgroundTasksProps(state, { presented: false }),
-    tasks: [task],
-    taskDetails: new Map([[task.id, task]]),
-  };
   const preview = {
     sessionKey: state.sessionKey,
     root: "/synthetic/workspace",
@@ -139,6 +140,12 @@ export function createReviewFixture(taskFields: Partial<TaskSummary> = {}, resto
       setObserverVisibility: vi.fn(),
       updateSidebarLayout: state.updateSidebarLayout,
     });
+  if (!restoreLayout) {
+    createBackgroundTasksProps(state, { presented: false });
+    state.backgroundTasksState!.tasks = [task];
+    state.backgroundTasksState!.loadedClient = state.client;
+    state.backgroundTasksState!.taskDetails.set(task.id, task);
+  }
   onTestFinished(async () => {
     file.resolve(null);
     list.resolve(null);
@@ -146,33 +153,21 @@ export function createReviewFixture(taskFields: Partial<TaskSummary> = {}, resto
     resetTaskDetail(state);
   });
   const renderPanels = async () => {
+    const { backgroundTasks, closePanelSlot } = rails();
     const definitions = sidebarPanelDefinitions({
       state,
+      tasks: renderChatTasksPanel({ backgroundTasks, host: state }),
       renderDetail: (content) =>
         renderChatDetailSlot({
-          backgroundTasks,
           chat: threadProps("review-intent", state.sessionKey) as ChatProps,
           content,
           host: state,
-          layout: state.sidebarLayout,
         }),
       workspace: renderSessionWorkspaceRail(createSessionWorkspaceProps(state), {
         embedded: true,
       }),
     } as Parameters<typeof sidebarPanelDefinitions>[0]);
-    await renderPanelFixture(mount, state.sidebarLayout, definitions, rails().closePanelSlot);
+    await renderPanelFixture(mount, state.sidebarLayout, definitions, closePanelSlot);
   };
-  return {
-    backgroundTasks,
-    file,
-    history,
-    list,
-    mount,
-    preview,
-    rails,
-    renderPanels,
-    sessions,
-    state,
-    task,
-  };
+  return { file, history, list, mount, preview, rails, renderPanels, sessions, state, task };
 }

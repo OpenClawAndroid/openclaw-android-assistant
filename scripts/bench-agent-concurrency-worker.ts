@@ -619,21 +619,11 @@ async function runSweepSample(childCount: number): Promise<Sample> {
     persist: () => {},
     clearPendingLifecycleError: () => {},
     clearPendingLifecycleTimeout: () => {},
-    clearPendingSubagentRecoveryNotice: () => true,
     sweepPendingLifecycle: () => {},
     completeSubagentRunWithRecovery: async () => {
       lostContextCompletions += 1;
     },
     getGatewayRecoveryRuntime: () => undefined,
-    abandonSubagentRestartRecoveryLaunch: () => true,
-    clearAcceptedSubagentRestartRecovery: () => true,
-    resumeSettledSubagentRestartRecovery: () => true,
-    replaceSubagentRunAfterSteer: () => true,
-    markSubagentRestartRecoveryLaunchAttempted: () => undefined,
-    markSubagentRestartRecoveryLaunchAccepted: () => undefined,
-    markSubagentRestartRecoveryLaunchConsumed: () => undefined,
-    reserveSubagentRestartRecoveryLaunch: () => undefined,
-    resetSubagentRestartRecoveryLaunchAttempt: () => true,
     finalizeInterruptedSubagentRun: async ({ runId, expectedEntry }) => {
       if (runs.get(runId) !== expectedEntry || expectedEntry?.generation !== 3) {
         throw new Error(`unexpected recovery projection owner: ${runId}`);

@@ -6,10 +6,11 @@ import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "../../state/openclaw-state-db.js";
+import * as stateWorker from "../../state/openclaw-state-worker-store.js";
 import { resolveCronJobConfigRevision } from "../config-revision.js";
 import { CronService, type CronEvent } from "../service.js";
 import { setupCronServiceSuite } from "../service.test-harness.js";
-import { saveCronStore } from "../store.js";
+import { loadCronStore, saveCronStore } from "../store.js";
 import { cronStoreKey } from "../store/key.js";
 import { loadedCronStoreFromRows, loadCronRows } from "../store/row-codec.js";
 import {
@@ -17,6 +18,7 @@ import {
   prepareCronRunReceiptClaim,
   releaseLocalCronRunReceiptOwnership,
 } from "../store/run-receipt-store.js";
+import { inspectActiveCronRunReceipt } from "../store/run-receipt-store.test-support.js";
 import { cronStreamScheduleKey } from "../stream-schedule.js";
 import { readCronTaskRunHistoryPage } from "../task-run-history.js";
 import type { CronJob } from "../types.js";
@@ -194,6 +196,86 @@ describe("cron run receipt settlement", () => {
       service.stop();
     }
   });
+
+  it.each(["cancel", "stop"] as const)(
+    "does not repair a delayed on-exit proposal after %s",
+    async (action) => {
+      const { storePath } = await makeStorePath();
+      const startedAtMs = Date.now() - 1_000;
+      const job: CronJob = {
+        ...makeTimedJob(`retired-on-exit-proposal-${action}`, startedAtMs),
+        schedule: onExitSchedule,
+        delivery: { mode: "none" },
+        state: { runningAtMs: startedAtMs },
+      };
+      await saveCronStore(storePath, { version: 1, jobs: [job] });
+      const prepared = prepareCronRunReceiptClaim({
+        storePath,
+        job,
+        agentId: "alpha",
+        startedAtMs,
+      });
+      const receipt = runOpenClawStateWriteTransaction(({ db }) =>
+        claimCronRunReceiptInDatabase({ database: db, prepared, resolveAgentId: () => "alpha" }),
+      );
+      job.state.runningReceiptId = receipt.receiptId;
+      await saveCronStore(storePath, { version: 1, jobs: [job] });
+      releaseLocalCronRunReceiptOwnership(receipt);
+      const before = await loadCronStore(storePath);
+      const entered = createDeferred();
+      const release = createDeferred();
+      const execute = stateWorker.executeOpenClawStateWorker;
+      const delayed = vi
+        .spyOn(stateWorker, "executeOpenClawStateWorker")
+        .mockImplementation(async (context, command) => {
+          const result = await execute(context, command);
+          if (command.type === "cron.proposeRunRecovery") {
+            entered.resolve();
+            await release.promise;
+          }
+          return result;
+        });
+      const runner = vi.fn(async () => ({ status: "ok" as const }));
+      const onEvent = vi.fn();
+      const onReserved = vi.fn();
+      const service = makeService(storePath, runner, onEvent);
+      const controller = new AbortController();
+      const waiting = service.runOnExit(job.id, {
+        schedule: onExitSchedule,
+        signal: controller.signal,
+        commitGuard: () => {},
+        onReserved,
+      });
+      try {
+        await entered.promise;
+        if (action === "cancel") {
+          controller.abort();
+        } else {
+          service.stop();
+        }
+        release.resolve();
+        await expect(waiting).resolves.toEqual({ ok: true, ran: false, reason: "stopped" });
+        // Cancellation can settle the request before its locked continuation retires.
+        await service.readJob(job.id);
+
+        expect(await loadCronStore(storePath)).toEqual(before);
+        expect(inspectActiveCronRunReceipt({ storePath, jobId: job.id })).toEqual(receipt);
+        expect(
+          readCronTaskRunHistoryPage({ storeKey: cronStoreKey(storePath), jobId: job.id }).entries,
+        ).toEqual([]);
+        expect(onEvent).not.toHaveBeenCalled();
+        expect(onReserved).not.toHaveBeenCalled();
+        expect(runner).not.toHaveBeenCalled();
+      } finally {
+        controller.abort();
+        release.resolve();
+        await waiting.catch(() => undefined);
+        await service.readJob(job.id);
+        delayed.mockRestore();
+        service.stop();
+      }
+    },
+  );
 
   it("records a dead receipt before admitting the next observed exit", async () => {
     vi.useRealTimers();

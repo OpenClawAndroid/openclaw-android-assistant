@@ -133,11 +133,14 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
       () => this.offsetState.pendingInteractionAnchor === anchor && this.host.requestUpdate(),
     );
   };
-  private measureConnectedRows(): void {
+  private measureConnectedRows(): boolean {
     // Native input can land after takeover but before its offset observer.
     // Refresh the offset and direction before compensating deferred row growth.
     this.offsetState.syncNativeOffset?.();
-    measureConnectedTranscriptRows(this.scrollElement, this.virtualizerController.getVirtualizer());
+    return measureConnectedTranscriptRows(
+      this.scrollElement,
+      this.virtualizerController.getVirtualizer(),
+    );
   }
   private readonly handleGeometryCommit = (event: Event) => {
     this.reconcileInteractionResize(event.target);
@@ -177,12 +180,9 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
             // The parent update can finish before a virtualized target mounts.
             queueMicrotask(() => this.completeMessageReveal());
           }
-          if (element.isConnected) {
-            this.virtualizerController.getVirtualizer().measureElement(element);
-          } else {
-            // Lit invokes refs before the row is connected. Measuring a new
-            // key there records offsetHeight=0 and corrupts the virtual range
-            // until ResizeObserver catches up.
+          // Nested message refs finish their preview clamps in a microtask.
+          // Measure afterward, once the row is connected and those writes settle.
+          queueMicrotask(() => {
             queueMicrotask(() => {
               if (
                 element.isConnected &&
@@ -193,7 +193,7 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
                 this.virtualizerController.getVirtualizer().measureElement(element);
               }
             });
-          }
+          });
           return;
         }
         // Re-stamps (e.g. the chat<->dashboard face switch) re-invoke each
@@ -550,6 +550,8 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
           captureInteractionResize: this.captureInteractionResize,
           measureRowRefFor: (key) => this.measureRowRefFor(key),
           measureRows:
+            // The first correction reveals new rows; their real sizes must land before retiring the anchor.
+            this.prependAnchor.messageKey !== null ||
             this.offsetState.scrollCommand?.target === "message" ||
             this.offsetState.scrollCommand?.target === "index",
         });

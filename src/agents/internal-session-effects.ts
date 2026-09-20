@@ -23,7 +23,7 @@ type InternalSessionEffectsSource = Required<
 >;
 
 /** Resolves the deterministic SQLite target owned by one internal-effects run. */
-export function resolveInternalSessionEffectsTarget(params: {
+function resolveInternalSessionEffectsTarget(params: {
   agentId: string;
   runId: string;
   storePath: string;

@@ -29,16 +29,24 @@ function publish(detail: unknown) {
 }
 
 describe("native device settings wire contract", () => {
-  it("validates setup results and forwards an explicit parameter-free installation action", async () => {
+  it.each([
+    ["chromeExtensionStatus", "chrome-extension-status"],
+    ["installChromeExtension", "install-chrome-extension"],
+  ] as const)("validates %s results and forwards its exact native action", async (method, type) => {
     const post = installBridge();
-    const result = { nativeHostRegistered: true, installRequested: true, discoveredProfiles: 0 };
+    const result = {
+      nativeHostRegistered: true,
+      installRequested: true,
+      installedProfiles: 1,
+      discoveredProfiles: 0,
+    };
     post.mockResolvedValueOnce(result);
-    await expect(capability!.installChromeExtension()).resolves.toEqual(result);
-    expect(post).toHaveBeenLastCalledWith({ type: "install-chrome-extension" });
-    post.mockResolvedValueOnce({ ...result, discoveredProfiles: -1 });
-    await expect(capability!.installChromeExtension()).rejects.toThrow("invalid result");
+    await expect(capability![method]()).resolves.toEqual(result);
+    expect(post).toHaveBeenLastCalledWith({ type });
+    post.mockResolvedValueOnce({ ...result, installedProfiles: -1 });
+    await expect(capability![method]()).rejects.toThrow("invalid result");
     post.mockRejectedValueOnce(new Error("CLI unavailable"));
-    await expect(capability!.installChromeExtension()).rejects.toThrow("CLI unavailable");
+    await expect(capability![method]()).rejects.toThrow("CLI unavailable");
   });
   it("exists only with the native message handler and reads the document-start snapshot", () => {
     vi.stubGlobal("webkit", undefined);

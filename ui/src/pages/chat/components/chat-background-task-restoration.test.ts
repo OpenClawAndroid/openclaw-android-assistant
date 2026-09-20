@@ -35,7 +35,7 @@ function fixture() {
     client: createGatewayBrowserClientFixture({ request }),
     requestUpdate: vi.fn(),
   };
-  const props = () => createBackgroundTasksProps(host, { openTaskId: task.id });
+  const props = () => createBackgroundTasksProps(host, { selectedTaskId: task.id });
   return { pending, request, host, props };
 }
 it("loads the saved selection even when it is outside the bounded task rows", async () => {
@@ -61,6 +61,29 @@ it("loads the saved selection even when it is outside the bounded task rows", as
   );
   expect(f.props().tasks).toEqual([]);
   expect(f.request.mock.calls.filter(([method]) => method === "tasks.get")).toHaveLength(1);
+});
+it("keeps saved selection loading with Back while initial scoped reads are deferred", () => {
+  const f = fixture();
+  f.host.chatSecondaryReadsReady = () => false;
+  const onBack = vi.fn();
+  const mount = document.body.appendChild(document.createElement("div"));
+  render(
+    renderTaskDetailPanel({
+      backgroundTasks: f.props(),
+      host: f.host,
+      task: undefined,
+      taskId: task.id,
+      onBack,
+    }),
+    mount,
+  );
+  expect(f.request).not.toHaveBeenCalled();
+  expect(mount.querySelector('openclaw-panel-loading-skeleton[aria-busy="true"]')).not.toBeNull();
+  expect(mount.textContent).not.toContain("This task is no longer available.");
+  [...mount.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent?.trim() === "Back to tasks")!
+    .click();
+  expect(onBack).toHaveBeenCalledOnce();
 });
 it.each(["deleted", "restored"] as const)(
   "does not publish a %s selection's old response over a newer same-ID lookup",

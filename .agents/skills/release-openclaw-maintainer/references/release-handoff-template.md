@@ -17,9 +17,11 @@ operator steering. Do not preserve superseded scope.
 - cut SHA: `<full sha>`
 - Code SHA: `<regular release full sha | not applicable>`
 - Tooling SHA: `<trusted workflow full sha>`
-- Release SHA: `<regular release full sha | exact extended-stable branch tip>`
+- Release SHA: `<same as Code SHA | notes-only descendant | exact extended-stable branch tip>`
 - tag: `v<version>`
-- workflow ref: `<release-ci ref | canonical branch>`
+- validation workflow ref: `<release-ci ref | canonical branch>`
+- publication tooling ref: `<release-publish/tooling-sha12-epoch | track-specific ref>`
+- publication selection: `<normal/prepared route, npm dist-tag, package roster>`
 - publication inventory: `<exact surfaces>`
 - approved backports: `<none or exact PRs/commits>`
 - approved main changes: `<none or exact blocker>`
@@ -30,6 +32,8 @@ operator steering. Do not preserve superseded scope.
 
 - Full Release Validation parent: `<run id / attempt / URL or none>`
 - npm preflight: `<run id / URL or none>`
+- qualified npm/OCI descriptors: `<exact producer run/attempt and artifact identities>`
+- candidate acceptance: `<green untagged-SHA evidence | pending>`
 - Plugin NPM Release: `<run id / URL or none>`
 - publish parent: `<run id / URL or none>`
 - Docker release/repair: `<run ids / tag / aliases or none>`
@@ -76,9 +80,11 @@ reference for commands rather than redispatching the release parent.
 
 - confirmed product/code failure: fix the release branch, freeze a new Code
   SHA, and invalidate downstream product evidence
-- regular changelog-only failure: change the selected release entry and only
+- regular changelog-only failure before tagging: change the selected release entry and only
   its permitted record/index paths, freeze a new Release SHA, and reuse green
   Code SHA evidence after `split-changelog-release-v1` delta proof
+- source fix after a pushed beta tag: use the next beta number; never move the
+  old tag or rerun fresh candidate acceptance against it
 - extended-stable branch change: land the approved product/changelog change or
   smallest frozen-target repair by PR, record its source/invariant, and replace
   all exact-head evidence

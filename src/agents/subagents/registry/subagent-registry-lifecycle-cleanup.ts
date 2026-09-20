@@ -20,7 +20,6 @@ import {
   SUBAGENT_ENDED_REASON_KILLED,
   type SubagentLifecycleEndedReason,
 } from "./subagent-lifecycle-events.js";
-import { shouldSuppressSubagentRecoverySessionEffects } from "./subagent-recovery-state.js";
 import {
   logAnnounceGiveUp,
   MIN_ANNOUNCE_RETRY_DELAY_MS,
@@ -349,9 +348,9 @@ export async function completeTerminalEffects(
   const isCurrentSessionEffectsOwner = () =>
     isCurrentTerminalCallback() &&
     !context.newerGenerationOwnsSession(entry) &&
-    !shouldSuppressSubagentRecoverySessionEffects(entry);
+    !context.shouldSuppressSessionEffects(entry);
   const refreshSessionEffectsSuppression = () => {
-    if (!shouldSuppressSubagentRecoverySessionEffects(entry)) {
+    if (!context.shouldSuppressSessionEffects(entry)) {
       return false;
     }
     suppressSessionEffects = true;
@@ -532,7 +531,7 @@ async function completeTerminalCleanup(
     if (
       suppressSessionEffects ||
       !isSessionEffectsOwnerCurrent() ||
-      !shouldSuppressSubagentRecoverySessionEffects(entry)
+      !context.shouldSuppressSessionEffects(entry)
     ) {
       return suppressSessionEffects;
     }
@@ -550,12 +549,7 @@ async function completeTerminalCleanup(
   if (!completeParams.triggerCleanup || suppressedForSteerRestart) {
     return;
   }
-  if (entry.resumptionNotice) {
-    // The recovered run may finish before its resumption notice is delivered.
-    // Restart recovery retries that debt for a bounded terminal window, then
-    // clears it and re-enters cleanup so completion cannot remain wedged.
-    return;
-  }
+
   refreshSessionEffectsSuppression();
   if (!context.isTerminalCallbackCurrent(completeParams.runId, entry, terminalGeneration)) {
     return;
@@ -592,12 +586,9 @@ async function completeTerminalCleanup(
         await retireSupersededSession(entry);
         return;
       }
-      if (refreshSessionEffectsSuppression()) {
-        return;
-      }
       // Claim only when this caller is about to dispatch. A concurrent caller
       // may have claimed while the lazy browser module was loading.
-      if (entry.browserCleanupDispatchedAt === undefined) {
+      if (!refreshSessionEffectsSuppression() && entry.browserCleanupDispatchedAt === undefined) {
         entry.browserCleanupDispatchedAt = Date.now();
         dispatchedBrowserCleanup = true;
         try {

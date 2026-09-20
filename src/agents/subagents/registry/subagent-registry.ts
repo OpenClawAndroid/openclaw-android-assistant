@@ -450,25 +450,6 @@ const subagentSweeper = createSubagentRegistrySweeper({
   sweepPendingLifecycle: (now) => pendingLifecycle.sweepExpired(now),
   completeSubagentRunWithRecovery: completionRuntime.completeSubagentRunWithRecovery,
   getGatewayRecoveryRuntime: () => activeGatewayContextResolver?.()?.recoveryRuntime,
-  abandonSubagentRestartRecoveryLaunch: (params) =>
-    subagentRunManager.abandonSubagentRestartRecoveryLaunch(params),
-  clearAcceptedSubagentRestartRecovery: (params) =>
-    subagentRunManager.clearAcceptedSubagentRestartRecovery(params),
-  clearPendingSubagentRecoveryNotice: (params) =>
-    subagentRunManager.clearPendingSubagentRecoveryNotice(params),
-  resumeSettledSubagentRestartRecovery: (params) =>
-    subagentRunManager.resumeSettledSubagentRestartRecovery(params),
-  replaceSubagentRunAfterSteer: (params) => subagentRunManager.replaceSubagentRunAfterSteer(params),
-  markSubagentRestartRecoveryLaunchAttempted: (params) =>
-    subagentRunManager.markSubagentRestartRecoveryLaunchAttempted(params),
-  markSubagentRestartRecoveryLaunchAccepted: (params) =>
-    subagentRunManager.markSubagentRestartRecoveryLaunchAccepted(params),
-  markSubagentRestartRecoveryLaunchConsumed: (params) =>
-    subagentRunManager.markSubagentRestartRecoveryLaunchConsumed(params),
-  reserveSubagentRestartRecoveryLaunch: (params) =>
-    subagentRunManager.reserveSubagentRestartRecoveryLaunch(params),
-  resetSubagentRestartRecoveryLaunchAttempt: (params) =>
-    subagentRunManager.resetSubagentRestartRecoveryLaunchAttempt(params),
   finalizeInterruptedSubagentRun: completionRuntime.finalizeInterruptedSubagentRun,
   resumeRequesterSettleWake,
   startSubagentAnnounceCleanupFlow,

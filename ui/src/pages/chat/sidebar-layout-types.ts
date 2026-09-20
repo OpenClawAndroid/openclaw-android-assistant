@@ -17,6 +17,7 @@ export type SidebarPanel = {
   slot: SidebarSlotId;
   environmentId?: string;
   portalId?: string;
+  /** Selected task within the Tasks panel; absence shows its list. */
   taskId?: string;
 };
 export type SidebarDock = "bottom" | "left" | "right";

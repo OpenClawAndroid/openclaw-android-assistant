@@ -1,6 +1,10 @@
 // Collects core dependency status for plugin diagnostics.
 import fs from "node:fs";
 import path from "node:path";
+import { readRootJsonObjectSync } from "../infra/json-files.js";
+import { isPathInside, safeRealpathSync } from "./path-safety.js";
+
+const MAX_DEPENDENCY_MANIFEST_BYTES = 1024 * 1024;
 
 /** Dependency name-to-version map from a plugin package manifest. */
 export type PluginDependencySpecMap = Record<string, string>;
@@ -88,16 +92,51 @@ function dependencyPathSegments(name: string): string[] | null {
   return null;
 }
 
-function findDependencyPackageDir(params: { fromDir: string; name: string }): string | undefined {
+function findDependencyPackageDir(params: {
+  fromDir: string;
+  name: string;
+  dependencyRootDir?: string;
+}): string | undefined {
   const segments = dependencyPathSegments(params.name);
   if (!segments) {
     return undefined;
   }
+  const boundaryRoot =
+    params.dependencyRootDir === undefined
+      ? undefined
+      : (safeRealpathSync(params.dependencyRootDir) ?? path.resolve(params.dependencyRootDir));
   let current = path.resolve(params.fromDir);
+  if (boundaryRoot) {
+    current = safeRealpathSync(current) ?? current;
+  }
   while (true) {
+    if (boundaryRoot && !isPathInside(boundaryRoot, current)) {
+      return undefined;
+    }
     const candidate = path.join(current, "node_modules", ...segments);
-    if (fs.existsSync(candidate)) {
-      return candidate;
+    if (fs.existsSync(path.join(candidate, "package.json"))) {
+      const resolved = safeRealpathSync(candidate);
+      const manifestPath = safeRealpathSync(path.join(candidate, "package.json"));
+      if (
+        !resolved ||
+        !manifestPath ||
+        (boundaryRoot &&
+          (!isPathInside(boundaryRoot, resolved) || !isPathInside(boundaryRoot, manifestPath)))
+      ) {
+        return undefined;
+      }
+      // Resolve in-project links before the reader's regular-file admission.
+      const manifestRoot = boundaryRoot ?? path.dirname(manifestPath);
+      const manifest = readRootJsonObjectSync({
+        rootDir: manifestRoot,
+        relativePath: path.relative(manifestRoot, manifestPath),
+        boundaryLabel: "plugin dependency project",
+        maxBytes: MAX_DEPENDENCY_MANIFEST_BYTES,
+        // Package stores may hardlink valid manifests into the managed project.
+        rejectHardlinks: false,
+      });
+      // A present but unusable nearer manifest must not be hidden by hoisting.
+      return manifest.ok ? candidate : undefined;
     }
     const parent = path.dirname(current);
     if (parent === current) {
@@ -109,6 +148,7 @@ function findDependencyPackageDir(params: { fromDir: string; name: string }): st
 
 function buildDependencyEntries(params: {
   rootDir: string | undefined;
+  dependencyRootDir?: string;
   dependencies: PluginDependencySpecMap;
   optional: boolean;
 }): PluginDependencyEntry[] {
@@ -116,7 +156,11 @@ function buildDependencyEntries(params: {
     .toSorted(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => {
       const resolvedPath = params.rootDir
-        ? findDependencyPackageDir({ fromDir: params.rootDir, name })
+        ? findDependencyPackageDir({
+            fromDir: params.rootDir,
+            name,
+            dependencyRootDir: params.dependencyRootDir,
+          })
         : undefined;
       const entry: PluginDependencyEntry = {
         name,
@@ -134,16 +178,20 @@ function buildDependencyEntries(params: {
 /** Builds dependency installation status for a plugin package root. */
 export function buildPluginDependencyStatus(params: {
   rootDir?: string;
+  /** Confines managed dependency lookup and symlink targets to this project root. */
+  dependencyRootDir?: string;
   dependencies?: PluginDependencySpecMap;
   optionalDependencies?: PluginDependencySpecMap;
 }): PluginDependencyStatus {
   const dependencies = buildDependencyEntries({
     rootDir: params.rootDir,
+    dependencyRootDir: params.dependencyRootDir,
     dependencies: params.dependencies ?? {},
     optional: false,
   });
   const optionalDependencies = buildDependencyEntries({
     rootDir: params.rootDir,
+    dependencyRootDir: params.dependencyRootDir,
     dependencies: params.optionalDependencies ?? {},
     optional: true,
   });
@@ -163,6 +211,31 @@ export function buildPluginDependencyStatus(params: {
     dependencies,
     optionalDependencies,
   };
+}
+
+/** Checks managed required dependencies, using the host audit for the OpenClaw SDK link. */
+export async function findMissingRequiredPluginDependencies(params: {
+  rootDir: string;
+  dependencyRootDir: string;
+  dependencies?: PluginDependencySpecMap;
+}): Promise<string[]> {
+  const status = buildPluginDependencyStatus(params);
+  if (!status.dependencies.some((entry) => entry.name === "openclaw")) {
+    return status.missing;
+  }
+
+  const rootDir = safeRealpathSync(params.rootDir);
+  const boundaryRoot = safeRealpathSync(params.dependencyRootDir);
+  let hostInstalled = false;
+  if (rootDir && boundaryRoot && isPathInside(boundaryRoot, rootDir)) {
+    // The canonical host may live outside this project. Audit its identity even
+    // when an in-project copy would satisfy the ordinary dependency lookup.
+    const { auditOpenClawPeerDependencyLink } = await import("./plugin-peer-link.js");
+    hostInstalled = (await auditOpenClawPeerDependencyLink({ packageDir: rootDir })) === null;
+  }
+  return status.dependencies
+    .filter((entry) => (entry.name === "openclaw" ? !hostInstalled : !entry.installed))
+    .map((entry) => entry.name);
 }
 
 /** Projects missing required dependencies consistently across cold plugin status surfaces. */

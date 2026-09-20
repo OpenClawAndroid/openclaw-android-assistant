@@ -48,7 +48,7 @@ export type Inputs = Parameters<typeof rowProjection.readSessionRowInputs>[0];
 export type SnapshotOptions = Pick<
   Inputs,
   "now" | "includeDerivedTitles" | "includeLastMessage" | "excludedChildKeys"
-> & { active?: boolean };
+> & { active?: boolean; subagentRuns?: SessionListRowContext["subagentRuns"] };
 export type Lookup = { agentId: string; key: string; storePath?: string };
 type RowTarget = Pick<Row, "agentId" | "key" | "storeTarget">;
 export const identity = (row: RowTarget) =>
@@ -158,7 +158,7 @@ export function present(
   const active = options.active ?? (live !== undefined || record.entry.status === "running");
   const row = rowProjection.presentSessionRow(record.materialized, {
     now,
-    subagentRuns: context.subagentRuns.atTime(now),
+    subagentRuns: options.subagentRuns ?? context.subagentRuns.atTime(now),
     projectedAgentRuns: context.projectedAgentRuns,
     projectedSubagentActivity: context.projectedSubagentActivity,
     activeModel: active ? (live ?? undefined) : record.fallbackModel,

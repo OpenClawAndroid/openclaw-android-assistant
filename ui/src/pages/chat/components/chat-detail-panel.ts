@@ -37,7 +37,6 @@ import { computeFileMatches } from "./chat-sidebar-file-view.ts";
 import type { FileEditorViewHandle } from "./file-editor-view.ts";
 
 type FileSidebarContent = Extract<SidebarContent, { kind: "file" }>;
-type ChatDetailPanelContent = Exclude<SidebarContent, { kind: "task" }>;
 
 const FILE_WRAP_PREFERENCE_KEY = "openclaw.control.fileView.wrap.v1";
 
@@ -58,7 +57,7 @@ function saveFileWrapPreference(wrap: boolean): void {
 }
 
 class ChatDetailPanel extends OpenClawLightDomElement {
-  @property({ attribute: false }) content: ChatDetailPanelContent | null = null;
+  @property({ attribute: false }) content: SidebarContent | null = null;
   @property({ attribute: false }) fileNavigation: FileSidebarNavigation | null = null;
   @property({ attribute: false }) execNode: string | null = null;
   @property({ attribute: false }) attachmentRuntime: AttachmentSidebarRuntime = {};
@@ -76,7 +75,7 @@ class ChatDetailPanel extends OpenClawLightDomElement {
   @property({ attribute: false }) onRevealInWorkspace?: ((path: string) => void) | null = null;
   @property({ attribute: false }) onOpenImage?: ((item: ImageLightboxItem) => void) | null = null;
 
-  @state() private visibleContent: ChatDetailPanelContent | null = null;
+  @state() private visibleContent: SidebarContent | null = null;
   @state() private error: Error | null = null;
   @state() private fileSearchOpen = false;
   @state() private fileWrap = loadFileWrapPreference();

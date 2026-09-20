@@ -110,7 +110,7 @@ describe("cron recovery run identity", () => {
       if (!first) {
         throw new Error("predecessor was not admitted");
       }
-      const predecessorProposal = proposeCronRunRecovery(
+      const predecessorProposal = await proposeCronRunRecovery(
         recoveryState,
         job.id,
         undefined,

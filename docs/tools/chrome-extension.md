@@ -53,6 +53,13 @@ this Mac** runs the same local setup. This always prepares Chrome on this Mac,
 even when the app is connected to a remote Gateway. A browser-based dashboard
 provides Store and setup-guide links instead of installing software locally.
 
+The **This Mac** page checks installation when opened and when you return from
+Chrome. An existing extension shows **Installed**, including when Chrome still
+needs you to enable it. If its local helper is missing, **Repair Mac connection**
+repairs automatic pairing without treating the extension as absent. **Check
+again** refreshes this status without installing anything. Installation status
+does not prove a live connection; open the extension to check that separately.
+
 On Linux and in other supported Chromium browsers, add
 [OpenClaw from the Chrome Web Store](https://chromewebstore.google.com/detail/openclaw/kcdjddhmeafeomebliikmbpblkmkfoig)
 after native-host registration succeeds. Linux does not support this per-user

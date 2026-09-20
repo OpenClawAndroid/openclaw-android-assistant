@@ -80,9 +80,22 @@ suite.define(() => {
 
           const rail = page.locator(".chat-position-rail");
           const markers = rail.locator(".chat-position-rail__marker");
+          const markerForIndex = (index: number) =>
+            rail.locator(`[data-position-marker-id="position-rail-${index}"]`);
+          const logicalCount = () =>
+            rail.evaluate((element) =>
+              Number((element as HTMLElement).style.getPropertyValue("--chat-position-rail-count")),
+            );
+          const showMarker = async (index: number) => {
+            await rail.locator(".chat-position-rail__marks").evaluate((element, position) => {
+              element.scrollTop = position * 12;
+            }, index);
+            await markerForIndex(index).waitFor();
+          };
           const preview = rail.locator(".chat-position-rail__preview-copy");
           await markers.first().waitFor();
-          await expect.poll(() => markers.count()).toBe(240);
+          await expect.poll(logicalCount).toBe(240);
+          expect(await markers.count()).toBeLessThan(100);
           const track = rail.locator(".chat-position-rail__track");
           const trackBounds = (await track.boundingBox())!;
           const transcriptBounds = (await transcript.boundingBox())!;
@@ -101,15 +114,22 @@ suite.define(() => {
             ),
           ).toBeLessThan(2);
           const markBounds = await markers.evaluateAll((items) =>
-            items.map((item) => item.getBoundingClientRect().toJSON()),
+            items.map((item) => ({
+              ...item.getBoundingClientRect().toJSON(),
+              index: Number(item.getAttribute("data-position-marker-id")!.split("-").at(-1)),
+            })),
           );
           expect(Math.min(...markBounds.map((bounds) => bounds.width))).toBeGreaterThanOrEqual(44);
           for (let index = 1; index < markBounds.length; index++) {
-            expect(markBounds[index]!.y - markBounds[index - 1]!.y).toBeCloseTo(12, 2);
-            expect(markBounds[index]!.y).toBeCloseTo(markBounds[index - 1]!.bottom, 2);
+            expect(markBounds[index]!.y - markBounds[index - 1]!.y).toBeCloseTo(
+              (markBounds[index]!.index - markBounds[index - 1]!.index) * 12,
+              2,
+            );
           }
-          expect(await markers.first().getAttribute("aria-label")).toContain("1 of 240");
-          expect(await markers.last().getAttribute("aria-label")).toContain("240 of 240");
+          expect(await markers.first().getAttribute("aria-label")).toContain(
+            `${markBounds[0]!.index + 1} of 240`,
+          );
+          expect(await markerForIndex(239).getAttribute("aria-label")).toContain("240 of 240");
           expect(await preview.count()).toBe(0);
           expect(await rail.locator('[role="status"]').count()).toBe(0);
           await captureUiProof(suite, page, "chat-position-rail", "idle.png");
@@ -156,10 +176,8 @@ suite.define(() => {
           await expect.poll(currentMarkerId).toBe("position-rail-239");
           await page.keyboard.press("Escape");
 
-          const currentMarkerIndex = () =>
-            markers.evaluateAll((items) =>
-              items.findIndex((item) => item.getAttribute("aria-current") === "true"),
-            );
+          const currentMarkerIndex = async () =>
+            Number((await currentMarkerId())!.split("-").at(-1));
           const scroller = rail.locator(".chat-position-rail__marks");
           const fades = () =>
             scroller.evaluate((element) => ({
@@ -196,8 +214,7 @@ suite.define(() => {
             return { muted, text };
           });
           const strokeColor = (index: number) =>
-            markers
-              .nth(index)
+            markerForIndex(index)
               .locator(".chat-position-rail__tick")
               .evaluate((element) => getComputedStyle(element).backgroundColor);
           const visibilityMatchesViewport = () =>
@@ -232,9 +249,14 @@ suite.define(() => {
               );
             });
           await expect.poll(visibilityMatchesViewport).toBe(true);
-          const firstMarkerNode = await markers.first().elementHandle();
           await expect.poll(currentMarkerIndex).toBe(239);
-          expect(await strokeColor(0)).toMatch(/\/ 0\.4\)$/);
+          expect(
+            await rail
+              .locator(".chat-position-rail__marker:not([data-visible])")
+              .first()
+              .locator(".chat-position-rail__tick")
+              .evaluate((element) => getComputedStyle(element).backgroundColor),
+          ).toMatch(/\/ 0\.4\)$/);
           expect(await strokeColor(239)).toBe(colors.muted);
           await expect.poll(fades).toEqual({ top: true, bottom: false });
           await expect.poll(currentIsVisible).toBe(true);
@@ -245,7 +267,6 @@ suite.define(() => {
           await expect.poll(currentMarkerIndex).toBeLessThan(200);
           await expect.poll(fades).toEqual({ top: true, bottom: true });
           await expect.poll(visibilityMatchesViewport).toBe(true);
-          expect(await firstMarkerNode!.evaluate((element) => element.isConnected)).toBe(true);
           await expect.poll(currentIsVisible).toBe(true);
           await captureUiProof(suite, page, "chat-position-rail", "stress-both-fades.png");
 
@@ -290,7 +311,7 @@ suite.define(() => {
           await page.mouse.wheel(0, -6000);
           await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(0);
           await expect.poll(fades).toEqual({ top: false, bottom: true });
-          await markers.nth(1).hover();
+          await markerForIndex(1).hover();
           const previewImage = preview.locator("img");
           await expect
             .poll(() => previewImage.evaluate((image: HTMLImageElement) => image.naturalHeight))
@@ -304,7 +325,7 @@ suite.define(() => {
           ).toBeLessThanOrEqual(3.01);
           await page.mouse.move(600, 100);
 
-          await markers.nth(4).hover();
+          await markerForIndex(4).hover();
           await expect.poll(() => preview.textContent()).toContain("Transcript checkpoint 4");
           expect(await preview.locator("strong").textContent()).toBe("checkpoint 4");
           expect(await preview.locator("code").textContent()).toBe("code");
@@ -312,15 +333,11 @@ suite.define(() => {
           expect(await transcript.evaluate((element) => element.scrollTop)).toBe(readerOffset);
           expect(await scroller.evaluate((element) => element.scrollTop)).toBe(0);
           // Pointer focus must not move an edge mark before its click completes.
-          await scroller.evaluate((element) => {
-            element.scrollTop = element.querySelector<HTMLElement>(
-              '[data-position-marker-id="position-rail-60"]',
-            )!.offsetTop;
-          });
-          const edgeBounds = (await markers.nth(60).boundingBox())!;
+          await showMarker(60);
+          const edgeBounds = (await markerForIndex(60).boundingBox())!;
           await page.mouse.move(edgeBounds.x + 5, edgeBounds.y + edgeBounds.height / 2);
           await page.mouse.down();
-          const pressedBounds = (await markers.nth(60).boundingBox())!;
+          const pressedBounds = (await markerForIndex(60).boundingBox())!;
           await page.mouse.up();
           expect(pressedBounds.y).toBeCloseTo(edgeBounds.y, 2);
           const edgeTarget = transcript.locator('.chat-bubble[data-entry-id="position-rail-60"]');
@@ -351,7 +368,7 @@ suite.define(() => {
               ),
             );
           const restingColors = await strokeColors();
-          await markers.nth(4).hover();
+          await markerForIndex(4).hover();
           await expect.poll(() => preview.textContent()).toContain("Transcript checkpoint 4");
           await expect
             .poll(() =>
@@ -387,7 +404,7 @@ suite.define(() => {
           );
 
           await page.mouse.move(600, 100);
-          await markers.nth(4).hover();
+          await markerForIndex(4).hover();
           await expect.poll(() => preview.textContent()).toContain("Transcript checkpoint 4");
           await page.mouse.move(600, 100);
           await expect.poll(() => preview.count()).toBe(0);
@@ -399,9 +416,9 @@ suite.define(() => {
             .toBe("Preview unavailable");
           expect(await preview.boundingBox()).not.toBeNull();
           await page.mouse.move(600, 100);
-          await markers.nth(5).focus();
+          await markerForIndex(5).focus();
           await expect.poll(() => preview.textContent()).toContain("Transcript checkpoint 5");
-          await markers.nth(5).press("ArrowDown");
+          await markerForIndex(5).press("ArrowDown");
           await expect
             .poll(() =>
               page.evaluate(
@@ -411,15 +428,15 @@ suite.define(() => {
             .toBe("position-rail-6");
           await expect.poll(() => preview.textContent()).toContain("Transcript checkpoint 6");
           expect(
-            await markers
-              .nth(6)
+            await markerForIndex(6)
               .locator(".chat-position-rail__tick")
               .evaluate((element) => getComputedStyle(element).width),
           ).toBe("8px");
-          await markers.nth(120).focus();
+          await showMarker(120);
+          await markerForIndex(120).focus();
           await expect.poll(() => preview.textContent()).toContain("Transcript checkpoint 120");
           expect(await transcript.evaluate((element) => element.scrollTop)).toBe(0);
-          const focusedBounds = (await markers.nth(120).boundingBox())!;
+          const focusedBounds = (await markerForIndex(120).boundingBox())!;
           const scrollBounds = (await scroller.boundingBox())!;
           expect(focusedBounds.y).toBeGreaterThan(scrollBounds.y + 60);
           expect(focusedBounds.y + focusedBounds.height).toBeLessThan(
@@ -437,7 +454,7 @@ suite.define(() => {
                 };
               });
           for (const index of [120, 121]) {
-            await markers.nth(index).click();
+            await markerForIndex(index).click();
             const revealed = transcript.locator(
               `.chat-bubble[data-entry-id="position-rail-${index}"]`,
             );
@@ -456,16 +473,16 @@ suite.define(() => {
             await captureUiProof(suite, page, "chat-position-rail", `jump-flash-${index}.png`);
             await expect.poll(async () => (await flashPaint(index)).visible).toBe(false);
           }
-          await markers.nth(120).press("Escape");
+          await markerForIndex(120).press("Escape");
           await expect.poll(() => preview.count()).toBe(0);
-          await markers.nth(120).press("Home");
+          await markerForIndex(120).press("Home");
           await expect
-            .poll(() => markers.first().evaluate((element) => element === document.activeElement))
+            .poll(() => markerForIndex(0).evaluate((element) => element === document.activeElement))
             .toBe(true);
-          await markers.first().press(" ");
+          await markerForIndex(0).press(" ");
           await expect.poll(() => transcript.evaluate((element) => element.scrollTop)).toBe(0);
-          await markers.first().press("End");
-          await markers.last().press("Enter");
+          await markerForIndex(0).press("End");
+          await markerForIndex(239).press("Enter");
           await expect.poll(currentMarkerIndex).toBe(239);
 
           // Pane-local width matters even inside an otherwise wide desktop.
@@ -496,7 +513,8 @@ suite.define(() => {
               ),
           ).toBeLessThanOrEqual(0.00001); // Global reduced-motion policy uses 0.01ms.
 
-          await markers.last().click();
+          await showMarker(239);
+          await markerForIndex(239).click();
           await expect
             .poll(() => flashPaint(239))
             .toEqual({ visible: true, animated: false, outline: "none" });
@@ -564,7 +582,7 @@ suite.define(() => {
           await transcript.focus();
           await page.keyboard.press("Tab");
           await page.keyboard.press("End");
-          const exploredMarker = markers.nth(239);
+          const exploredMarker = markerForIndex(239);
           await expect.poll(focusedMarkerId).toBe("position-rail-239");
           const exploredTop = (await exploredMarker.boundingBox())!.y;
           await gateway.setHistoryMessages([
@@ -579,7 +597,7 @@ suite.define(() => {
             runId: "incoming-rail-run",
             text: "A new checkpoint arrived.",
           });
-          await expect.poll(() => markers.count()).toBe(241);
+          await expect.poll(logicalCount).toBe(241);
           expect(await focusedMarkerId()).toBe("position-rail-239");
           expect((await exploredMarker.boundingBox())!.y).toBe(exploredTop);
           expect(await preview.isVisible()).toBe(true);
@@ -669,9 +687,26 @@ suite.define(() => {
           await page.goto(`${suite.server.baseUrl}chat`);
           const thread = page.locator(".chat-thread");
           const marks = thread.locator(".chat-position-rail__marker");
-          await expect.poll(() => marks.count()).toBe(84);
+          await expect
+            .poll(() =>
+              thread
+                .locator(".chat-position-rail")
+                .evaluate((element) =>
+                  Number(
+                    (element as HTMLElement).style.getPropertyValue("--chat-position-rail-count"),
+                  ),
+                ),
+            )
+            .toBe(84);
+          expect(await marks.count()).toBeLessThan(84);
           const runMarker = thread.locator('[data-position-marker-id="run:review-run"]');
-          await runMarker.focus();
+          await thread.locator('.chat-position-rail__marker[tabindex="0"]').focus();
+          await page.keyboard.press("End");
+          await page.keyboard.press("ArrowUp");
+          await page.keyboard.press("ArrowUp");
+          expect(await runMarker.evaluate((element) => element === document.activeElement)).toBe(
+            true,
+          );
           await runMarker.press("Enter");
           const first = thread.locator('.chat-bubble[data-entry-id="first"]');
           await expect

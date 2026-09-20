@@ -144,7 +144,7 @@ async function finishWatcherRun(params: {
     ? createCronServiceState(harness.deps)
     : undefined;
   const proposal = recoveryState
-    ? proposeCronRunRecovery(recoveryState, jobId, undefined, receipt.startedAtMs)
+    ? await proposeCronRunRecovery(recoveryState, jobId, undefined, receipt.startedAtMs)
     : undefined;
   await params.editAfterTask?.();
   if (params.expectedReceiptStatus === "interrupted") {

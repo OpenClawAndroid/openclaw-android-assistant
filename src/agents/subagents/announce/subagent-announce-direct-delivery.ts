@@ -49,6 +49,7 @@ import {
   isDirectMessageDeliveryTarget,
   isGatewayAgentRunPending,
   resolvePrivateCompletionDeliveryResult,
+  resolveRequesterRecoveryDelivery,
   runAnnounceAgentCall,
 } from "./subagent-announce-completion-delivery.js";
 import {
@@ -248,6 +249,16 @@ export async function sendSubagentAnnounceDirectly(params: {
         disposition: "intentional_non_delivery",
       };
     }
+    // A recovered requester already owns this admitted input. Reuse its final
+    // receipt through the normal delivery checks; never execute the old wake again.
+    const recovery =
+      !parentOnly && sourceToolId === "subagent_settle"
+        ? resolveRequesterRecoveryDelivery(requesterEntry, params.directIdempotencyKey)
+        : undefined;
+    if (recovery?.kind === "delivery") {
+      return recovery.delivery;
+    }
+    const recoveredResult = recovery?.result;
     const tryTextCompletionDirectDelivery = (
       contentKind: "completed_result" | "failed_notice" = "completed_result",
     ) =>
@@ -382,47 +393,49 @@ export async function sendSubagentAnnounceDirectly(params: {
     };
     let directAnnounceResponse: unknown;
     try {
-      directAnnounceResponse = await runAnnounceDeliveryWithRetry({
-        operation: params.expectsCompletionMessage
-          ? "completion direct announce agent call"
-          : "direct announce agent call",
-        signal: params.signal,
-        isAttemptAllowed: isCompletionAdmissionAllowed,
-        run: async () => {
-          if (!isCompletionAdmissionAllowed()) {
-            throw new SourceOwnerChangedError();
-          }
-          return await runAnnounceAgentCall({
-            agentParams: directAgentParams,
-            ...(parentOnly ? { privateCompletion: true as const } : {}),
-            delegatedToolPolicyHandoff:
-              isSubagentCompletion &&
-              trustedCompletionEvent &&
-              params.sourceSessionKey &&
-              requesterActivity.sessionId &&
-              params.isSourceSessionEffectsAllowed?.() !== false
-                ? {
-                    sourceSessionKey: params.sourceSessionKey,
-                    ...(trustedCompletionEvent.childSessionId
-                      ? { sourceSessionId: trustedCompletionEvent.childSessionId }
-                      : {}),
-                    targetSessionKey: canonicalRequesterSessionKey,
-                    targetSessionId: requesterActivity.sessionId,
-                    idempotencyKey: params.directIdempotencyKey,
-                  }
-                : undefined,
-            expectFinal: true,
+      directAnnounceResponse = recoveredResult
+        ? { status: "ok", result: recoveredResult }
+        : await runAnnounceDeliveryWithRetry({
+            operation: params.expectsCompletionMessage
+              ? "completion direct announce agent call"
+              : "direct announce agent call",
             signal: params.signal,
-            // Individual private delivery retains its cleanup owner until the
-            // lifecycle deadline; settle batches can observe and replay admission.
-            timeoutMs: parentOnly && isSubagentCompletion ? undefined : announceTimeoutMs,
-            isExecutionAllowed: isCompletionDeliveryAllowed,
-            isSourceSessionAdmissionAllowed:
-              params.isSourceSessionAdmissionAllowed && isCompletionAdmissionAllowed,
-            resolveGatewayContext: params.resolveGatewayContext,
+            isAttemptAllowed: isCompletionAdmissionAllowed,
+            run: async () => {
+              if (!isCompletionAdmissionAllowed()) {
+                throw new SourceOwnerChangedError();
+              }
+              return await runAnnounceAgentCall({
+                agentParams: directAgentParams,
+                ...(parentOnly ? { privateCompletion: true as const } : {}),
+                delegatedToolPolicyHandoff:
+                  isSubagentCompletion &&
+                  trustedCompletionEvent &&
+                  params.sourceSessionKey &&
+                  requesterActivity.sessionId &&
+                  params.isSourceSessionEffectsAllowed?.() !== false
+                    ? {
+                        sourceSessionKey: params.sourceSessionKey,
+                        ...(trustedCompletionEvent.childSessionId
+                          ? { sourceSessionId: trustedCompletionEvent.childSessionId }
+                          : {}),
+                        targetSessionKey: canonicalRequesterSessionKey,
+                        targetSessionId: requesterActivity.sessionId,
+                        idempotencyKey: params.directIdempotencyKey,
+                      }
+                    : undefined,
+                expectFinal: true,
+                signal: params.signal,
+                // Individual private delivery retains its cleanup owner until the
+                // lifecycle deadline; settle batches can observe and replay admission.
+                timeoutMs: parentOnly && isSubagentCompletion ? undefined : announceTimeoutMs,
+                isExecutionAllowed: isCompletionDeliveryAllowed,
+                isSourceSessionAdmissionAllowed:
+                  params.isSourceSessionAdmissionAllowed && isCompletionAdmissionAllowed,
+                resolveGatewayContext: params.resolveGatewayContext,
+              });
+            },
           });
-        },
-      });
       if (!isCompletionDeliveryAllowed()) {
         return sourceOwnerChangedResult();
       }

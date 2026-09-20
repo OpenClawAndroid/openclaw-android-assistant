@@ -578,6 +578,7 @@ describe("initSessionState guarded initialization", () => {
   it.each(["/new", "/reset"] as const)(
     "reopens a restart tombstone only after authorized %s",
     async (command) => {
+      setActivePluginRegistry(createSessionConversationTestRegistry());
       const storePath = await createStorePath("openclaw-session-init-restart-tombstone-");
       const sessionKey = "agent:main:matrix:channel:!room-a:example.test";
       const successorKey = "agent:main:dashboard:successor";
@@ -1302,20 +1303,16 @@ describe("initSessionState thread forking", () => {
     } as OpenClawConfig;
 
     setActivePluginRegistry(createSessionConversationTestRegistry());
-    try {
-      const result = await initSessionState({
-        ctx: {
-          Body: "Hello topic",
-          SessionKey: "agent:main:telegram:group:123:topic:456",
-        },
-        cfg,
-      });
+    const result = await initSessionState({
+      ctx: {
+        Body: "Hello topic",
+        SessionKey: "agent:main:telegram:group:123:topic:456",
+      },
+      cfg,
+    });
 
-      expect(result.sessionKey).toBe("agent:main:telegram:group:123:topic:456");
-      expect(result.sessionEntry).not.toHaveProperty("sessionFile");
-    } finally {
-      resetPluginRuntimeStateForTest();
-    }
+    expect(result.sessionKey).toBe("agent:main:telegram:group:123:topic:456");
+    expect(result.sessionEntry).not.toHaveProperty("sessionFile");
   });
 });
 

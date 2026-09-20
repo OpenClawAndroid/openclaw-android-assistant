@@ -99,9 +99,11 @@ Choose **Connection…** to open the small native window even when the Gateway
 is unreachable. Its **Connection** tab contains local Gateway status, remote/SSH
 options, Tailscale, and discovery; **Gateways** manages saved Gateway profiles.
 A **Debug** tab appears while the developer toggle in **This Mac → Developer**
-is enabled. **About OpenClaw** selects the **About** tab in this window, with
-the app version, build information, and resource links. **Copy Build Info**
-copies the full version, commit, and build timestamp. About works offline.
+is enabled. The same toggle enables **Inspect Element** in the Dashboard and
+widget panel context menus; changes apply to open windows without restarting.
+**About OpenClaw** selects the **About** tab in this window, with the app version,
+build information, and resource links. **Copy Build Info** copies the full version,
+commit, and build timestamp. About works offline.
 
 If the app-managed local Gateway is missing, outdated, or broken, the Connection
 tab offers **Install Gateway**, **Update Gateway**, or **Repair Gateway**. The

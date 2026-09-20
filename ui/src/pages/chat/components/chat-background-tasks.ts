@@ -24,14 +24,22 @@ import {
   normalizeTasksListResult,
   replayTaskEvents,
   sortTasks,
-  taskTimestampMs,
 } from "../../../lib/tasks/data.ts";
 import type { TaskSummary } from "../../../lib/tasks/task-summary.ts";
 import { taskMatchesSessionScope } from "./chat-background-task-scope.ts";
-import { newestTaskSnapshot } from "./chat-background-tasks-shared.ts";
+import {
+  newestTaskSnapshot,
+  observeTaskTerminal,
+  prepareTaskSnapshot,
+  type BackgroundTaskObservations,
+} from "./chat-background-tasks-shared.ts";
 import type { BackgroundTasksProps } from "./chat-background-tasks.types.ts";
 import { deriveSubagentActivity } from "./chat-subagent-activity.ts";
-import { observeTaskDetailEvent } from "./chat-task-detail-state.ts";
+import {
+  observeTaskDetailEvent,
+  resetTaskDetail,
+  type TaskTranscriptHost,
+} from "./chat-task-detail-state.ts";
 
 registerBackgroundTasksEnglish();
 
@@ -47,7 +55,7 @@ type BackgroundTaskSnapshotResult =
   | { kind: "deferred"; retryAttempt: number }
   | { kind: "stale" };
 
-type BackgroundTasksState = {
+type BackgroundTasksState = BackgroundTaskObservations & {
   cancellingTaskIds: Set<string>;
   collapsed: boolean;
   connectionClient: GatewayBrowserClient | null;
@@ -70,25 +78,19 @@ type BackgroundTasksState = {
   statusRowId: string;
   subagentActivityExpiryAt: number | null;
   subagentActivityExpiryTimer: number | null;
-  taskActivityById: Map<string, Pick<TaskSummary, "lastActivity" | "diffStat">>;
-  terminalObservedAtByTask: Map<string, number>;
   tasks: TaskSummary[] | null;
   taskDetails: Map<string, TaskSummary>;
   taskDetailErrors: Map<string, string>;
   taskDetailRequests: Map<string, symbol>;
 };
 
-export type BackgroundTasksHost = {
+export type BackgroundTasksHost = TaskTranscriptHost & {
   sessionKey: string;
   assistantAgentId?: string | null;
-  client: GatewayBrowserClient | null;
-  connected: boolean;
-  connectionEpoch?: number;
   hello: GatewayHelloOk | null;
   agentsList?: SessionScopeHost["agentsList"];
   backgroundTasksState?: BackgroundTasksState;
   chatSecondaryReadsReady?: (explicit?: boolean) => boolean;
-  requestUpdate?: () => void;
 };
 
 // The chat rail stays bounded to its session while the full Tasks page drains
@@ -119,6 +121,7 @@ function getBackgroundTasksState(host: BackgroundTasksHost): BackgroundTasksStat
   ) {
     window.clearTimeout(current.subagentActivityExpiryTimer);
   }
+  resetTaskDetail(host);
   nextStatusRowId += 1;
   const next: BackgroundTasksState = {
     cancellingTaskIds: new Set(),
@@ -153,57 +156,6 @@ function getBackgroundTasksState(host: BackgroundTasksHost): BackgroundTasksStat
   };
   host.backgroundTasksState = next;
   return next;
-}
-
-function retainTaskStreamingFields(state: BackgroundTasksState, task: TaskSummary): TaskSummary {
-  const retained = state.taskActivityById.get(task.id);
-  const lastActivity = isActiveTask(task)
-    ? (task.lastActivity ?? retained?.lastActivity)
-    : undefined;
-  const diffStat = task.diffStat ?? retained?.diffStat;
-  const streamingFields = {
-    ...(lastActivity ? { lastActivity } : {}),
-    ...(diffStat ? { diffStat } : {}),
-  };
-  if (lastActivity || diffStat) {
-    state.taskActivityById.set(task.id, streamingFields);
-  } else {
-    state.taskActivityById.delete(task.id);
-  }
-  if (lastActivity === task.lastActivity && diffStat === task.diffStat) {
-    return task;
-  }
-  const next = { ...task, ...streamingFields };
-  if (!lastActivity) {
-    delete next.lastActivity;
-  }
-  return next;
-}
-
-function prepareTaskSnapshot(state: BackgroundTasksState, task: TaskSummary): TaskSummary {
-  const retained = retainTaskStreamingFields(state, task);
-  if (isActiveTask(retained)) {
-    state.terminalObservedAtByTask.delete(retained.id);
-  }
-  return retained;
-}
-
-function observeTaskTerminal(
-  state: BackgroundTasksState,
-  task: TaskSummary,
-  source: "event" | "snapshot",
-) {
-  if (isActiveTask(task)) {
-    state.terminalObservedAtByTask.delete(task.id);
-    return;
-  }
-  if (!state.terminalObservedAtByTask.has(task.id)) {
-    const terminalAt =
-      source === "event" ? Date.now() : taskTimestampMs(task.endedAt ?? task.updatedAt);
-    if (terminalAt > 0) {
-      state.terminalObservedAtByTask.set(task.id, terminalAt);
-    }
-  }
 }
 
 function scheduleSubagentActivityExpiry(
@@ -478,7 +430,8 @@ export function handleBackgroundTasksEvent(
     event.action === "deleted" &&
     (state.taskDetails.has(event.taskId) ||
       state.taskDetailRequests.has(event.taskId) ||
-      state.taskDetailErrors.has(event.taskId))
+      state.taskDetailErrors.has(event.taskId) ||
+      state.tasks?.some((task) => task.id === event.taskId))
   ) {
     state.taskDetails.delete(event.taskId);
     state.taskDetailRequests.delete(event.taskId);
@@ -659,8 +612,9 @@ export function createBackgroundTasksProps(
   host: BackgroundTasksHost,
   opts: {
     narrowLayout?: boolean;
-    openTaskId?: string;
+    selectedTaskId?: string;
     onOpenTaskDetail?: (task: TaskSummary) => void;
+    onOpenTaskList?: () => void;
     presented?: boolean;
   } = {},
 ): BackgroundTasksProps {
@@ -684,15 +638,15 @@ export function createBackgroundTasksProps(
   }
   if (
     opts.presented !== false &&
-    opts.openTaskId &&
+    opts.selectedTaskId &&
     !state.loading &&
     state.tasks !== null &&
     host.chatSecondaryReadsReady?.(state.explicitReadRequested) !== false &&
-    !state.tasks?.some((task) => task.id === opts.openTaskId) &&
-    !state.taskDetails.has(opts.openTaskId) &&
-    !state.taskDetailErrors.has(opts.openTaskId)
+    !state.tasks?.some((task) => task.id === opts.selectedTaskId) &&
+    !state.taskDetails.has(opts.selectedTaskId) &&
+    !state.taskDetailErrors.has(opts.selectedTaskId)
   ) {
-    void loadBackgroundTaskDetail(host, state, opts.openTaskId);
+    void loadBackgroundTaskDetail(host, state, opts.selectedTaskId);
   }
   const subagentActivity = deriveSubagentActivity({
     tasks: state.tasks ?? [],
@@ -717,7 +671,7 @@ export function createBackgroundTasksProps(
     tasks: state.tasks,
     activeCount: state.tasks?.filter(isActiveTask).length ?? 0,
     subagentActivity,
-    openTaskId: opts.openTaskId,
+    selectedTaskId: opts.selectedTaskId,
     taskDetails: state.taskDetails,
     taskDetailErrors: state.taskDetailErrors,
     taskDetailLoadingIds: new Set(state.taskDetailRequests.keys()),
@@ -735,8 +689,23 @@ export function createBackgroundTasksProps(
     onRefresh: () => refreshBackgroundTasks(host, state),
     onCancel: (taskId) => void cancelBackgroundTask(host, state, taskId),
     onLoadDetail: (task) => void loadBackgroundTaskDetail(host, state, task.id),
+    onOpenTaskList: () => {
+      if (getBackgroundTasksState(host) !== state) {
+        return;
+      }
+      resetTaskDetail(host);
+      state.collapsed = false;
+      opts.onOpenTaskList?.();
+      host.requestUpdate?.();
+    },
     onOpenTaskDetail: opts.onOpenTaskDetail
       ? (task) => {
+          if (getBackgroundTasksState(host) !== state) {
+            return;
+          }
+          if (host.taskDetailState?.taskId !== task.id) {
+            resetTaskDetail(host);
+          }
           // Opening retries a failed tasks.get: the panel's render-driven load
           // must skip errored tasks (a retry there would loop every paint), so
           // user selection is the one path that clears the error.
@@ -746,6 +715,7 @@ export function createBackgroundTasksProps(
             state.taskDetailErrors = next;
           }
           opts.onOpenTaskDetail?.(task);
+          host.requestUpdate?.();
         }
       : undefined,
   };

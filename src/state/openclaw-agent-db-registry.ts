@@ -4,17 +4,22 @@ import { resolveStateDir } from "../config/paths.js";
 import { probePathSuffixAliasesSync, resolvePathPrefixSync } from "../infra/fs-safe-advanced.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import { isPathInside } from "../infra/path-guards.js";
+import { stageSqliteTransactionState } from "../infra/sqlite-post-commit.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import {
   assertAgentDeletionPathFence,
   prepareAgentDeletionPathFence,
 } from "./agent-deletion-journal.js";
-import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
+import {
+  OPENCLAW_AGENT_SCHEMA_VERSION,
+  type OpenClawAgentDatabaseRegistrationCommit,
+} from "./openclaw-agent-db-contract.js";
 import { invalidateRegisteredAgentDatabasesMemo } from "./openclaw-agent-db-registry-listing.js";
 import {
   invalidateOpenClawAgentDatabaseValidation,
   invalidateOpenClawAgentDatabaseValidationsForAgent,
 } from "./openclaw-agent-db-validation-cache.js";
+import { requireOpenClawStateDatabaseIdentity } from "./openclaw-state-db-cache.js";
 import type { OpenClawStateDatabase } from "./openclaw-state-db-contract.js";
 import type { DB as OpenClawStateKyselyDatabase } from "./openclaw-state-db.generated.js";
 import { runOpenClawStateWriteTransaction } from "./openclaw-state-db.js";
@@ -242,12 +247,15 @@ export function isSameOpenClawAgentDatabasePath(left: string, right: string): bo
   );
 }
 
-export function registerOpenClawAgentDatabase(params: {
-  agentId: string;
-  path: string;
-  env?: NodeJS.ProcessEnv;
-  schemaVersion?: number;
-}): void {
+export function registerOpenClawAgentDatabase(
+  params: {
+    agentId: string;
+    path: string;
+    env?: NodeJS.ProcessEnv;
+    schemaVersion?: number;
+  },
+  onCommitted?: (receipt: OpenClawAgentDatabaseRegistrationCommit) => void,
+): void {
   if (!isPersistentOpenClawAgentDatabasePath(params.path, params.env)) {
     return;
   }
@@ -287,6 +295,26 @@ export function registerOpenClawAgentDatabase(params: {
           ),
       );
       invalidateRegisteredAgentDatabasesMemo({ env: params.env });
+      if (onCommitted) {
+        const receipt = Object.freeze({
+          agentId: params.agentId,
+          agentPath: params.path,
+          stateDatabasePath: database.path,
+          stateDatabaseIdentity: requireOpenClawStateDatabaseIdentity(database).key,
+        });
+        // Record the native fact before fallible observers; the recorder never performs work.
+        if (
+          !stageSqliteTransactionState(database.db, {
+            stage() {},
+            rollback() {},
+            commit: () => onCommitted(receipt),
+          })
+        ) {
+          throw new Error(
+            "Agent registration requires its canonical transaction publication scope",
+          );
+        }
+      }
       sessionChanges.emit({ all: true, scope: "stores" }, database.db);
     },
     { env: params.env },

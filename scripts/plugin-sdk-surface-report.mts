@@ -386,7 +386,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: shared workspace bootstrap file policy.
       // +2: typed workspace unavailability and its structural classifier.
       // +13: twelve decision contract types and one prepared plugin secret reader.
-      4511,
+      // +6: shared delivery facts, source-reply detection, argument sanitization, and media comparison.
+      4517,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -532,7 +533,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: shared workspace bootstrap file policy.
       // +1: workspace unavailability classifier.
       // +1: prepared plugin capability secret reader.
-      2655,
+      // +6: shared delivery facts, source-reply detection, argument sanitization, and media comparison.
+      2661,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

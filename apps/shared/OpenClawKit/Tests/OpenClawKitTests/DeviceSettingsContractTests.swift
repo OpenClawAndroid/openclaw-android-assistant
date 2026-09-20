@@ -28,7 +28,9 @@ struct DeviceSettingsContractTests {
         #expect(actual["capabilities"] as? [String: Bool] == ["unattendedDesktopEnabled": false])
     }
 
-    @Test func `Chrome extension setup accepts only the exact action payload`() {
+    @Test func `Chrome extension status and setup accept only their exact action payloads`() {
+        #expect(DeviceSettingsRequest(body: ["type": "chrome-extension-status"]) == .chromeExtensionStatus)
+        #expect(DeviceSettingsRequest(body: ["type": "chrome-extension-status", "command": "other"]) == nil)
         #expect(DeviceSettingsRequest(body: ["type": "install-chrome-extension"]) == .installChromeExtension)
         #expect(DeviceSettingsRequest(body: ["type": "install-chrome-extension", "command": "other"]) == nil)
     }

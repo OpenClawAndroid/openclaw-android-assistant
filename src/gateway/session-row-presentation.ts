@@ -18,7 +18,7 @@ import { prepareProjectedSessionSharing } from "./session-sharing.js";
 import { projectGatewaySessionActiveRun } from "./session-utils-display.js";
 import type { GatewaySessionRow } from "./session-utils.types.js";
 
-type PresentationOptions = Omit<records.SnapshotOptions, "now" | "active">;
+type PresentationOptions = Omit<records.SnapshotOptions, "now" | "active" | "subagentRuns">;
 
 function toProjectedSessionSharingTarget(record: records.MaterializedRow): SessionSharingTarget {
   return {
@@ -107,6 +107,7 @@ export function prepareProjectedSessionPresentation(
     const row = projection.present(record, {
       ...options,
       now,
+      subagentRuns,
       active: run?.active,
       excludedChildKeys,
     });

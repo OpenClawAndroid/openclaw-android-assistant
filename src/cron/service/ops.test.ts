@@ -1009,7 +1009,7 @@ describe("cron service ops seam coverage", () => {
       nowMs: () => now,
       runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
     });
-    const proposal = proposeCronRunRecovery(state, job.id, undefined, startedAt);
+    const proposal = await proposeCronRunRecovery(state, job.id, undefined, startedAt);
     await cronStoreModule.saveCronJobsStore(
       storePath,
       { version: 1, jobs: [completedJob] },

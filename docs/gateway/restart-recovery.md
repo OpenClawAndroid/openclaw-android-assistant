@@ -24,7 +24,7 @@ and what the automatic resume looks like.
 | Conversation history           | Per-agent SQLite database                          | Untouched; sessions continue from the stored transcript                 |
 | Accepted Control UI follow-ups | Per-agent SQLite pending inputs and browser outbox | Matching interrupted inputs are re-admitted when the browser reconnects |
 | Interrupted main-session turn  | Per-agent SQLite session row and transcript        | Automatically resumed or reconciled a few seconds after startup         |
-| Subagent runs                  | SQLite (shared state database)                     | Registry restored on boot; interrupted runs resumed                     |
+| Subagent runs                  | SQLite (shared state database)                     | Interrupted runs settle; the parent decides how to continue             |
 | Background tasks               | SQLite (shared state database)                     | Reconciled on boot; orphaned runs recovered or marked lost              |
 | Queued outbound deliveries     | SQLite delivery queue                              | Drained after restart; undelivered replies are retried                  |
 | Scheduled (cron) jobs          | SQLite cron store                                  | Schedules persist; the scheduler re-arms on boot                        |
@@ -536,18 +536,19 @@ approval handles are not revived.
 ### Subagents
 
 Subagent runs are persisted in the shared SQLite state database, so the
-subagent registry survives the process. On boot the registry is restored and
-interrupted subagent sessions are resumed with their original task context.
+subagent registry survives the process. On boot, interrupted child runs settle
+through their normal completion path. They are not automatically relaunched.
+The parent receives the interruption outcome and owns finishing the user's task.
+It can inspect retained child history, continue that child with `sessions_send`,
+or spawn a replacement after checking that the old execution has stopped.
+Existing cleanup and retention settings still apply.
 
-Resumption notices use the requester's outbound channel when one exists.
-Control UI sessions and internal wakes observe recovery through session state;
-they do not enqueue outbound notices. Previously saved internal notice obligations
-are settled when the registry resumes, without sending or replaying the task.
-
-If a parent yielded while waiting for children, recovery first resumes the
-interrupted children. Their saved completion batch follows replacement run IDs,
-so the parent receives its follow-up after the batch settles, including when some
-children finished before the restart.
+If a parent yielded while waiting for children, its saved batch collects both
+completed and interrupted results and wakes the parent once the batch settles.
+A parent already working on those results resumes through ordinary main-session
+recovery. A child result or an `announce:` run identifier does not make unfinished
+parent work disposable. The recovery turn explains the restart and tells the
+parent to check current state and uncertain effects before continuing.
 
 A completed child may still owe its requester a final follow-up. If that
 follow-up is waiting to retry or is interrupted by restart, the saved
@@ -561,14 +562,6 @@ Recovery reconciles an expired cancellation's retained marker before retrying
 its requester wake, preserving the original cleanup record. Live child cancellation
 can wake a waiting requester while normal cleanup reconciliation completes.
 A delayed cancellation callback cannot reopen completed cleanup.
-
-Two safety valves apply:
-
-- Runs whose recorded interruption is more than 2 hours old are finalized instead
-  of resumed. A long-running task interrupted moments ago remains eligible.
-  Total task age is not the interruption age.
-- A session that repeatedly fails to recover is tombstoned as wedged so
-  recovery cannot loop forever.
 
 ### Background tasks
 
@@ -663,7 +656,7 @@ channels.start --params '{"channel":"<id>"}'`
   [Prometheus](/gateway/prometheus) as `openclaw_session_recovery_total` and
   `openclaw_session_recovery_age_seconds`.
 - **Logs:** recovery decisions are logged under the
-  `main-session-restart-recovery` and `subagent-interrupted-resume`
+  `main-session-restart-recovery` and `agents/subagent-registry`
   subsystems.
 - **Reply hooks:** resumed turns run currently loaded `before_agent_reply`
   hooks under the normal user-trigger rules. Automatically delivered replies
@@ -686,7 +679,7 @@ Use the session transcript and recorded delivery outcome to verify completion.
 ## What is not resumed
 
 - Sessions excluded from main-session recovery because another owner already
-  handles them: subagent sessions (subagent recovery), cron sessions (the
+  handles them: subagent sessions (settled back to their parent), cron sessions (the
   scheduler re-runs on schedule), and ACP-managed sessions (the connected IDE
   or client owns the resume).
 - Work that was never admitted: messages arriving during the drain window are

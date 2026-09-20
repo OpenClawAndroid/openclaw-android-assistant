@@ -28,10 +28,13 @@
   color: var(--text);
 }
 
+/* Keep the focus ring inside its control so virtual-row paint containment
+   cannot clip it. Changing row containment during focus transfer can crash
+   Chromium when a transcript context menu receives focus. */
 .chat-inline-disclosure:focus-visible {
   color: var(--text);
   outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .chat-inline-disclosure__chevron {

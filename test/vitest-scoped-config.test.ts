@@ -86,6 +86,7 @@ import { createToolingIsolatedVitestConfig } from "./vitest/vitest.tooling-isola
 import { createToolingVitestConfig } from "./vitest/vitest.tooling.config.ts";
 import { createTuiVitestConfig } from "./vitest/vitest.tui.config.ts";
 import { createUiVitestConfig } from "./vitest/vitest.ui.config.ts";
+import { isUnitFastTestFile } from "./vitest/vitest.unit-fast-paths.mjs";
 import { bundledPluginDependentUnitTestFiles } from "./vitest/vitest.unit-paths.mjs";
 import { createUtilsVitestConfig } from "./vitest/vitest.utils.config.ts";
 import { createWizardVitestConfig } from "./vitest/vitest.wizard.config.ts";
@@ -693,6 +694,13 @@ describe("scoped vitest configs", () => {
     );
     expect(sharedConfig.exclude).toEqual(expect.arrayContaining(scopedIsolatedFiles));
     expect(isolatedConfig.include).toEqual(scopedIsolatedFiles);
+    for (const file of agentVitestProjectOwners.coreIsolated.include) {
+      expect(isUnitFastTestFile(file), file).toBe(false);
+      expect(
+        matchingExcludePatterns(isolatedConfig.exclude ?? [], file.replace("src/agents/", "")),
+        file,
+      ).toEqual([]);
+    }
     expect(isolatedConfig.isolate).toBe(true);
     expect(isolatedConfig.runner).toBeUndefined();
     expect(productionBoundaryConfig.include).toEqual(

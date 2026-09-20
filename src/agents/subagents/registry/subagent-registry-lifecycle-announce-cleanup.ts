@@ -9,7 +9,6 @@ import {
   isDeliverySuspended,
 } from "./subagent-delivery-state.js";
 import { SUBAGENT_ENDED_REASON_COMPLETE } from "./subagent-lifecycle-events.js";
-import { shouldSuppressSubagentRecoverySessionEffects } from "./subagent-recovery-state.js";
 import {
   resolveCleanupCompletionReason,
   resolveAnnounceDeliveryDeadline,
@@ -120,14 +119,14 @@ export const finalizeResumedAnnounceGiveUp = async (
     cleanup: cleanup ?? entry.cleanup,
     completedAt: completedAt ?? Date.now(),
   });
-  if (!shouldSuppressSubagentRecoverySessionEffects(entry)) {
+  if (!context.shouldSuppressSessionEffects(entry)) {
     await emitCompletionEndedHookIfNeeded(
       params,
       entry,
       completionReason,
       () =>
         context.isEndedHookOwnerCurrent(runId, entry) &&
-        !shouldSuppressSubagentRecoverySessionEffects(entry),
+        !context.shouldSuppressSessionEffects(entry),
     );
   }
 };
@@ -232,14 +231,14 @@ const finalizeSubagentCleanup = async (
       completedAt: Date.now(),
       skipRequesterSettleWake: skipRequesterDelivery,
     });
-    if (!shouldSuppressSubagentRecoverySessionEffects(entry)) {
+    if (!context.shouldSuppressSessionEffects(entry)) {
       await emitCompletionEndedHookIfNeeded(
         params,
         entry,
         resolveCleanupCompletionReason(entry),
         () =>
           context.isEndedHookOwnerCurrent(runId, entry) &&
-          !shouldSuppressSubagentRecoverySessionEffects(entry),
+          !context.shouldSuppressSessionEffects(entry),
       );
     }
     return;
@@ -298,14 +297,14 @@ const finalizeSubagentCleanup = async (
     });
     // Hook loading is best-effort; durable delivery and cleanup must already
     // be terminal before plugin code can fail or stall.
-    if (!shouldSuppressSubagentRecoverySessionEffects(entry)) {
+    if (!context.shouldSuppressSessionEffects(entry)) {
       await emitCompletionEndedHookIfNeeded(
         params,
         entry,
         completionReason,
         () =>
           context.isEndedHookOwnerCurrent(runId, entry) &&
-          !shouldSuppressSubagentRecoverySessionEffects(entry),
+          !context.shouldSuppressSessionEffects(entry),
       );
     }
     return;
@@ -415,7 +414,7 @@ export const startSubagentAnnounceCleanupFlow = (
     context.clearCleanupFailureCount(entry);
     return true;
   }
-  let suppressSessionEffects = shouldSuppressSubagentRecoverySessionEffects(entry);
+  let suppressSessionEffects = context.shouldSuppressSessionEffects(entry);
   const cleanupGeneration = beginSubagentCleanup(context, runId);
   if (cleanupGeneration === undefined) {
     return false;
@@ -460,7 +459,7 @@ export const startSubagentAnnounceCleanupFlow = (
     }
   };
   const childSessionEffectsAllowed = () => {
-    if (!suppressSessionEffects && shouldSuppressSubagentRecoverySessionEffects(entry)) {
+    if (!suppressSessionEffects && context.shouldSuppressSessionEffects(entry)) {
       suppressChildSessionEffects();
     }
     return (

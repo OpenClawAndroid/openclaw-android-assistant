@@ -17,18 +17,18 @@ import {
 } from "./sidebar-layout.ts";
 
 describe("sidebar session layout settings", () => {
-  it("retains only a normalized task identity on the detail panel", () => {
+  it("retains only a normalized task identity on the Tasks panel", () => {
     const saved = normalizeSidebarSessionLayouts({
       main: {
         columns: [
           {
             id: "side",
             side: "right",
-            activePanelId: "detail",
+            activePanelId: "tasks",
             panels: [
               {
-                id: "detail",
-                slot: "detail",
+                id: "tasks",
+                slot: "tasks",
                 taskId: "  selected-task  ",
                 result: "not persisted",
               },
@@ -39,9 +39,72 @@ describe("sidebar session layout settings", () => {
       },
     });
     expect(saved.main?.columns[0]?.panels).toEqual([
-      { id: "detail", slot: "detail", taskId: "selected-task" },
+      { id: "tasks", slot: "tasks", taskId: "selected-task" },
       { id: "workspace", slot: "workspace" },
     ]);
+  });
+
+  it.each(["before", "after", "absent"] as const)(
+    "normalizes saved Review task selection into the sole Tasks panel with Tasks %s it",
+    (position) => {
+      const detail = { id: "saved-review", slot: "detail", taskId: "selected-task" };
+      const tasks = { id: "saved-tasks", slot: "tasks" };
+      const panels =
+        position === "before" ? [tasks, detail] : position === "after" ? [detail, tasks] : [detail];
+      const saved = normalizeSidebarSessionLayouts({
+        main: {
+          mainPanelId: "saved-review",
+          columns: [
+            { id: "side", side: "right", width: 600, activePanelId: "saved-review", panels },
+          ],
+          expanded: true,
+          open: false,
+        },
+      }).main!;
+      const selected = saved.columns[0]!.panels.find((panel) => panel.slot === "tasks")!;
+      expect(saved.columns[0]!.panels.filter((panel) => panel.slot === "tasks")).toEqual([
+        selected,
+      ]);
+      expect(saved.columns[0]!.panels.some((panel) => panel.slot === "detail")).toBe(false);
+      expect(selected.taskId).toBe("selected-task");
+      expect(saved.mainPanelId).toBe(selected.id);
+      expect(saved).toMatchObject({ expanded: true, open: false, columns: [{ width: 600 }] });
+      expect(normalizeSidebarSessionLayouts({ main: saved }).main).toEqual(saved);
+    },
+  );
+
+  it("preserves an explicit Tasks selection over a saved Review task and redirects active focus", () => {
+    const saved = normalizeSidebarSessionLayouts({
+      main: {
+        columns: [
+          {
+            id: "side",
+            side: "right",
+            activePanelId: "saved-review",
+            panels: [
+              { id: "tasks", slot: "tasks", taskId: "new-task" },
+              { id: "saved-review", slot: "detail", taskId: "old-task" },
+              { id: "files", slot: "workspace" },
+            ],
+          },
+        ],
+        open: true,
+        expanded: true,
+        expandedSide: true,
+        mainPanelId: "conversation",
+      },
+    }).main!;
+    expect(saved.columns[0]!.panels.find((panel) => panel.slot === "tasks")).toEqual({
+      id: "tasks",
+      slot: "tasks",
+      taskId: "new-task",
+    });
+    expect(saved.columns[0]!.activePanelId).toBe("tasks");
+    expect(saved).toMatchObject({ expanded: true, expandedSide: true, open: true });
+    expect(saved.columns[0]!.panels.find((panel) => panel.slot === "workspace")).toEqual({
+      id: "files",
+      slot: "workspace",
+    });
   });
 
   it.each(["split", "expanded", null, undefined] as const)(

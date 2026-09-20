@@ -26,6 +26,10 @@ export type SubagentCompletionRequest = {
   startedAt?: number;
   suppressSessionEffects?: boolean;
   recoverInterrupted?: true;
+  /** Revalidates orphan ownership after waiting for the terminal completion lock. */
+  isRecoveryCurrent?: () => boolean;
+  /** Child effects may be fenced while the recorded result still owes requester delivery. */
+  isChildSessionEffectsCurrent?: () => boolean;
   completionSnapshot?: { resultText: string | null; capturedAt: number };
   terminalReply?: AgentRunTerminalReplySnapshot;
 };
@@ -59,7 +63,7 @@ export type SubagentRestartRecoveryReceipt = {
 type SubagentExecutionState = SubagentRunReadRecord["execution"] & {
   /** Gateway lifecycle that owns child-session effects for this run. */
   lifecycleGeneration?: string;
-  /** Durable dispatch receipt for one interrupted-session snapshot. */
+  /** Persisted pre-cutover launch receipt; reconciled without automatic replay. */
   restartRecovery?: SubagentRestartRecoveryReceipt;
   /** Sticky terminal policy: this run must never mutate its child session again. */
   suppressSessionEffects?: true;
@@ -170,8 +174,6 @@ export type SubagentRunRecord = Omit<SubagentRunReadRecord, "execution" | "colle
   suppressAnnounceReason?: "steer-restart" | "killed";
   /** Sticky owner while restart recovery replays this exact terminal run. */
   terminalOwner?: "interrupted-recovery";
-  /** Durable requester notice debt, independent of restart execution ownership. */
-  resumptionNotice?: { idempotencyKey: string };
   /** Present only while a current-version killed run awaits bounded reconciliation. */
   killReconciliation?: SubagentKillReconciliationState;
   /** Durable operator cancellation ownership before runtime side effects complete. */

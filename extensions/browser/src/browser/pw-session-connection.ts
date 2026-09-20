@@ -546,13 +546,21 @@ async function partitionAccessiblePages(opts: { cdpUrl: string; pages: Page[] })
 }> {
   const accessible: Array<{ page: Page; targetId: string | null }> = [];
   let blockedCount = 0;
-  for (const page of opts.pages) {
+  const candidates = await Promise.all(
+    opts.pages.map(async (page) => {
+      if (isBlockedPageRef(opts.cdpUrl, page)) {
+        return { page, targetId: null };
+      }
+      ensurePageState(page);
+      const targetId = (await pageTargetInfo(page).catch(() => null))?.targetId ?? null;
+      return { page, targetId };
+    }),
+  );
+  for (const { page, targetId } of candidates) {
     if (isBlockedPageRef(opts.cdpUrl, page)) {
       blockedCount += 1;
       continue;
     }
-    ensurePageState(page);
-    const targetId = (await pageTargetInfo(page).catch(() => null))?.targetId ?? null;
     // Fail closed when we cannot resolve a target id while this session has
     // quarantined targets; otherwise a blocked tab can become selectable.
     if (!targetId) {
@@ -618,17 +626,17 @@ export async function getPageForTargetId(opts: {
   ssrfPolicy?: SsrFPolicy;
   relayReference?: RelayOperationReference;
 }): Promise<Page> {
-  const reusedCachedBrowser = hasCachedPlaywrightBrowserConnection(opts.cdpUrl);
+  const cachedBrowser = cachedByCdpUrl.get(normalizeCdpUrl(opts.cdpUrl))?.browser;
   try {
     return await getPageForTargetIdOnce(opts);
   } catch (err) {
-    if (!isRecoverableStalePageSelectionError(err, reusedCachedBrowser)) {
+    if (!isRecoverableStalePageSelectionError(err, Boolean(cachedBrowser))) {
       throw err;
     }
     if (opts.relayReference) {
       await closeRelayOperationConnection(opts.relayReference);
     } else {
-      retirePlaywrightBrowserConnection({ cdpUrl: opts.cdpUrl });
+      evictStalePlaywrightBrowserConnection(opts.cdpUrl, cachedBrowser);
     }
     return await getPageForTargetIdOnce(opts);
   }

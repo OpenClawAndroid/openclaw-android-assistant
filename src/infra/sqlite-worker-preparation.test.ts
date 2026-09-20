@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, watch } from "node:fs";
+import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { afterEach, expect, it, vi } from "vitest";
+import { waitForFixtureFile } from "../../test/helpers/process-wait.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import { createDeferredCore } from "../shared/deferred.js";
 import { drainGlobalSingletonLifecycleState } from "../shared/global-singleton.js";
 import { SqliteWorkerBroker } from "./sqlite-worker-broker.js";
 import { sqliteWorkerPreloadEnv } from "./sqlite-worker-preload.test-support.js";
@@ -45,17 +45,6 @@ async function open(databasePath: string, input?: FixtureOpenInput) {
   return store;
 }
 
-function observePreparation(markerPath: string) {
-  const started = createDeferredCore();
-  const watcher = watch(path.dirname(markerPath), () => {
-    if (existsSync(markerPath)) {
-      started.resolve();
-    }
-  });
-  watcher.once("error", started.reject);
-  return { started: started.promise, close: () => watcher.close() };
-}
-
 it.each([
   { mib: 0, owner: "client" },
   { mib: 40, owner: "client" },
@@ -68,7 +57,6 @@ it.each([
     const markerPath = path.join(root, "preparing");
     const gatePath = path.join(root, "release");
     const store = await open(databasePath, { type: "prepare", markerPath, gatePath });
-    const observation = observePreparation(markerPath);
     const activeCancel = new AbortController();
     const queuedCancel = new AbortController();
     const value = mib ? "x".repeat(mib * 1024 * 1024) : "first";
@@ -84,7 +72,7 @@ it.each([
     let closing: Promise<void> | undefined;
     try {
       await Promise.race([
-        observation.started,
+        waitForFixtureFile(markerPath, active),
         active.then(() => {
           throw new Error("Command executed before its code preparation");
         }),
@@ -127,7 +115,6 @@ it.each([
         [value, "second"].map(digest),
       );
     } finally {
-      observation.close();
       queuedCancel.abort();
       await writeFile(gatePath, "release for cleanup");
       await Promise.allSettled([active, canceled, following, closing]);
@@ -149,7 +136,6 @@ it.each(["revoked", "rejected"] as const)(
       guarded: true,
       reject: failure === "rejected",
     });
-    const observation = observePreparation(markerPath);
     let current = true;
     const refused = new Error("Authority revoked during code preparation");
     const operation = runSqliteWorkerStoreWrite(
@@ -165,7 +151,7 @@ it.each(["revoked", "rejected"] as const)(
     const outcome = Promise.allSettled([operation]);
     try {
       await Promise.race([
-        observation.started,
+        waitForFixtureFile(markerPath, operation),
         operation.then(() => {
           throw new Error("Command executed before its code preparation");
         }),
@@ -187,7 +173,6 @@ it.each(["revoked", "rejected"] as const)(
         await reopened.execute({ type: "append", input: { value: "after refusal" } }),
       ).toMatchObject({ writes: 1 });
     } finally {
-      observation.close();
       await writeFile(gatePath, "release for cleanup");
       await outcome;
     }
@@ -214,7 +199,6 @@ it.each(["abort-close", "reject", "reject-cleanup"] as const)(
         acquireStateDatabaseCoordinator({ databasePath, busyTimeoutMs: 0 }),
       );
     const broker = new SqliteWorkerBroker();
-    const observation = observePreparation(markerPath);
     const canceled = new AbortController();
     let active: Promise<FixtureOperations["append"]["output"]> | undefined;
     let following: Promise<string[]> | undefined;
@@ -303,7 +287,7 @@ if (!isMainThread) {
         },
       );
       await Promise.race([
-        observation.started,
+        waitForFixtureFile(markerPath, active),
         active.then(() => {
           throw new Error("Command executed before its code preparation");
         }),
@@ -360,7 +344,6 @@ if (!isMainThread) {
         mode === "abort-close" ? ["after preparation"] : [],
       );
     } finally {
-      observation.close();
       await writeFile(gatePath, "release for cleanup");
       await Promise.allSettled([active, following, closing]);
       try {

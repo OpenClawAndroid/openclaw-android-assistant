@@ -113,12 +113,15 @@ export async function waitForRunSettlement(
           return { settled: false };
         }
         const job = state.store?.jobs.find((entry) => entry.id === jobId);
-        const proposal = proposeCronRunRecovery(
+        const proposal = await proposeCronRunRecovery(
           state,
           jobId,
           job?.state.queuedAtMs,
           job?.state.runningAtMs,
         );
+        if (signal.aborted || state.stopped || state.lifecycleGeneration !== generation) {
+          return { settled: false };
+        }
         const recovery = recoverCronRunProposal(state, proposal);
         const interruptedRuns: InterruptedStartupRun[] = [];
         const changed = applyRecoveryResult({ state, proposal, result: recovery, interruptedRuns });
@@ -159,6 +162,7 @@ export async function waitForRunSettlement(
 /** Starts the cron service, atomically repairs abandoned runs, and arms scheduling. */
 export async function start(state: CronServiceState): Promise<void> {
   state.stopped = false;
+  const generation = state.lifecycleGeneration;
   stopForeignReceiptMonitor(state);
   configureForeignReceiptMonitor(state, async () => await reconcileForeignRunReceipts(state));
   if (!state.deps.cronEnabled) {
@@ -166,9 +170,9 @@ export async function start(state: CronServiceState): Promise<void> {
     return;
   }
 
-  const interruptedRuns: InterruptedStartupRun[] = [];
   const skipJobIds = new Set<string>();
   await locked(state, async () => {
+    const interruptedRuns: InterruptedStartupRun[] = [];
     await ensureLoaded(state, { skipRecompute: true });
     if (state.stopped) {
       return;
@@ -190,10 +194,20 @@ export async function start(state: CronServiceState): Promise<void> {
     for (const job of state.store?.jobs ?? []) {
       job.state ??= {};
       if (typeof job.state.queuedAtMs === "number") {
-        proposals.push(proposeCronRunRecovery(state, job.id, job.state.queuedAtMs, undefined));
+        proposals.push(
+          await proposeCronRunRecovery(state, job.id, job.state.queuedAtMs, undefined),
+        );
+        if (state.stopped || state.lifecycleGeneration !== generation) {
+          return;
+        }
       }
       if (typeof job.state.runningAtMs === "number") {
-        proposals.push(proposeCronRunRecovery(state, job.id, undefined, job.state.runningAtMs));
+        proposals.push(
+          await proposeCronRunRecovery(state, job.id, undefined, job.state.runningAtMs),
+        );
+        if (state.stopped || state.lifecycleGeneration !== generation) {
+          return;
+        }
       }
     }
     for (const proposal of proposals) {
@@ -208,6 +222,13 @@ export async function start(state: CronServiceState): Promise<void> {
     if (proposals.length > 0) {
       await ensureLoaded(state, { forceReload: true, skipRecompute: true });
     }
+    // Publish committed interruptions before a replacement can start catch-up.
+    for (const interrupted of interruptedRuns) {
+      emitInterruptedCronRun(state, interrupted);
+    }
+    if (state.stopped || state.lifecycleGeneration !== generation) {
+      return;
+    }
     if (listForeignReceipts(state).length > 0) {
       const maintenance = recomputeUnownedCronSchedules(state);
       runPostPersistCronNotifications(state, maintenance.notifications);
@@ -217,12 +238,8 @@ export async function start(state: CronServiceState): Promise<void> {
     }
   });
 
-  if (state.stopped) {
+  if (state.stopped || state.lifecycleGeneration !== generation) {
     return;
-  }
-  // Publish the interrupted attempt before catch-up can finish its successor.
-  for (const interrupted of interruptedRuns) {
-    emitInterruptedCronRun(state, interrupted);
   }
   await runMissedJobs(state, {
     skipJobIds: skipJobIds.size > 0 ? skipJobIds : undefined,

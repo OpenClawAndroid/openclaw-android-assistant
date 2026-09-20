@@ -12,7 +12,7 @@ import {
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { createRequireRecord, importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { markdownToTelegramHtml, telegramHtmlToPlainTextFallback } from "./format.js";
 import { hasProviderObservedTelegramThreadBinding } from "./message-cache-codec.js";
 import { resolveTelegramMessageCacheScope } from "./message-cache-persistence.js";
@@ -45,6 +45,7 @@ import {
   installTelegramSendTestHooks,
   makeTelegramInvalidApiResultMock,
   makeTelegramApiTestMock,
+  mockLoadedMedia,
 } from "./send.test-harness.js";
 import { recordSentMessage, wasSentByBot } from "./sent-message-cache.js";
 import {
@@ -393,22 +394,6 @@ async function expectTelegramMembershipErrorWithChatId(
   }
 }
 
-function mockLoadedMedia({
-  buffer = Buffer.from("media"),
-  contentType,
-  fileName,
-}: {
-  buffer?: Buffer;
-  contentType?: string;
-  fileName?: string;
-}): void {
-  loadWebMedia.mockResolvedValueOnce({
-    buffer,
-    ...(contentType ? { contentType } : {}),
-    ...(fileName ? { fileName } : {}),
-  });
-}
-
 function requireMockCall<T extends unknown[]>(call: T | undefined, label: string): T {
   if (!call) {
     throw new Error(`expected ${label}`);
@@ -511,15 +496,20 @@ async function capturedLogText(logFile: string): Promise<string> {
   return content;
 }
 
-afterEach(async () => {
+afterEach(() => {
   resetTelegramSentMessageCacheForTest();
   clearTelegramRuntime();
-  await closeOpenClawStateDatabaseAsync();
-  resetPluginStateStoreForTests();
+  resetPluginStateStoreForTests({ closeDatabase: false });
   setLoggerOverride(null);
   resetLogger();
   resetTelegramMessageCacheBucketsForTest();
   vi.restoreAllMocks();
+});
+
+// Registered after setup hooks so workers drain before the test home is removed.
+afterAll(async () => {
+  await closeOpenClawStateDatabaseAsync();
+  resetPluginStateStoreForTests();
 });
 
 describe("sent-message-cache", () => {
@@ -629,6 +619,7 @@ describe("sent-message-cache", () => {
     await recordSentMessage(123, 1, sentMessageCfg);
     expect(await wasSentByBot(123, 1, sentMessageCfg)).toBe(true);
 
+    await closeOpenClawStateDatabaseAsync();
     resetTelegramSentMessageCacheForTest();
 
     const restartedCache = await importFreshModule<typeof import("./sent-message-cache.js")>(

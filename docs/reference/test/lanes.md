@@ -94,12 +94,21 @@ Pass the same owner to shared capture helpers so screenshots, reports, and video
 stay together. Distinguish stage names within an attempt. Close the browser context
 before finalizing video.
 
-With `OPENCLAW_CAPTURE_UI_PROOF=1`, the chat-loading performance real-Gateway
-suite retains `history-pagination.cpuprofile` beside its screenshots and
-`loading-evidence.json`. Pagination evidence distinguishes loaded messages from
-the pane's completed update plus two animation frames, so deferred layout work
-stays inside the rendered timing. Compare repeated runs of the same fixture and
-build mode; CPU profiling adds overhead, and individual timings can vary.
+The chat-loading performance real-Gateway suite records browser timestamps in
+`loading-evidence.json` for the history request, data publication, committed row
+model, and visual quiescence. A pane update can still display the old row model
+while scrolling, so the probe verifies that a retained row's index advances
+before checking for 50 ms without transcript mutations, resizing, or scrolling.
+It records the start and confirmation of that quiet interval separately; the
+confirmation delay is not application latency. A nonzero `lateChanges` count
+invalidates that quiescence sample.
+
+Use ordinary runs without capture for latency comparisons. With
+`OPENCLAW_CAPTURE_UI_PROOF=1`, the suite also retains screenshots, video, and
+`history-pagination.cpuprofile`. Profiling and capture add overhead, and the CPU
+profile includes profiler startup before the pagination timer begins. Compare
+repeated runs of the same fixture and build mode; keep the legacy test-driver
+wall timings separate from the browser timestamps.
 
 Successful and failed evidence is retained. Cleanup is manual: remove only exact
 directories that you own and have finished reviewing. Never recursively delete

@@ -13,6 +13,7 @@ import {
 } from "../../../test/helpers/openclaw-test-instance.ts";
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
+import { installHistoryPaginationProbe } from "./chat-history-pagination-probe.test-support.ts";
 import { installChatLoadingReadinessObserver } from "./chat-loading-readiness.test-support.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 
@@ -545,6 +546,7 @@ suite.define(() => {
             )
             .toEqual({ loadingOlder: false, historyIntentConsumed: false });
         await thread.hover();
+        await installHistoryPaginationProbe(selectedPane, transcriptLength, selectedKey);
         const profiler = captureUiProof ? await context.newCDPSession(page) : undefined;
         if (profiler) {
           await profiler.send("Profiler.enable");
@@ -558,6 +560,7 @@ suite.define(() => {
         while (loadedMessages < transcriptLength) {
           await waitForHistoryGesture();
           await thread.evaluate((element) => {
+            window.historyPaginationProbe.begin();
             element.scrollTop = 0;
           });
           await page.mouse.wheel(0, -500);
@@ -586,6 +589,10 @@ suite.define(() => {
           });
         });
         const paginationRenderedMs = Date.now() - paginationStartedAt;
+        const browserPagination = await page.evaluate(async () => {
+          await window.historyPaginationProbe.done;
+          return window.historyPaginationProbe.result();
+        });
         const performanceAfterPagination = await readPerformanceSample(page);
         if (profiler) {
           const { profile } = await profiler.send("Profiler.stop");
@@ -629,7 +636,8 @@ suite.define(() => {
           const requestStart = rpc.length;
           pending.clear();
           startedAt = Date.now();
-          await page.reload();
+          // Keep the same short-link input even if navigation canonicalized the prior URL.
+          await page.goto(`${url.origin}${url.pathname}`);
           await waitForControlUiGatewayReady(page);
           const narrowSelectedCommitted = waitForStartupCommit(
             selectedKey,
@@ -703,6 +711,7 @@ suite.define(() => {
               pagination: paginationMetrics,
               paginationLoadedMs,
               paginationRenderedMs,
+              browserPagination,
               initialLoadedMessages,
               olderPageCommits,
               performanceBeforePagination,

@@ -71,7 +71,8 @@ describe("conversation position rail", () => {
       );
       const root = container.querySelector<HTMLElement>(".chat-thread")!;
       const marks = container.querySelector<HTMLElement>(".chat-position-rail__marks")!;
-      const markers = [...marks.querySelectorAll<HTMLButtonElement>(".chat-position-rail__marker")];
+      const marker = (index: number) =>
+        marks.querySelector<HTMLButtonElement>(`[data-position-marker-id="message-${index}"]`)!;
       let height = 597;
       let marksHeight = 283;
       let railOffset = 0;
@@ -89,12 +90,6 @@ describe("conversation position rail", () => {
           },
         },
       });
-      markers.forEach((marker, index) => {
-        Object.defineProperties(marker, {
-          offsetTop: { configurable: true, value: index * 12 },
-          offsetHeight: { configurable: true, value: 12 },
-        });
-      });
       root.scrollTop = 8315;
       const flush = async () => {
         marks.dispatchEvent(new Event("scroll"));
@@ -105,6 +100,7 @@ describe("conversation position rail", () => {
       try {
         await flush();
         expect(marks.scrollTop).toBe(677);
+        expect(marks.querySelectorAll(".chat-position-rail__marker").length).toBeLessThan(50);
         if (scenario === "resize") {
           height = 554;
           marksHeight = 240;
@@ -133,40 +129,42 @@ describe("conversation position rail", () => {
           await flush();
           expect(marks.scrollTop).toBeLessThan(677);
         } else if (scenario === "focus") {
-          document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
-          markers[40]!.focus();
-          expect(markers[40]!.matches(":focus-visible")).toBe(true);
+          marks.scrollTop = 40 * 12 - 100;
           await flush();
-          expect(markers[40]!.offsetTop).toBeGreaterThanOrEqual(marks.scrollTop);
-          expect(markers[40]!.offsetTop + markers[40]!.offsetHeight).toBeLessThanOrEqual(
+          document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+          marker(40).focus();
+          expect(marker(40).matches(":focus-visible")).toBe(true);
+          await flush();
+          expect(Number.parseFloat(marker(40).style.top)).toBeGreaterThanOrEqual(marks.scrollTop);
+          expect(Number.parseFloat(marker(40).style.top) + 12).toBeLessThanOrEqual(
             marks.scrollTop + marks.clientHeight,
           );
           const focusedOffset = marks.scrollTop;
           activeMessage.mockReturnValue("message-77");
           await flush();
-          expect(document.activeElement).toBe(markers[40]);
+          expect(document.activeElement).toBe(marker(40));
           expect(marks.scrollTop).toBe(focusedOffset);
-          markers[40]!.blur();
+          marker(40).blur();
           activeMessage.mockReturnValue("message-79");
           await flush();
           expect(marks.scrollTop).toBe(677);
         } else if (scenario === "focus-resize") {
           document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
-          markers[79]!.focus();
-          expect(markers[79]!.matches(":focus-visible")).toBe(true);
+          marker(79).focus();
+          expect(marker(79).matches(":focus-visible")).toBe(true);
           height = 554;
           marksHeight = 240;
           await flush();
-          expect(document.activeElement).toBe(markers[79]);
+          expect(document.activeElement).toBe(marker(79));
           expect(marks.scrollTop).toBe(720);
         } else if (scenario === "pointer") {
-          markers[40]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-          markers[40]!.focus();
-          expect(markers[40]!.matches(":focus-visible")).toBe(false);
+          marker(60).dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+          marker(60).focus();
+          expect(marker(60).matches(":focus-visible")).toBe(false);
           expect(marks.scrollTop).toBe(677);
           activeMessage.mockReturnValue("message-0");
           await flush();
-          expect(document.activeElement).toBe(markers[40]);
+          expect(document.activeElement).toBe(marker(60));
           expect(marks.scrollTop).toBe(0);
         } else {
           height = 554;
@@ -180,7 +178,7 @@ describe("conversation position rail", () => {
           });
           root.scrollTop = 8319;
           await flush();
-          expect(markers[79]!.getAttribute("aria-current")).toBe("true");
+          expect(marker(79).getAttribute("aria-current")).toBe("true");
           expect(marks.scrollTop).toBe(720);
         }
       } finally {

@@ -692,7 +692,7 @@ describe("cron run receipt store", () => {
       requestHeartbeat: vi.fn(),
       runIsolatedAgentJob: vi.fn(),
     });
-    const proposal = proposeCronRunRecovery(state, job.id, undefined, startedAtMs);
+    const proposal = await proposeCronRunRecovery(state, job.id, undefined, startedAtMs);
     expect(recoverCronRunProposal(state, proposal)).toMatchObject({ kind: "live" });
 
     foreign.startTimeProbe.mockImplementation((pid) =>

@@ -423,8 +423,6 @@ export abstract class ChatPaneRetainedPresentation extends ChatPaneBoard {
     if (state) {
       stopChatRealtimeTalk(state);
       invalidateImageLightbox(state);
-      // The detail slot's render guard cannot run once the content is wiped,
-      // so the transcript loader's timer/fetch loop must be stopped here.
       resetTaskDetail(state);
       state.sidebarContent = null;
       clearSessionWorkspacePreviews(state);

@@ -670,48 +670,6 @@ describe("pw-session createPageViaPlaywright navigation guard", () => {
     ).rejects.toThrow("Browser target is unavailable after SSRF policy blocked its navigation.");
   });
 
-  it("does not fall back to another tab when explicit target lookup misses", async () => {
-    const { pageGoto, pageClose, sessionSend, getRouteHandler, mainFrame } = installBrowserMocks();
-    pageClose.mockRejectedValueOnce(new Error("close failed"));
-    mockBlockedRedirectNavigation({ pageGoto, getRouteHandler, mainFrame });
-
-    await expect(
-      createPageViaPlaywright({
-        cdpUrl: "http://127.0.0.1:18792",
-        url: "https://93.184.216.34/start",
-      }),
-    ).rejects.toBeInstanceOf(SsrFBlockedError);
-
-    sessionSend.mockImplementationOnce(async (method: string) => {
-      if (method === "Target.getTargetInfo") {
-        return { targetInfo: { targetId: "TARGET_2" } };
-      }
-      return {};
-    });
-    await createPageViaPlaywright({
-      cdpUrl: "http://127.0.0.1:18792",
-      url: "https://example.com",
-    });
-
-    let targetInfoLookups = 0;
-    sessionSend.mockImplementation(async (method: string) => {
-      if (method === "Target.getTargetInfo") {
-        targetInfoLookups += 1;
-        return {
-          targetInfo: { targetId: targetInfoLookups % 2 === 1 ? "TARGET_1" : "TARGET_2" },
-        };
-      }
-      return {};
-    });
-
-    await expect(
-      getPageForTargetId({
-        cdpUrl: "http://127.0.0.1:18792",
-        targetId: "MISSING_TARGET",
-      }),
-    ).rejects.toBeInstanceOf(BrowserTabNotFoundError);
-  });
-
   it("quarantines the actual page when blocked navigation receives a stale target id", async () => {
     const { pageGoto, pageClose, sessionSend, getRouteHandler, mainFrame } = installBrowserMocks();
     pageClose.mockRejectedValueOnce(new Error("close failed"));

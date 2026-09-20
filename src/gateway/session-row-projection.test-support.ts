@@ -168,7 +168,7 @@ export function createSessionRowProjectionFixture(params: {
       const now = options?.now ?? Date.now();
       const row = presentSessionRow(record.materialized, {
         now,
-        subagentRuns: rowContext.subagentRuns.atTime(now),
+        subagentRuns: options?.subagentRuns ?? rowContext.subagentRuns.atTime(now),
         activeModel: record.fallbackModel,
         excludedChildKeys: options?.excludedChildKeys,
       });

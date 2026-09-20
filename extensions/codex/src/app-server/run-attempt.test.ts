@@ -3035,7 +3035,6 @@ describe("runCodexAppServerAttempt", () => {
         id: "call-wiki-status-1",
         name: "wiki_status",
         arguments: { topic: "README.md" },
-        input: { topic: "README.md" },
       },
     ]);
     const toolResultMessage = result.messagesSnapshot[2];
@@ -3047,14 +3046,7 @@ describe("runCodexAppServerAttempt", () => {
     expect(toolResultMessage.isError).toBe(false);
     expect(toolResultMessage.content).toStrictEqual([
       {
-        type: "toolResult",
-        id: "call-wiki-status-1",
-        name: "wiki_status",
-        toolName: "wiki_status",
-        toolCallId: "call-wiki-status-1",
-        toolUseId: "call-wiki-status-1",
-        tool_use_id: "call-wiki-status-1",
-        content: "wiki_status done",
+        type: "text",
         text: "wiki_status done",
       },
     ]);

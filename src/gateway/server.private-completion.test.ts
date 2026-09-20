@@ -17,7 +17,10 @@ import {
   resolveSqliteScope,
   toDatabaseOptions,
 } from "../config/sessions/session-accessor.sqlite-scope.js";
-import { runExclusiveSessionLifecycleMutation } from "../sessions/session-lifecycle-admission.js";
+import {
+  runExclusiveSessionLifecycleMutation,
+  SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
+} from "../sessions/session-lifecycle-admission.js";
 import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
@@ -28,6 +31,7 @@ import {
 } from "../state/openclaw-agent-pending-inputs-schema.js";
 import { setAbortedAgentDedupeEntries } from "./agent-turn/agent-dedupe.js";
 import * as agentJobs from "./agent-turn/agent-job.js";
+import { waitForChatAbortControllerRemoval } from "./chat-abort-lifecycle-internal.js";
 import { abortChatRunById } from "./chat-abort.js";
 import { dispatchGatewayMethodInProcess } from "./server-plugin-in-process-dispatch.js";
 import { startGatewayServerHarness, type GatewayServerHarness } from "./server.e2e-ws-harness.js";
@@ -732,6 +736,15 @@ describe("private subagent completion processing receipts", () => {
       const outcome = JSON.parse(String(rows[0]?.outcome_json));
       expect(response).toMatchObject({ value: { status: "timeout", stopReason: "timeout" } });
       expect(outcome).toMatchObject({ status: "timeout", stopReason: "timeout" });
+      // The RPC receipt can precede terminal session persistence. Join the
+      // captured registration's lifecycle owner before asserting its removal.
+      expect(
+        await waitForChatAbortControllerRemoval({
+          entries: kernel.gatewayRequestContext.chatAbortControllers,
+          targets: [{ runId, entry: active }],
+          timeoutMs: SESSION_WORK_ADMISSION_DRAIN_TIMEOUT_MS,
+        }),
+      ).toBe(true);
       expect(kernel.gatewayRequestContext.chatAbortControllers.has(runId)).toBe(false);
       if (kind === "resolved") {
         expect(outcome).toMatchObject({

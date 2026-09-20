@@ -184,7 +184,6 @@ final class DashboardWindowController: NSWindowController, WKNavigationDelegate,
         config.preferences.isElementFullscreenEnabled = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         config.preferences.tabFocusesLinks = true
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         config.userContentController = WKUserContentController()
         let linkMessageHandler = DashboardLinkMessageHandler()
         config.userContentController.add(linkMessageHandler, name: Self.linkMessageHandlerName)

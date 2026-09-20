@@ -84,6 +84,8 @@ suite.define(() => {
           const composer = page.locator(".agent-chat__composer-shell");
           await track.waitFor();
           const markers = marks.locator(".chat-position-rail__marker");
+          const markerForIndex = (index: number) =>
+            marks.locator(`[data-position-marker-id="stable-rail-${index}"]`);
           // Wait for the rail to reflect the visible reader before recording its anchor.
           await expect
             .poll(() =>
@@ -309,7 +311,7 @@ suite.define(() => {
             }
             await expect
               .poll(() =>
-                markers.nth(index).evaluate((element) => {
+                markerForIndex(index).evaluate((element) => {
                   const marker = element.getBoundingClientRect();
                   const scroller = element.closest(".chat-position-rail__marks")!;
                   const viewport = scroller.getBoundingClientRect();
@@ -377,7 +379,9 @@ suite.define(() => {
               )
               .toBe(true);
             await page.locator(".agent-chat__search-bar button").click();
-            await expect.poll(() => markers.count()).toBe(count);
+            await expect
+              .poll(() => markers.first().getAttribute("aria-label"))
+              .toContain(`of ${count}`);
           }
           await page.setViewportSize({ width: 390, height: 844 });
           await track.waitFor({ state: "hidden" });

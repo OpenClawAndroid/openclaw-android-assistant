@@ -446,7 +446,7 @@ describe("maybeGenerateDashboardSessionTitle", () => {
       onError,
       onPersisted,
     });
-    await vi.advanceTimersByTimeAsync(8_000);
+    await vi.advanceTimersByTimeAsync(30_000);
     await expect(worktree).resolves.toBeUndefined();
     expect(onError).toHaveBeenCalledOnce();
     naming.resolve("Release Planning");
@@ -455,6 +455,67 @@ describe("maybeGenerateDashboardSessionTitle", () => {
     expect(onPersisted).not.toHaveBeenCalled();
     expect(loadSessionEntry()).toMatchObject({ displayName: "Release Planning" });
   });
+
+  it.each(["generated", "fallback"])(
+    "persists a late %s title after the worktree caller stops waiting",
+    async (outcome) => {
+      vi.useFakeTimers();
+      const naming = createDeferredCore<string>();
+      generateConversationLabelWithFallback.mockReturnValue(naming.promise);
+      const params = titleParams();
+      const onError = vi.fn();
+      const onPersisted = vi.fn();
+      const worktree = generateWorktreeSessionTitle({ ...params, onError, onPersisted });
+      const background = maybeGenerateDashboardSessionTitle(params);
+
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(onError).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(22_000);
+      await expect(worktree).resolves.toBeUndefined();
+      expect(onError).toHaveBeenCalledOnce();
+      expect(updateSessionEntry).not.toHaveBeenCalled();
+      if (outcome === "generated") {
+        naming.resolve("Release Planning");
+      } else {
+        naming.reject(new Error("model attempts exhausted"));
+      }
+      await background;
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(loadSessionEntry()).toMatchObject({
+        displayName: outcome === "generated" ? "Release Planning" : "Help me plan the release",
+      });
+      expect(onPersisted).toHaveBeenCalledOnce();
+      expect(updateSessionEntry).toHaveBeenCalledOnce();
+      expect(generateConversationLabelWithFallback).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([1, 2])(
+    "retries a joined title failure only once (%s failed writes)",
+    async (failures) => {
+      const naming = createDeferredCore<string>();
+      generateConversationLabelWithFallback.mockReturnValueOnce(naming.promise);
+      const params = titleParams();
+      for (let attempt = 0; attempt < failures; attempt++) {
+        updateSessionEntry.mockRejectedValueOnce(new Error("temporary write failure"));
+      }
+      const onPersisted = vi.fn();
+      const worktree = generateWorktreeSessionTitle({ ...params, onError: vi.fn(), onPersisted });
+      const background = maybeGenerateDashboardSessionTitle(params);
+      const expected =
+        failures === 1
+          ? expect(background).resolves.toBe(true)
+          : expect(background).rejects.toThrow("temporary write failure");
+      naming.resolve("Release Planning");
+      await Promise.all([worktree, expected]);
+
+      expect(generateConversationLabelWithFallback).toHaveBeenCalledTimes(2);
+      expect(updateSessionEntry).toHaveBeenCalledTimes(2);
+      expect(onPersisted).not.toHaveBeenCalled();
+      expect(loadSessionEntry().displayName).toBe(failures === 1 ? "Release Planning" : undefined);
+    },
+  );
 
   it("revalidates worktree authority inside the final title commit", async () => {
     const writePrepared = createDeferredCore();
@@ -498,9 +559,10 @@ describe("maybeGenerateDashboardSessionTitle", () => {
     );
 
     const first = maybeGenerateDashboardSessionTitle(titleParams());
-    await expect(maybeGenerateDashboardSessionTitle(titleParams())).resolves.toBe(false);
+    const duplicate = maybeGenerateDashboardSessionTitle(titleParams());
     resolveLabel("Release Planning");
     await expect(first).resolves.toBe(true);
+    await expect(duplicate).resolves.toBe(false);
 
     expect(generateConversationLabelWithFallback).toHaveBeenCalledOnce();
   });

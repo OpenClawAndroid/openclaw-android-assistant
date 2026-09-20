@@ -57,8 +57,10 @@ async function openProcessRegistrationStore() {
 
 async function reapRegisteredCodexAppServerOrphans(): Promise<void> {
   const store = await openProcessRegistrationStore();
+  // Loading durable registrations can include cold database-worker startup.
+  const entries = await store.entries();
   const deadline = Date.now() + PROCESS_REGISTRATION_INSPECTION_MS;
-  for (const entry of await store.entries()) {
+  for (const entry of entries) {
     if (Date.now() >= deadline) {
       throw new Error("Codex orphan cleanup exceeded its startup budget. Retry to finish cleanup.");
     }

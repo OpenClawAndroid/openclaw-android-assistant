@@ -50,8 +50,6 @@ import { renderSidebarFile, type FileViewControls } from "./chat-sidebar-file-vi
 import { isTextAttachment } from "./chat-text-attachment.ts";
 import "./session-diff-panel.ts";
 
-type ChatDetailPanelContent = Exclude<SidebarContent, { kind: "task" }>;
-
 function renderSidebarAttachment(
   content: Extract<SidebarContent, { kind: "attachment" }>,
   onRequestUpdate: () => void,
@@ -200,9 +198,7 @@ function renderSidebarAttachment(
   });
 }
 
-export function buildRawContent(
-  content: ChatDetailPanelContent | null | undefined,
-): ChatDetailPanelContent | null {
+export function buildRawContent(content: SidebarContent | null | undefined): SidebarContent | null {
   if (!content) {
     return null;
   }
@@ -237,7 +233,7 @@ export function buildRawContent(
 // lines silently rewritten on save.
 
 function resolveSidebarCanvasSandbox(
-  content: ChatDetailPanelContent,
+  content: SidebarContent,
   embedSandboxMode: EmbedSandboxMode,
 ): string {
   return content.kind === "canvas"
@@ -246,7 +242,7 @@ function resolveSidebarCanvasSandbox(
 }
 
 type MarkdownSidebarProps = {
-  content: ChatDetailPanelContent | null;
+  content: SidebarContent | null;
   showingRawText: boolean;
   error: Error | null;
   onRetry: () => void;

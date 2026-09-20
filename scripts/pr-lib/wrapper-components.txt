@@ -896,6 +896,7 @@ src/plugins/min-host-version.ts
 src/plugins/module-export.ts
 src/plugins/native-module-require.ts
 src/plugins/native-session-catalog-config.ts
+src/plugins/npm-package-dirs.ts
 src/plugins/npm-project-roots.ts
 src/plugins/official-external-install-records.ts
 src/plugins/official-external-plugin-bundled-catalogs.ts
@@ -943,6 +944,7 @@ src/plugins/plugin-module-loader-cache.ts
 src/plugins/plugin-module-loader-recovery.ts
 src/plugins/plugin-native-module-loader.ts
 src/plugins/plugin-package-metadata-capture.ts
+src/plugins/plugin-peer-link.ts
 src/plugins/plugin-policy-id.ts
 src/plugins/plugin-registry-comparison.ts
 src/plugins/plugin-registry-contributions.ts

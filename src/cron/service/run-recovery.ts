@@ -2,8 +2,11 @@ import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabase,
 } from "../../state/openclaw-state-db.js";
+import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
+import { executeOpenClawStateWorker } from "../../state/openclaw-state-worker-store.js";
 import { noteCronJobsStoreCommit } from "../store.js";
 import { cronStoreKey } from "../store/key.js";
+import { restoreCronLoadError } from "../store/load-error.js";
 import {
   deleteCronJobRowInDatabase,
   loadedCronStoreFromRows,
@@ -18,6 +21,7 @@ import {
   type CronRunReceiptRecoveryCandidate,
 } from "../store/run-receipt-store.js";
 import { isCronRunTriggerStateRetiredInDatabase } from "../store/run-receipt-trigger-state.js";
+import type { CronRunRecoveryProposal } from "../store/run-recovery.types.js";
 import type { CronJob } from "../types.js";
 import {
   type CronMaintenanceOptions,
@@ -33,13 +37,7 @@ import {
 import type { CronServiceState, DeferredCronNotifications } from "./state.js";
 import { findCronTaskRunRecoveryInDatabase } from "./task-runs.js";
 
-export type CronRunRecoveryProposal = {
-  jobId: string;
-  queuedAtMs?: number;
-  runningAtMs?: number;
-  runningReceiptId?: string;
-  receipt?: CronRunReceiptRecoveryCandidate;
-};
+export type { CronRunRecoveryProposal } from "../store/run-recovery.types.js";
 
 export type CronRunRecoveryResult =
   | { kind: "live"; receipt: CronRunReceiptRecoveryCandidate }
@@ -261,12 +259,12 @@ function repairInDatabase(params: {
   };
 }
 
-export function proposeCronRunRecovery(
+export async function proposeCronRunRecovery(
   state: CronServiceState,
   jobId: string,
   queuedAtMs: number | undefined,
   runningAtMs: number | undefined,
-): CronRunRecoveryProposal {
+): Promise<CronRunRecoveryProposal> {
   const proposal = {
     jobId,
     ...(queuedAtMs !== undefined ? { queuedAtMs } : {}),
@@ -275,30 +273,44 @@ export function proposeCronRunRecovery(
   if (queuedAtMs === undefined && runningAtMs === undefined) {
     return proposal;
   }
-  // Observe the pending marker and execution authority in one transaction.
-  return runOpenClawStateWriteTransaction(
-    ({ db }) => {
-      const storePath = state.deps.storePath;
-      const receipt = findActiveCronRunReceiptInDatabase({ database: db, storePath, jobId });
-      const rows =
-        runningAtMs === undefined
-          ? []
-          : loadCronRows(db, cronStoreKey(storePath), new Set([jobId]));
-      const job = loadedCronStoreFromRows(rows).store.jobs[0];
-      return {
-        ...proposal,
-        receipt,
-        runningReceiptId:
-          job?.state.runningAtMs === runningAtMs ? job?.state.runningReceiptId : undefined,
-      };
-    },
-    {},
-    { operationLabel: "cron.run-recovery.propose" },
-  );
+  const storeKey = cronStoreKey(state.deps.storePath);
+  const context = captureOpenClawStateWorkerContext();
+  const result = await executeOpenClawStateWorker(context, {
+    type: "cron.proposeRunRecovery",
+    input: { storeKey, proposal },
+  });
+  if (!result.ok) {
+    throw restoreCronLoadError(result.error);
+  }
+  return result.proposal;
 }
 
-/** Reconciles the bounded durable marker set so live siblings can adopt dead owners. */
-export function recoverNonTerminalCronRunReceipts(state: CronServiceState): {
+/** Observe the whole marker set before a repair can leave post-commit work to publish. */
+export async function prepareNonTerminalCronRunRecovery(
+  state: CronServiceState,
+): Promise<CronRunRecoveryProposal[] | undefined> {
+  const generation = state.lifecycleGeneration;
+  const proposals: CronRunRecoveryProposal[] = [];
+  for (const job of state.store?.jobs ?? []) {
+    const queuedAtMs = job.state.queuedAtMs;
+    const runningAtMs = job.state.runningAtMs;
+    if (queuedAtMs === undefined && runningAtMs === undefined) {
+      continue;
+    }
+    const proposal = await proposeCronRunRecovery(state, job.id, queuedAtMs, runningAtMs);
+    if (state.stopped || state.lifecycleGeneration !== generation) {
+      return undefined;
+    }
+    proposals.push(proposal);
+  }
+  return proposals;
+}
+
+/** Repair and return publication facts without yielding between committed candidates. */
+export function recoverNonTerminalCronRunReceipts(
+  state: CronServiceState,
+  proposals: readonly CronRunRecoveryProposal[],
+): {
   repaired: boolean;
   receipts: CronRunReceiptRecoveryCandidate[];
   notifications: DeferredCronNotifications;
@@ -308,13 +320,7 @@ export function recoverNonTerminalCronRunReceipts(state: CronServiceState): {
   const receipts: CronRunReceiptRecoveryCandidate[] = [];
   const notifications: DeferredCronNotifications = [];
   const interruptedRuns: InterruptedStartupRun[] = [];
-  for (const job of state.store?.jobs ?? []) {
-    const queuedAtMs = job.state.queuedAtMs;
-    const runningAtMs = job.state.runningAtMs;
-    if (queuedAtMs === undefined && runningAtMs === undefined) {
-      continue;
-    }
-    const proposal = proposeCronRunRecovery(state, job.id, queuedAtMs, runningAtMs);
+  for (const proposal of proposals) {
     const result = recoverCronRunProposal(state, proposal);
     if (result.kind === "live") {
       if (result.receipt.ownerPid !== process.pid) {

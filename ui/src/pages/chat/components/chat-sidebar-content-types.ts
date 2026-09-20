@@ -141,8 +141,7 @@ export type SidebarContent =
   | ImageSidebarContent
   | AttachmentSidebarContent
   | FileSidebarContent
-  | SessionDiffSidebarContent
-  | { kind: "task"; taskId: string };
+  | SessionDiffSidebarContent;
 
 export type SidebarSelection = (
   | SidebarContent

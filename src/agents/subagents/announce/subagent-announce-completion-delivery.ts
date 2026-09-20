@@ -2,6 +2,13 @@
  * Requester completion calls, direct fallback, and source-delivery evidence.
  */
 import { sanitizePendingFinalDeliveryText } from "../../../auto-reply/reply/pending-final-delivery-state.js";
+import {
+  getRestartRecoveryTerminalDeliveryEvidence,
+  hasRestartRecoverySourceClaim,
+  hasRestartRecoveryTerminalRun,
+} from "../../../config/sessions/restart-recovery-state.js";
+import type { RestartRecoveryTerminalDeliveryEvidence } from "../../../config/sessions/restart-recovery-types.js";
+import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import { waitForGatewayDispatch } from "../../../gateway/server-in-process-dispatch.js";
 import { sourceDeliveryTargetsMatch } from "../../../infra/outbound/source-delivery-plan.js";
@@ -120,6 +127,44 @@ export function isGatewayAgentRunPending(response: unknown): boolean {
   }
   const status = (response as { status?: unknown }).status;
   return isNonTerminalAgentRunStatus(status);
+}
+
+/** A recovery successor owns its admitted input until its exact final can be reconciled. */
+export function resolveRequesterRecoveryDelivery(
+  entry: SessionEntry | undefined,
+  runId: string,
+):
+  | { kind: "result"; result: RestartRecoveryTerminalDeliveryEvidence }
+  | { kind: "delivery"; delivery: SubagentAnnounceDeliveryResult }
+  | undefined {
+  const result = getRestartRecoveryTerminalDeliveryEvidence(entry, runId);
+  if (result) {
+    return { kind: "result", result };
+  }
+  if (hasRestartRecoverySourceClaim(entry, runId)) {
+    return {
+      kind: "delivery",
+      delivery: {
+        delivered: false,
+        path: "direct",
+        reason: "requester_turn_pending",
+        disposition: "retryable",
+      },
+    };
+  }
+  if (hasRestartRecoveryTerminalRun(entry, runId)) {
+    return {
+      kind: "delivery",
+      delivery: {
+        delivered: false,
+        path: "direct",
+        reason: "visible_reply_missing",
+        error: "recovered requester completed without durable final delivery evidence",
+        disposition: "permanent_failure",
+      },
+    };
+  }
+  return undefined;
 }
 
 export function resolvePrivateCompletionDeliveryResult(

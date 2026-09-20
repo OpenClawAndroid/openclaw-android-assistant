@@ -71,6 +71,13 @@ Prefer repairing that workflow's token path. Point `latest` or `beta` only at
 the operator-approved already-published version, then verify cache-bypassed
 registry readback.
 
+Immediately after publishing or promoting to `latest`, dispatch that same
+release-ledger workflow to repair the beta floor: raise missing or older beta
+selectors to each package's own latest, preserve newer betas, and verify the
+selected core/plugin roster. The scheduled repair is only a backstop. Use the
+documented owner recovery for packages the ledger does not cover; do not lower
+a newer beta merely to make the selectors equal.
+
 If the workflow is unavailable, use the approved `$one-password` / `$npm`
 workflow in its persistent tmux session and private credential locators.
 Authenticate as the intended npm owner and keep secrets/OTPs out of output.

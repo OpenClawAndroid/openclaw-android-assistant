@@ -4,6 +4,7 @@ import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import type { SqliteWorkerAdmissionCleanup } from "../infra/sqlite-worker-broker.types.js";
 import type { DatabasePathIdentity } from "../infra/sqlite-worker-identity.js";
 import type { SqliteWorkerAdmissionFactory } from "../infra/sqlite-worker-operation-admission.js";
+import type { SqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import {
   openSharedStateSqliteWorkerStore,
   closeUnclaimedSharedStateSqliteWorkers,
@@ -33,6 +34,7 @@ import type { OpenClawStateWorkerContext } from "./openclaw-state-worker-context
 import type {
   OpenClawStateWorkerOperations,
   OpenClawStateWorkerInspectionOperations,
+  OpenClawStateWorkerCleanupOperations,
 } from "./openclaw-state-worker-contract.js";
 import { hydrateOpenClawStateWorkerError } from "./openclaw-state-worker-error.js";
 
@@ -51,6 +53,7 @@ const SHARED_STATE_WORKER_IDLE_INSPECT_MS = 60_000;
 const SHARED_STATE_WORKER_IDLE_RETIRE_MS = 30 * 60_000;
 
 function createSharedStateWorkerOwner() {
+  const moduleUrl = resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sharedStateStore);
   type IdleTimer = ReturnType<typeof setTimeout> & { unref?: () => void };
   type Entry = {
     context: OpenClawStateWorkerContext;
@@ -340,6 +343,13 @@ function createSharedStateWorkerOwner() {
   return {
     close,
     retainOperation,
+    openCleanup(databasePath: string, context: SqliteWorkerStateContext, assertOwned: () => void) {
+      return openSharedStateSqliteWorkerStore<OpenClawStateWorkerCleanupOperations>(
+        { moduleUrl, databasePath, existingOnly: true },
+        context,
+        assertOwned,
+      );
+    },
     async open(
       context: OpenClawStateWorkerContext,
       existingOnly = false,
@@ -438,7 +448,7 @@ function createSharedStateWorkerOwner() {
           operationGeneration: 0,
           opening: openSharedStateSqliteWorkerStore<StoreOperations>(
             {
-              moduleUrl: resolveRuntimeWorkerUrl(runtimeProcessEntrypoints.sharedStateStore),
+              moduleUrl,
               databasePath: admission.databasePath,
               existingOnly,
             },
@@ -538,6 +548,15 @@ function owner() {
     createSharedStateWorkerOwner,
     (sharedOwner) => sharedOwner.close(),
   );
+}
+
+/** Retired cleanup uses the retained owner's backend without renewing read admission. */
+export function openOpenClawStateWorkerCleanupStore(
+  databasePath: string,
+  context: SqliteWorkerStateContext,
+  assertOwned: () => void,
+) {
+  return owner().openCleanup(databasePath, context, assertOwned);
 }
 
 export async function executeOpenClawStateWorker<Key extends keyof OpenClawStateWorkerOperations>(

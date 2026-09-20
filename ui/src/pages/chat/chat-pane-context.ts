@@ -47,6 +47,7 @@ import { requestChatPageUpdate } from "./chat-state-render.ts";
 import { resolveChatAgentId, selectedChatSessionRow } from "./chat-state-route.ts";
 import { releaseChatMediaResourceSubscriber } from "./components/chat-message-media.ts";
 import { retireSessionWorkspaceCheckout } from "./components/chat-session-workspace.ts";
+import { resetTaskDetail } from "./components/chat-task-detail-state.ts";
 import {
   reconcileChatRunAfterSessionStatePublication,
   reconcileChatRunLifecycle,
@@ -394,6 +395,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
         isUiSelectedGlobalSessionKey(state, state.sessionKey))
     ) {
       retireChatModelSelectionOwnership(state);
+      resetTaskDetail(state);
       this.swarmHydrator?.dispose();
       this.swarmHydrator = null;
     }
