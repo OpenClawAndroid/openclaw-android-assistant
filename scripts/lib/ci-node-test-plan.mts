@@ -299,6 +299,9 @@ const COMPACT_HYBRID_GROUP_SECONDS_SCALE = 0.87;
 // Split groups above this hosted prediction before packing. Hybrid reuses the
 // hosted-derived splits so retries cannot reunite an oversized hosted group.
 const COMPACT_GITHUB_MAX_PREDICTED_SECONDS = 150;
+// Hosted run 35477045216 timed out after an hour on a 203-file serial stripe;
+// its 196-file sibling took 2867s. Bound admission independently of stale costs.
+const COMPACT_HOSTED_STORAGE_STATE_MAX_FILES = 64;
 // Trusted forks can use the GitHub profile on Blacksmith. Every compact
 // profile must fit the same runner-registration allowance.
 const COMPACT_NODE_TEST_JOB_CAP = 80;
@@ -2674,6 +2677,13 @@ function splitOversizedCompactGroup(
   // Hybrid groups must fit both the first-attempt runner and hosted retries;
   // a faster retry estimate must not leave a slow first attempt unsplit.
   const isCliProcess = group.shard_name === "agentic-cli-process";
+  const storageStateFileLimit =
+    runnerBackend === "github" && group.shard_name === "core-runtime-infra-storage-state"
+      ? COMPACT_HOSTED_STORAGE_STATE_MAX_FILES
+      : undefined;
+  const exceedsStorageStateFileLimit =
+    storageStateFileLimit !== undefined &&
+    (group.includePatterns?.length ?? 0) > storageStateFileLimit;
   const measuredProfileSeconds = estimateCompactGroupSeconds(group, runnerBackend);
   const measuredHostedSeconds = estimateCompactGroupSeconds(group, "github");
   const splitTimingPrefix = `${group.shard_name}#selector-`;
@@ -2682,6 +2692,7 @@ function splitOversizedCompactGroup(
   );
   if (
     !isCliProcess &&
+    !exceedsStorageStateFileLimit &&
     !runtimePartition &&
     !hasSplitTimingHistory &&
     Math.max(measuredProfileSeconds, measuredHostedSeconds) <= COMPACT_GITHUB_MAX_PREDICTED_SECONDS
@@ -2816,7 +2827,18 @@ function splitOversizedCompactGroup(
         isCliProcess ? batchWeight : undefined,
       );
     }
-    return runtimePartition ? [runtimePartition.runtimeFiles, ...stripes] : stripes;
+    const partitioned = runtimePartition ? [runtimePartition.runtimeFiles, ...stripes] : stripes;
+    // Preserve prerequisite ownership and the existing weighted stripes. The
+    // family guard prevents cost packing from joining these serial chunks again.
+    return storageStateFileLimit === undefined
+      ? partitioned
+      : partitioned.flatMap((stripeFiles) =>
+          Array.from(
+            { length: Math.ceil(stripeFiles.length / storageStateFileLimit) },
+            (_, index) =>
+              stripeFiles.slice(index * storageStateFileLimit, (index + 1) * storageStateFileLimit),
+          ),
+        );
   };
   let stripes = createStripes(splitSeconds);
   let timingGeneration = createCompactSplitTimingGeneration({
@@ -2852,6 +2874,7 @@ function splitOversizedCompactGroup(
         : completeBlacksmithSeconds;
   if (
     !runtimePartition &&
+    !exceedsStorageStateFileLimit &&
     Math.max(splitSeconds, completeMeasuredSeconds) <= COMPACT_GITHUB_MAX_PREDICTED_SECONDS
   ) {
     return [{ group, seconds: profileSeconds }];

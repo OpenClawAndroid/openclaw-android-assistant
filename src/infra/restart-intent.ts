@@ -1,13 +1,16 @@
 import { existsSync } from "node:fs";
+import type { DatabaseSync } from "node:sqlite";
 // Persists short-lived gateway restart intent for supervisor SIGTERM handoff.
 import { asPositiveSafeInteger } from "@openclaw/normalization-core/number-coercion";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
+import { resolveSystemdServiceName } from "../daemon/systemd-service-files.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { runExistingOpenClawStateWriteTransaction } from "../state/openclaw-state-db-existing-write.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { OPENCLAW_STATE_SCHEMA_SQL } from "../state/openclaw-state-schema.js";
+import { readGatewayOwnerLeaseFromDatabase } from "./gateway-owner-lease.js";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
@@ -65,6 +68,67 @@ export function writeGatewayRestartIntentSync(opts: {
   if (targetPid === null) {
     return false;
   }
+  return writeGatewayRestartIntentForTargetSync(opts, () => targetPid);
+}
+
+export type GatewayRestartIntentService = {
+  kind: "systemd" | "launchd";
+  name: string;
+};
+
+/** Native service control keeps its selected service; resolve its serving process at admission. */
+export function writeGatewayServiceRestartIntentSync(opts: {
+  env?: NodeJS.ProcessEnv;
+  targetPid?: number;
+  service?: GatewayRestartIntentService;
+  intent?: GatewayRestartIntent;
+  reason?: string;
+  assertCurrent: () => void;
+  warn: (message: string) => void;
+}): boolean {
+  let ownershipUnverified = false;
+  const written = writeGatewayRestartIntentForTargetSync(
+    opts,
+    (db) => {
+      if (!opts.service) {
+        return opts.targetPid;
+      }
+      try {
+        const owner = readGatewayOwnerLeaseFromDatabase(db);
+        ownershipUnverified = owner?.state === "unknown";
+        const supervisor = owner?.supervisor;
+        if (
+          owner?.state === "live" &&
+          owner.mode === "supervised" &&
+          supervisor?.kind === opts.service.kind &&
+          supervisor.name !== null &&
+          (supervisor.kind === "systemd"
+            ? resolveSystemdServiceName({ OPENCLAW_SYSTEMD_UNIT: supervisor.name }) ===
+              resolveSystemdServiceName({ OPENCLAW_SYSTEMD_UNIT: opts.service.name })
+            : supervisor.name === opts.service.name)
+        ) {
+          return owner.pid;
+        }
+      } catch {
+        ownershipUnverified = true;
+      }
+      return opts.targetPid;
+    },
+    opts.assertCurrent,
+  );
+  if (ownershipUnverified) {
+    opts.warn(
+      "Could not verify the serving Gateway owner; using native service status for restart intent.",
+    );
+  }
+  return written;
+}
+
+function writeGatewayRestartIntentForTargetSync(
+  opts: { env?: NodeJS.ProcessEnv; intent?: GatewayRestartIntent; reason?: string },
+  resolveTargetPid: (db: DatabaseSync) => number | undefined,
+  assertCurrent?: () => void,
+): boolean {
   const env = opts.env ?? process.env;
   try {
     if (!existsSync(resolveOpenClawStateSqlitePath(env))) {
@@ -78,10 +142,17 @@ export function writeGatewayRestartIntentSync(opts: {
       opts.intent.waitMs >= 0
         ? Math.floor(opts.intent.waitMs)
         : null;
-    const createdAt = Date.now();
     // The old Gateway still owns the schema until the restart hands off.
-    runExistingOpenClawStateWriteTransaction(
+    return runExistingOpenClawStateWriteTransaction(
       ({ db }) => {
+        // Coordinator/BEGIN admission can block while the supervised owner changes.
+        assertCurrent?.();
+        const targetPid = asPositiveSafeInteger(resolveTargetPid(db)) ?? null;
+        assertCurrent?.();
+        if (targetPid === null) {
+          return false;
+        }
+        const createdAt = Date.now();
         const stateDb = getNodeSqliteKysely<GatewayRestartIntentDatabase>(db);
         executeSqliteQuerySync(
           db,
@@ -109,12 +180,14 @@ export function writeGatewayRestartIntentSync(opts: {
               }),
             ),
         );
+        return true;
       },
       { env },
       { schemaSql: schema, operationLabel: "gateway.restart-intent.write" },
     );
-    return true;
   } catch (err) {
+    // Revoked native control authority must not become a best-effort storage warning.
+    assertCurrent?.();
     restartLog.warn(`failed to write gateway restart intent: ${String(err)}`);
     return false;
   }

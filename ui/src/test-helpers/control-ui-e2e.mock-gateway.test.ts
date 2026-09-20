@@ -232,6 +232,31 @@ describe("mock gateway stateful config", () => {
       expect(json5Reloaded).toMatchObject({ raw: json5Raw, hash: "mock-config-hash-3" });
       expect(json5Reloaded.config).toEqual({ logging: { level: "warn" } });
       expectProjections(json5Reloaded, { logging: { level: "warn" } });
+
+      const gateway = (
+        gatewayPage.window as Window & { openclawControlUiE2eGateway?: ControlUiMockGateway }
+      ).openclawControlUiE2eGateway;
+      if (!gateway) {
+        throw new Error("Mock Gateway was not installed");
+      }
+      const replacement = { logging: { level: "error" } };
+      gateway.setMethodResponse("config.get", {
+        raw: JSON.stringify(replacement),
+        config: replacement,
+        hash: "replacement-hash",
+        valid: true,
+        issues: [],
+      });
+      // Reload before any read can materialize the replacement fixture.
+      execute(script);
+      const reconnected = gatewayPage.connect();
+      await flushMockTimers();
+      expect(await reconnected.request("get-replaced", "config.get", {})).toMatchObject({
+        raw: JSON.stringify(replacement),
+        config: replacement,
+        hash: "replacement-hash",
+        appliedConfigHash: "replacement-hash",
+      });
     },
   );
 

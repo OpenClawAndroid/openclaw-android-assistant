@@ -6,6 +6,7 @@ import { parseGitHubTarget } from "./targets.js";
 const date = "2026-09-13T12:00:00Z";
 const sha = "abcdef0123456789abcdef0123456789abcdef01";
 let sequence = 0;
+
 function target(kind: "issue" | "pull" | "commit" = "issue"): GitHubTarget {
   const repo = "detail-" + ++sequence;
   return kind === "commit"
@@ -303,6 +304,35 @@ describe("GitHub detail public read boundary", () => {
     for (const [, options] of fetchMock.mock.calls) {
       expect(options?.headers).not.toHaveProperty("Authorization");
     }
+  });
+
+  it("keeps truncated GitHub bodies and patches UTF-16 safe at the cut boundary", async () => {
+    const bodyPrefix = "a".repeat(32 * 1024 - 1);
+    const patchPrefix = "p".repeat(16 * 1024 - 1);
+    const fetchMock = publicFetch(
+      item({ body: bodyPrefix + "\u{1F600}tail", changed_files: 1 }),
+    ).mockResolvedValueOnce(json([file({ patch: patchPrefix + "\u{1F600}tail" })]));
+    const detail = await loadGitHubDetail(target("pull"), fetchMock);
+    expect(detail).toMatchObject({
+      body: bodyPrefix,
+      bodyTruncated: true,
+      partial: true,
+      files: [{ patch: patchPrefix, patchTruncated: true }],
+    });
+  });
+
+  it.each([
+    { patch: "", partial: false },
+    { patch: undefined, partial: true },
+  ])("distinguishes empty from unavailable patches (%j)", async ({ patch, partial }) => {
+    const fetchMock = publicFetch(item({ changed_files: 1 })).mockResolvedValueOnce(
+      json([file({ patch })]),
+    );
+    const detail = await loadGitHubDetail(target("pull"), fetchMock);
+    expect(detail).toMatchObject({
+      partial,
+      files: [{ patch, patchTruncated: partial }],
+    });
   });
 
   it("preserves complete nonempty comments and renamed file patches", async () => {

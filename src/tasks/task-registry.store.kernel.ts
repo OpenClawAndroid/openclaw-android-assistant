@@ -608,19 +608,21 @@ export function readTaskRegistryMutationSnapshotInDatabase(
 ): TaskRegistryStoreSnapshot {
   return runSqliteDeferredTransactionSync(db, () => {
     const kysely = getTaskRegistryKysely(db);
-    const selected = kysely
-      .selectFrom("task_runs")
-      .where((eb) =>
-        eb.or([
-          eb("task_id", "=", scope.taskId),
-          eb(eb.fn<string>("trim", [eb.ref("run_id")]), "=", scope.runId?.trim() || null),
-          eb(
-            eb.fn<string>("trim", [eb.ref("child_session_key")]),
-            "=",
-            scope.childSessionKey?.trim() || null,
-          ),
-        ]),
-      );
+    const runId = scope.runId?.trim();
+    const childSessionKey = scope.childSessionKey?.trim();
+    const selected = kysely.selectFrom("task_runs").where((eb) => {
+      // Null-bound trim predicates would force even a task-ID-only lookup to scan all rows.
+      const matches = [eb("task_id", "=", scope.taskId)];
+      if (runId) {
+        matches.push(eb(eb.fn<string>("trim", [eb.ref("run_id")]), "=", runId));
+      }
+      if (childSessionKey) {
+        matches.push(
+          eb(eb.fn<string>("trim", [eb.ref("child_session_key")]), "=", childSessionKey),
+        );
+      }
+      return eb.or(matches);
+    });
     const taskRows = executeSqliteQuerySync(
       db,
       selected.selectAll().orderBy("created_at", "asc").orderBy("task_id", "asc"),

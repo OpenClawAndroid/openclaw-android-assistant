@@ -237,6 +237,21 @@ for (const [key, count] of [
   CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(key, count);
 }
 
+const RELEASE_2026_9_5_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS = new Map(
+  CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS,
+);
+// The post-9.5 lifecycle fixtures forward spawn and run an owned temporary
+// descendant to prove output drainage and failed-spawn settlement. Freeze 9.5
+// before admitting their exact test-only sites.
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/app-server/sandbox-exec-server.exit.test.ts",
+  2,
+);
+CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS.set(
+  "@openclaw/codex:dangerous-exec:src/app-server/sandbox-exec-server.spawn-error.test.ts",
+  1,
+);
+
 const CURRENT_SECURITY_INVENTORY_POLICY: PluginSecurityInventoryPolicy = {
   layout: CURRENT_REVIEWED_RELEASE_LAYOUT,
   optionalPackedFindingCounts: CURRENT_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS,
@@ -324,7 +339,14 @@ const FROZEN_RELEASE_SECURITY_INVENTORY_POLICIES = new Map<string, PluginSecurit
       optionalPackedFindingCounts: RELEASE_2026_9_4_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS,
     },
   ],
-  ["release/2026.9.5", CURRENT_SECURITY_INVENTORY_POLICY],
+  [
+    "release/2026.9.5",
+    {
+      ...CURRENT_SECURITY_INVENTORY_POLICY,
+      optionalPackedFindingCounts: RELEASE_2026_9_5_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS,
+    },
+  ],
+  ["release/2026.9.6", CURRENT_SECURITY_INVENTORY_POLICY],
   [
     "extended-stable/2026.6.33",
     {

@@ -106,6 +106,19 @@ export function create(target: RowTarget, entry?: SessionEntry): Row {
     generation: Symbol("row"),
   };
 }
+
+export function renewGeneration(row: Row): Row {
+  return {
+    ...row,
+    entry: undefined,
+    storedEntry: undefined,
+    materialized: undefined,
+    lastMessagePreview: undefined,
+    fallbackModel: undefined,
+    generation: Symbol("row"),
+  };
+}
+
 export type EntryRow = Row & Required<Pick<Row, "entry">>;
 export type MaterializedRow = EntryRow & Required<Pick<Row, "materialized">>;
 export function hasEntry(row: Row | undefined): row is EntryRow {

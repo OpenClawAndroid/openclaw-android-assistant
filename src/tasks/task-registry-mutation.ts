@@ -30,7 +30,7 @@ import {
   deleteParentFlowIdIndex,
   addRelatedSessionKeyIndex,
   deleteRelatedSessionKeyIndex,
-  rebuildRunIdIndex,
+  updateRunIdIndex,
   recordTaskRegistryProjectionWrite,
 } from "./task-registry.process-state.js";
 import { tryPersistTaskDeliveryStateUpsert, tryPersistTaskUpsert } from "./task-registry.store.js";
@@ -126,15 +126,14 @@ export function publishTaskRecordUpdate(
       normalizeOptionalString(next.childSessionKey);
   const parentFlowIndexChanged = current.parentFlowId?.trim() !== next.parentFlowId?.trim();
   if (persisted) {
+    const indexedCurrent = tasks.get(taskId);
     tasks.set(taskId, next);
     recordTaskRegistryProjectionWrite("task", taskId);
     bumpTaskRegistryRevision();
     if (becomesTerminal) {
       clearTaskActivity(taskId);
     }
-    if (next.runId && next.runId !== current.runId) {
-      rebuildRunIdIndex();
-    }
+    updateRunIdIndex(indexedCurrent, next);
     if (sessionIndexChanged) {
       deleteOwnerKeyIndex(taskId, current);
       addOwnerKeyIndex(taskId, next);

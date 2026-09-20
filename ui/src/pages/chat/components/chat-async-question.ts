@@ -1,14 +1,11 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { html, nothing } from "lit";
-import { property } from "lit/decorators.js";
-import { keyed } from "lit/directives/keyed.js";
+import { html } from "lit";
 import type { QuestionDraft } from "../../../app/question-prompt.ts";
 import { t } from "../../../i18n/index.ts";
-import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import { questionDraftValues } from "./chat-question-answer-controls.ts";
-import "./chat-question-card.ts";
+import type { QuestionPanelOptions, QuestionPanelProps } from "./chat-question-card.ts";
 
-type AsyncQuestions = {
+export type AsyncQuestions = {
   itemId: string;
   questions: { title: string; options?: string[] }[];
 };
@@ -20,6 +17,8 @@ export type AsyncQuestionDraft = {
 };
 
 export type AsyncQuestionPresentation = {
+  scope: string;
+  pending: AsyncQuestions[];
   drafts: Map<string, AsyncQuestionDraft>;
   onChange: () => void;
   submit?: (message: string) => Promise<boolean>;
@@ -33,6 +32,7 @@ export function createAsyncQuestionPresentation(
     transcriptRenderContext: { onAsyncQuestionSubmit?: AsyncQuestionPresentation["submit"] };
   },
   props: {
+    messages?: readonly unknown[];
     sessionKey: string;
     currentAgentId?: string;
     connectionEpoch?: number;
@@ -48,7 +48,19 @@ export function createAsyncQuestionPresentation(
   const drafts = state.asyncQuestionDrafts;
   const isCurrent = () =>
     state.asyncQuestionScope === scope && state.asyncQuestionDrafts === drafts;
+  const questions = new Map<string, AsyncQuestions>();
+  for (const message of props.messages ?? []) {
+    const question = readAsyncQuestions(message);
+    if (question) {
+      questions.set(question.itemId, question);
+    }
+  }
   return {
+    scope,
+    pending: [...questions.values()].filter((question) => {
+      const status = drafts.get(question.itemId)?.status;
+      return status !== "submitted" && status !== "skipped";
+    }),
     drafts,
     onChange: () => {
       if (isCurrent()) {
@@ -117,96 +129,114 @@ function quoteQuestion(title: string): string {
   return `> ${quote.replace(/[\r\n]/g, " ")}`;
 }
 
-class ChatAsyncQuestion extends OpenClawLightDomElement {
-  @property({ attribute: false }) questions?: AsyncQuestions;
-  @property({ attribute: false }) presentation?: AsyncQuestionPresentation;
-
-  override render() {
-    const { questions, presentation } = this;
-    if (!questions || !presentation) {
-      return nothing;
-    }
-    let draft = presentation.drafts.get(questions.itemId);
-    if (!draft) {
-      draft = {
-        answers: new Map(
-          questions.questions.map((question, index) => [
-            String(index),
-            { selected: new Set(question.options?.slice(0, 1)), freeText: "" },
-          ]),
-        ),
-      };
-      presentation.drafts.set(questions.itemId, draft);
-    }
-    const currentDraft = draft;
-    const onChange = () => {
-      this.requestUpdate();
-      presentation.onChange();
+function getQuestionDraft(questions: AsyncQuestions, presentation: AsyncQuestionPresentation) {
+  let draft = presentation.drafts.get(questions.itemId);
+  if (!draft) {
+    draft = {
+      answers: new Map(
+        questions.questions.map((question, index) => [
+          String(index),
+          { selected: new Set(question.options?.slice(0, 1)), freeText: "" },
+        ]),
+      ),
     };
-    if (draft.status === "submitted" || draft.status === "skipped") {
-      return html`<div class="chat-question-summary" role="status">
-        ${questions.questions.map(
-          (question, index) => html`<div>
-            <strong>${question.title}</strong>
-            <div>
-              ${draft.status === "skipped" ? t("chat.questions.skipped") : questionDraftValues(draft.answers.get(String(index))).join(", ")}
-            </div>
-          </div>`,
-        )}
-      </div>`;
-    }
-    return keyed(
-      presentation.drafts,
-      html`<openclaw-chat-question-panel
-        .props=${{
-          model: {
-            requestKey: questions.itemId,
-            title: t("chat.questions.eyebrow"),
-            questions: questions.questions.map((question, index) => ({
-              questionId: String(index),
-              header: question.options ? question.title : t("chat.questions.answer"),
-              question: question.title,
-              options: (question.options ?? []).map((label) => ({ label })),
-              isOther: true,
-            })),
-            autoFocus: false,
-            collapsed: false,
-            disabled: !presentation.submit,
-            submitting: draft.status === "submitting",
-            drafts: draft.answers,
-            error: draft.error,
-          },
-          onSkip: () => {
-            currentDraft.status = "skipped";
-            onChange();
-          },
-          onSubmit: async (answers: Record<string, string[]>) => {
-            currentDraft.status = "submitting";
-            currentDraft.error = undefined;
-            onChange();
-            const message = questions.questions
-              .map(
-                (question, index) =>
-                  `${quoteQuestion(question.title)}\n\n${answers[String(index)]?.join(", ") ?? ""}`,
-              )
-              .join("\n\n");
-            try {
-              if (!(await presentation.submit?.(message))) {
-                throw new Error(t("chat.asyncQuestions.sendFailed"));
-              }
-              currentDraft.status = "submitted";
-            } catch (error) {
-              currentDraft.status = undefined;
-              currentDraft.error = error instanceof Error ? error.message : String(error);
-              throw error;
-            } finally {
-              onChange();
-            }
-          },
-        }}
-      ></openclaw-chat-question-panel>`,
-    );
+    presentation.drafts.set(questions.itemId, draft);
   }
+  return draft;
 }
 
-customElements.define("openclaw-chat-async-question", ChatAsyncQuestion);
+export function createAsyncQuestionPanelProps(
+  questions: AsyncQuestions,
+  presentation: AsyncQuestionPresentation,
+  options: QuestionPanelOptions,
+): QuestionPanelProps {
+  const draft = getQuestionDraft(questions, presentation);
+  const count = presentation.pending.reduce(
+    (total, request) => total + request.questions.length,
+    0,
+  );
+  return {
+    model: {
+      requestKey: JSON.stringify([presentation.scope, questions.itemId]),
+      title: t("chat.asyncQuestions.title"),
+      questions: questions.questions.map((question, index) => ({
+        questionId: String(index),
+        header: question.options ? question.title : t("chat.questions.answer"),
+        question: question.title,
+        options: (question.options ?? []).map((label) => ({ label })),
+        isOther: true,
+      })),
+      autoFocus: false,
+      nonBlocking: true,
+      collapsed: options.collapsed ?? false,
+      collapsedLabel: t(
+        count === 1 ? "chat.asyncQuestions.pendingOne" : "chat.asyncQuestions.pendingMany",
+        { count: String(count) },
+      ),
+      disabled: !presentation.submit,
+      submitting: draft.status === "submitting",
+      drafts: draft.answers,
+      error: draft.error,
+      requestPosition: options.requestPosition,
+    },
+    onChange: presentation.onChange,
+    onCollapsedChange: options.onCollapsedChange,
+    onPreviousRequest: options.onPreviousRequest,
+    onNextRequest: options.onNextRequest,
+    onSkip: () => {
+      draft.status = "skipped";
+      presentation.onChange();
+    },
+    onSubmit: async (answers: Record<string, string[]>) => {
+      if (draft.status) {
+        return;
+      }
+      draft.status = "submitting";
+      draft.error = undefined;
+      presentation.onChange();
+      const message = questions.questions
+        .map(
+          (question, index) =>
+            `${quoteQuestion(question.title)}\n\n${answers[String(index)]?.join(", ") ?? ""}`,
+        )
+        .join("\n\n");
+      try {
+        if (!(await presentation.submit?.(message))) {
+          throw new Error(t("chat.asyncQuestions.sendFailed"));
+        }
+        draft.status = "submitted";
+      } catch (error) {
+        draft.status = undefined;
+        draft.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        presentation.onChange();
+      }
+    },
+  };
+}
+
+export function renderAsyncQuestionSummary(
+  questions: AsyncQuestions,
+  presentation: AsyncQuestionPresentation,
+) {
+  const draft = presentation.drafts.get(questions.itemId);
+  return html`<div class="chat-question-summary" role="status">
+    ${questions.questions.map(
+      (question, index) => html`<div>
+        <strong>${question.title}</strong>
+        <div>
+          ${
+            draft?.status === "submitted"
+              ? questionDraftValues(draft.answers.get(String(index))).join(", ")
+              : t(
+                  draft?.status === "skipped"
+                    ? "chat.questions.skipped"
+                    : "chat.asyncQuestions.inComposer",
+                )
+          }
+        </div>
+      </div>`,
+    )}
+  </div>`;
+}

@@ -32,6 +32,7 @@ import type { SessionPatchRowFact } from "./session-pending-rows.ts";
 import type { createSessionPermissionProjection } from "./session-permission-projection.ts";
 import type { createSessionRosterRefresh } from "./session-roster-refresh.ts";
 import { createSessionWriteObservation, type FieldObservation } from "./session-row-provenance.ts";
+import { sessionChangedSnapshots, type SessionChangedEventInfo } from "./session-row-reconcile.ts";
 import type { createSessionThinkingClaims } from "./session-thinking-claims.ts";
 
 type Host = {
@@ -96,6 +97,26 @@ export function createSessionReconciliation(host: Host) {
     return projected.key === row.key
       ? projected
       : host.roster.inheritRow({ ...projected, key: row.key }, projected);
+  };
+  const projectReadRow = (
+    accepted: GatewaySessionRow,
+    donor: GatewaySessionRow | undefined,
+    source: GatewaySessionRow,
+    agentId: string | null,
+    observation?: ReturnType<Host["roster"]["captureReconciliation"]>,
+  ) => {
+    const select = observation?.observe(source, agentId);
+    const inherited = host.roster.inheritRow(accepted, source, donor);
+    const projected = projectRowFields(
+      observation
+        ? host.permissions.reconcileRow(inherited, observation.revision, agentId)
+        : inherited,
+      agentId,
+    );
+    if (select) {
+      host.mutations.observePendingFields(source, select(projected, pendingFields), agentId);
+    }
+    return projected;
   };
   const capturePatchFields = (target: SessionRowTarget & { sessionId: string }) => {
     const captured = host.roster.captureReconciliation();
@@ -279,24 +300,8 @@ export function createSessionReconciliation(host: Host) {
               state.resultCached === true &&
               (Boolean(observation) || host.roster.rowRevision(row) > 0) &&
               host.roster.rowRevision(existing) === 0,
-            project: (accepted, donor) => {
-              const select = observation?.observe(row, historyAgentId);
-              const inherited = host.roster.inheritRow(accepted, row, donor);
-              const projected = projectRowFields(
-                observation
-                  ? host.permissions.reconcileRow(inherited, observation.revision, historyAgentId)
-                  : inherited,
-                historyAgentId,
-              );
-              if (select) {
-                host.mutations.observePendingFields(
-                  row,
-                  select(projected, pendingFields),
-                  historyAgentId,
-                );
-              }
-              return projected;
-            },
+            project: (accepted, donor) =>
+              projectReadRow(accepted, donor, row, historyAgentId, observation),
           }
         : undefined,
     );
@@ -398,23 +403,8 @@ export function createSessionReconciliation(host: Host) {
             },
             {
               isProvisional: (existing) => roster.rowRevision(existing) === 0,
-              project: (accepted, donor) => {
-                const select = captured.observe(row, owned.agentId);
-                const projected = projectRowFields(
-                  host.permissions.reconcileRow(
-                    roster.inheritRow(accepted, row, donor),
-                    captured.revision,
-                    owned.agentId,
-                  ),
-                  owned.agentId,
-                );
-                host.mutations.observePendingFields(
-                  row,
-                  select(projected, pendingFields),
-                  owned.agentId,
-                );
-                return projected;
-              },
+              project: (accepted, donor) =>
+                projectReadRow(accepted, donor, row, owned.agentId, captured),
             },
           );
           if (reduced.admittedRow) {
@@ -504,20 +494,21 @@ export function createSessionReconciliation(host: Host) {
       previousRow: GatewaySessionRow,
       fields: readonly string[],
       ownerAgentId: string | null,
+      rowInfo: SessionChangedEventInfo,
     ) => {
-      const corrected = eventInfo?.hasPermissionMode
-        ? permissions.observeEventRow(admitted, previousRow, eventInfo, ownerAgentId)
+      const corrected = rowInfo.hasPermissionMode
+        ? permissions.observeEventRow(admitted, previousRow, rowInfo, ownerAgentId)
         : admitted;
       roster.inheritRow(corrected, previousRow);
       const source = roster.inheritRow({ ...corrected }, corrected);
       const select = roster.observeFields(
         source,
         fields,
-        createSessionWriteObservation(eventObservation.revision, eventInfo?.updatedAt ?? null),
+        createSessionWriteObservation(eventObservation.revision, rowInfo.updatedAt),
         ownerAgentId,
       );
       const projected = projectRowFields(source, ownerAgentId, projection.projectFields);
-      if (eventInfo && eventInfo.archived !== null) {
+      if (rowInfo.archived !== null) {
         mutations.observeArchiveState(projected.key, projected.archived === true, projected);
       }
       mutations.observePendingFields(source, select(projected, pendingFields), ownerAgentId);
@@ -533,8 +524,10 @@ export function createSessionReconciliation(host: Host) {
         current,
         payload,
         ownerOptions,
-        (row, previousRow, fields) =>
-          projectEventFields(row, previousRow, fields, eventInfo?.agentId ?? ownerAgentId),
+        (row, previousRow, fields, rowInfo) =>
+          projectEventFields(row, previousRow, fields, rowInfo.agentId ?? ownerAgentId, rowInfo),
+        (info) =>
+          deletions.acceptsGeneration(info.key, info.sessionId, info.agentId ?? ownerAgentId),
       );
       roster.inherit(result.result, current, undefined, ownerAgentId);
       const removed =
@@ -559,48 +552,60 @@ export function createSessionReconciliation(host: Host) {
           },
           entry.snapshot.agentId,
         );
-        if (result.admittedRow) {
-          managedAdmissions.push({ row: result.admittedRow, revision: eventObservation.revision });
-        }
+        managedAdmissions.push(
+          ...(result.admittedRows ?? []).map((row) => ({
+            row,
+            revision: eventObservation.revision,
+          })),
+        );
         return result.result;
       },
       (entry) => {
         if (!eventInfo && invalidationReason === "runner-availability") {
           return { row: entry.row, invalidateRevision: eventObservation.revision };
         }
-        const eventAgentId = eventInfo?.agentId ?? parseAgentSessionKey(eventInfo?.key)?.agentId;
-        if (
-          !eventInfo ||
-          !eventAgentId ||
-          !areUiSessionKeysEquivalent(eventInfo.key, entry.target.key) ||
-          normalizeAgentId(eventAgentId) !== entry.target.agentId
-        ) {
+        const snapshot = sessionChangedSnapshots(payload).find((candidate) => {
+          const info = readSessionChangedEvent(candidate);
+          const agentId = info?.agentId ?? parseAgentSessionKey(info?.key)?.agentId;
+          return (
+            info &&
+            agentId &&
+            areUiSessionKeysEquivalent(info.key, entry.target.key) &&
+            normalizeAgentId(agentId) === entry.target.agentId &&
+            deletions.acceptsGeneration(info.key, info.sessionId, agentId)
+          );
+        });
+        const rowInfo = readSessionChangedEvent(snapshot);
+        if (!rowInfo) {
           return { row: entry.row };
         }
         if (!entry.row) {
           return { row: null, invalidateRevision: eventObservation.revision };
         }
-        if (eventInfo.sessionId && eventInfo.sessionId !== entry.row.sessionId) {
+        if (rowInfo.sessionId && rowInfo.sessionId !== entry.row.sessionId) {
           return { row: entry.row };
         }
         const current = projection.projectFields(entry.row, entry.target.agentId);
         const reduced = reconcileSessionChangedRow(
           current,
-          payload,
+          snapshot,
           {
             resultAgentId: entry.target.agentId,
             selectedGlobalAgentId: entry.target.agentId,
             archivedFilter: "all",
           },
           (row, previousRow, fields) =>
-            projectEventFields(row, previousRow, fields, entry.target.agentId),
+            projectEventFields(row, previousRow, fields, entry.target.agentId, rowInfo),
         );
-        if (reduced.admittedRow || reduced.deletedKey) {
+        if (snapshot === payload && (reduced.admittedRow || reduced.deletedKey)) {
           acceptedResult ??= reduced;
         }
         return {
           row: reduced.row ?? null,
-          ...(!reduced.deletedKey ? { invalidateRevision: eventObservation.revision } : {}),
+          ...(!reduced.deletedKey &&
+          (!reduced.admittedRow || !Array.isArray(asNullableRecord(snapshot)?.ancestorSessions))
+            ? { invalidateRevision: eventObservation.revision }
+            : {}),
         };
       },
       false,
@@ -608,8 +613,11 @@ export function createSessionReconciliation(host: Host) {
     );
     const notifyManaged = (primaryPublished = false) =>
       staged.notify(
-        primaryPublished && reconciled.admittedRow
-          ? [{ row: reconciled.admittedRow, revision: eventObservation.revision }]
+        primaryPublished
+          ? (reconciled.admittedRows ?? []).map((row) => ({
+              row,
+              revision: eventObservation.revision,
+            }))
           : [],
         invalidationReason,
       );

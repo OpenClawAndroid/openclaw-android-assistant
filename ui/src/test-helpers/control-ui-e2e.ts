@@ -1360,14 +1360,6 @@ function installControlUiMockGateway(
     }
   }
 
-  function mockConfigHash(): string {
-    return configState?.hash ?? initialConfigHash;
-  }
-
-  function mockAppliedConfigHash(): string {
-    return configState?.appliedHash ?? initialAppliedConfigHash;
-  }
-
   function persistGroupsState(): void {
     try {
       window.sessionStorage.setItem(groupsStateKey, JSON.stringify(groupsState));
@@ -1916,28 +1908,32 @@ function installControlUiMockGateway(
     }
   }
 
+  function adoptConfiguredConfig(configuredConfig: Record<string, unknown>): void {
+    if (
+      configState &&
+      typeof configuredConfig.raw === "string" &&
+      typeof configuredConfig.hash === "string" &&
+      configuredConfig.hash !== lastConfiguredConfigHash
+    ) {
+      lastConfiguredConfigHash = configuredConfig.hash;
+      Object.assign(configState, {
+        raw: configuredConfig.raw,
+        hash: configuredConfig.hash,
+        appliedHash:
+          typeof configuredConfig.appliedConfigHash === "string"
+            ? configuredConfig.appliedConfigHash
+            : configuredConfig.hash,
+      });
+      persistConfigState();
+    }
+  }
+
   function buildResponse(method: string, params: unknown): unknown {
     if (configState && baseConfigResponse) {
       if (method === "config.get") {
         const configured = responseFixtures.select(method, params);
         const configuredConfig = isRecord(configured.value) ? configured.value : baseConfigResponse;
-        if (
-          typeof configuredConfig.raw === "string" &&
-          typeof configuredConfig.hash === "string" &&
-          configuredConfig.hash !== lastConfiguredConfigHash
-        ) {
-          lastConfiguredConfigHash = configuredConfig.hash;
-          configState = {
-            raw: configuredConfig.raw,
-            revision: configState.revision,
-            hash: configuredConfig.hash,
-            appliedHash:
-              typeof configuredConfig.appliedConfigHash === "string"
-                ? configuredConfig.appliedConfigHash
-                : configuredConfig.hash,
-          };
-          persistConfigState();
-        }
+        adoptConfiguredConfig(configuredConfig);
         const parsedConfig = parseMockConfig(configState.raw, configuredConfig.config);
         const parsedSource =
           parsedConfig.parsed &&
@@ -1955,9 +1951,9 @@ function installControlUiMockGateway(
             ? { resolved: parsedSource }
             : {}),
           config: parsedConfig.value,
-          hash: mockConfigHash(),
-          configRevisionHash: mockConfigHash(),
-          appliedConfigHash: mockAppliedConfigHash(),
+          hash: configState.hash,
+          configRevisionHash: configState.hash,
+          appliedConfigHash: configState.appliedHash,
           raw: configState.raw,
         };
       }
@@ -1965,7 +1961,7 @@ function installControlUiMockGateway(
         // Enforce the production CAS contract: stale base hashes are rejected
         // (same code/message as the gateway) so conflict recovery is testable.
         const baseHash = isRecord(params) ? params.baseHash : undefined;
-        if (baseHash !== mockConfigHash()) {
+        if (baseHash !== configState.hash) {
           return {
             __mockError: {
               code: "INVALID_REQUEST",
@@ -1995,7 +1991,7 @@ function installControlUiMockGateway(
           ...configuredAck,
           ok: true,
           path: baseConfigResponse.path,
-          hash: mockConfigHash(),
+          hash: configState.hash,
           config: parseMockConfig(configState.raw, baseConfigResponse.config).value,
         };
       }
@@ -2862,6 +2858,9 @@ function installControlUiMockGateway(
       scenario.methodResponses[method] = payload;
       responseFixtures.resetSequence(method);
       methodResponseOverrides[method] = payload;
+      if (method === "config.get" && isRecord(payload)) {
+        adoptConfiguredConfig(payload);
+      }
       try {
         window.sessionStorage.setItem(
           methodResponseOverridesStorageKey,

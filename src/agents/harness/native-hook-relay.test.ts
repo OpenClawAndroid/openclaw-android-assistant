@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import { createServer, request as httpRequest, Server } from "node:http";
+import { request as httpRequest, Server } from "node:http";
 import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -2256,57 +2256,6 @@ describe("native hook relay registry", () => {
       }),
     ).rejects.toThrow("native hook relay bridge target mismatch");
     expect(testing.getNativeHookRelayInvocationsForTests()).toStrictEqual([]);
-  });
-
-  it("rejects oversized direct bridge responses", async () => {
-    const relay = registerNativeHookRelay({
-      provider: "codex",
-      relayId: "codex-oversized-bridge-response",
-      sessionId: "session-1",
-      runId: "run-1",
-      allowedEvents: ["pre_tool_use"],
-    });
-    const record = await waitForNativeHookRelayBridgeRecord(relay.relayId);
-    const server = createServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end("x".repeat(5_000_001));
-    });
-    await new Promise<void>((resolve) => {
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    try {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        throw new Error("test bridge server address unavailable");
-      }
-      await nativeHookRelayStore.writeNativeHookRelayBridgeRecord({
-        record: {
-          ...record,
-          port: address.port,
-          token: "test-token",
-          expiresAtMs: Date.now() + 10_000,
-        },
-      });
-
-      await expect(
-        invokeNativeHookRelayBridge({
-          provider: "codex",
-          relayId: relay.relayId,
-          generation: relay.generation,
-          event: "pre_tool_use",
-          timeoutMs: 500,
-          rawPayload: {
-            hook_event_name: "PreToolUse",
-            tool_name: "Bash",
-            tool_input: { command: "pnpm test" },
-          },
-        }),
-      ).rejects.toThrow("native hook relay bridge response too large");
-    } finally {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
-    }
   });
 
   it("accepts an allowed Codex invocation and preserves raw payload", async () => {

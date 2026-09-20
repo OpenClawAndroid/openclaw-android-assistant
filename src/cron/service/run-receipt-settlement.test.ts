@@ -358,6 +358,7 @@ describe("cron run receipt settlement", () => {
     "keeps a timed-out %s runner fenced until its underlying work settles",
     async (trigger) => {
       vi.useRealTimers();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const { storePath } = await makeStorePath();
       const now = Date.now();
       const job = makeTimedJob(
@@ -381,6 +382,9 @@ describe("cron run receipt settlement", () => {
 
       try {
         await runnerStarted.promise;
+        // Exercise the execution deadline and cleanup guard without waiting on wall time.
+        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(20_000);
         await first;
         expect(latestReceiptStatus(storePath, job.id)).toBe("running");
         await successor.update(job.id, { schedule: onExitSchedule, enabled: true });
@@ -444,6 +448,8 @@ describe("cron run receipt settlement", () => {
           });
           database.exec("DROP TRIGGER reject_on_exit_receipt_finish");
         }
+        // Allow the retained receipt retry and foreign-owner reconciliation to run.
+        await vi.advanceTimersByTimeAsync(2_000);
         await expect(settlement).resolves.toEqual({ ok: true, ran: true });
         expect(onReserved).toHaveBeenCalledOnce();
         expect((await successor.readJob(job.id))?.enabled).toBe(false);
@@ -462,6 +468,7 @@ describe("cron run receipt settlement", () => {
 
   it("reserves an observed exit atomically after a competing manual run", async () => {
     vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { storePath } = await makeStorePath();
     const job = {
       ...makeTimedJob("on-exit-manual-race", Date.now()),
@@ -518,8 +525,9 @@ describe("cron run receipt settlement", () => {
       expect(onReserved).not.toHaveBeenCalled();
       await service.update(job.id, { payload: { kind: "command", argv: ["updated"] } });
       releaseManual.resolve({ status: "ok" });
-      await expect(observedExit).resolves.toEqual({ ok: true, ran: true });
       await manual;
+      await vi.advanceTimersByTimeAsync(2_000);
+      await expect(observedExit).resolves.toEqual({ ok: true, ran: true });
       expect(onReserved).toHaveBeenCalledOnce();
       expect(runCommandJob).toHaveBeenCalledTimes(2);
       expect(runCommandJob).toHaveBeenLastCalledWith(

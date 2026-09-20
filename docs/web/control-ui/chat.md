@@ -485,6 +485,10 @@ The core [`show_widget`](/tools/show-widget) tool renders self-contained SVG or 
 
 ## Chat transcript layout
 
+Suggested-task cards show their short summaries in full. Unusually long summaries
+scroll within the card, and **Show instructions** expands the complete task prompt.
+In short windows, the card body scrolls while the header and Start controls stay visible.
+
 Use the mouse wheel or trackpad over the composer or its surrounding space to
 scroll the conversation while the footer stays pinned. Pull requests, persistent
 notices, task progress, and the composer reserve their own space below the
@@ -549,7 +553,11 @@ The chat transcript uses a centered readable frame aligned with the composer. As
 
 Images and video previews in your own messages appear above any accompanying text, without a surrounding bubble background. Videos use a still frame with a play icon; select the preview to open the video in the Files panel. If a preview cannot load, the attachment card remains available. Hovering media leaves that layout unchanged, and the text keeps its normal bubble color, including any per-identity tint. Assistant videos retain their inline player.
 
-Open an image tile to inspect it in the image viewer. When the message contains
+Managed image previews retain enough detail for high-density displays. Open an image tile
+to inspect it immediately in the image viewer; the cached preview stays visible
+while the original loads and is replaced as soon as the original is ready.
+Reopening an image reuses the cached original. If loading fails, the preview remains visible.
+When the message contains
 multiple images, use **Previous image** / **Next image**, the left and right arrow
 keys, or a horizontal swipe to move through that message's images. Navigation
 stops at either end and reverses direction in right-to-left layouts. Pinch or use
@@ -558,6 +566,12 @@ Press Escape, select **Close image preview**, or click outside the image to clos
 and return focus to the tile you opened.
 
 Images attached to assistant progress messages appear inline while the task continues and remain visible after reloading the conversation. Remote attachment URLs do not need a filename extension: the Gateway detects the media type and serves the preview through the same authenticated media path used for final replies. Documents keep their file cards.
+
+Computer screenshots retained in the session transcript also load as image previews,
+including after a reload. Opening a preview shows the saved screenshot in the image
+viewer. The Control UI retrieves the pixels through authenticated artifact access;
+computer observations are not automatically sent as outgoing attachments. Historical
+entries that contain only omission metadata keep the **Omitted from history** card.
 
 In automatic visible-reply mode, this includes standalone `MEDIA:` lines in model-authored commentary committed to the transcript, not just final replies. Only references captured before transcript hooks and retained in that commentary are eligible; hook-added references remain text, and normal media access and live run/session checks still apply. Message-tool-only delivery uses `message(action=send)` with structured attachment fields instead. Tool/plugin output and streamed block payloads must also use structured fields. See [WebChat commentary compatibility](/reference/rich-output-protocol#webchat-commentary-compatibility).
 

@@ -55,8 +55,22 @@ export type GatewayServiceControlArgs = {
   preserveAutoStart?: boolean;
   /** Original live caller fence, rechecked at native mutation boundaries. */
   assertCurrent?: () => void;
+  /** Native identity captured before stopping; activation must revalidate it. */
+  systemdIdentity?: SystemdServiceIdentity;
   warn?: (message: string) => void;
   onMutation?: (mutation: GatewayLifecycleMutation) => void;
+};
+
+/** In-memory native evidence; never reconstructed from readiness or persisted state. */
+export type SystemdServiceIdentity = {
+  scope: "user" | "system";
+  unitName: string;
+  unitPath: string;
+  bus: { address: string } | { machine: string };
+  busId: string;
+  managerOwner: string;
+  managerUid: number;
+  serviceUser: string;
 };
 
 export type GatewayLifecycleMutationMode =

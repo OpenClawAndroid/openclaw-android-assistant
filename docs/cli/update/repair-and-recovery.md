@@ -124,6 +124,10 @@ repair records `failed` / `abandoned` and exits successfully without Doctor,
 maintenance, or a service stop. `openclaw status` and the Control UI then report the abandoned run as reconciled, without a failure warning or retry prompt; its historical failure record remains intact. It also acknowledges a Gateway-reconciled row
 once within 30 minutes of reconciliation. Later repair invocations use full
 finalization, so historical recovery cannot suppress plugin convergence.
+Successful repair acknowledges every outstanding abandoned run in Doctor's
+latest 100 history records, regardless of age or whether a newer update exists.
+The original failed outcome remains recorded, including when its target build
+is unknown; Doctor stops repeating the repair instruction after acknowledgement.
 Explicit recovery does not wait 30 minutes when every recorded updater process
 is provably dead (its PID is gone or its process-start identity has changed).
 Identityless rows and runs with an unrecorded adopter still require more than

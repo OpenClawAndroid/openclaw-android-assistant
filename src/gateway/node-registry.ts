@@ -25,10 +25,7 @@ import {
 } from "../infra/node-pairing-surface.js";
 import { logRejectedLargePayload } from "../logging/diagnostic-payload.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import {
-  parseComputerUseCapabilityDescriptor,
-  type ComputerUseCapabilityDescriptor,
-} from "../plugins/computer-use-contract.js";
+import { parseComputerUseCapabilityDescriptor } from "../plugins/computer-use-contract.js";
 import type { NodeHostStats } from "../shared/node-host-stats.js";
 import {
   recordRemoteSkillNodeInfo,
@@ -70,7 +67,13 @@ import {
   type PendingInvoke,
   type PendingSystemRunEvent,
 } from "./node-registry.invoke-stream.js";
+import {
+  updateNodePresenceActivity,
+  clearNodePresenceActivity,
+  type NodePresenceActivityUpdate,
+} from "./node-registry.presence.js";
 import { isNodeWorkerHostClientId } from "./node-runner-inventory-runtime.js";
+import type { NodeSession } from "./node-session.types.js";
 import { normalizeNodeSkillDescriptors } from "./node-skill-descriptors.js";
 import { MAX_BUFFERED_BYTES, WEBSOCKET_OPEN_READY_STATE } from "./server-constants.js";
 import { closeGatewayTransportWithGrace } from "./server/connection-transport-close.js";
@@ -80,45 +83,7 @@ export type { NodeInvokeResult } from "./node-invoke.types.js";
 export { serializeEventPayload } from "./node-event-payload.js";
 export type { SerializedEventPayload } from "./node-event-payload.js";
 
-/** Connected node session advertised over Gateway websocket. */
-export type NodeSession = {
-  nodeId: string;
-  connId: string;
-  /** Persistent device key and node-token identity authenticated for this connection. */
-  pairingIdentity?: string;
-  /** Persistent pairing generation authenticated before this session was registered. */
-  pairingGeneration?: string;
-  client: GatewayWsClient;
-  clientId?: string;
-  clientMode?: string;
-  displayName?: string;
-  platform?: string;
-  version?: string;
-  coreVersion?: string;
-  uiVersion?: string;
-  deviceFamily?: string;
-  modelIdentifier?: string;
-  remoteIp?: string;
-  declaredCaps: string[];
-  sessionCapsCeiling?: string[];
-  caps: string[];
-  declaredCommands: string[];
-  sessionCommandsCeiling?: string[];
-  commands: string[];
-  declaredComputerUse?: ComputerUseCapabilityDescriptor;
-  computerUse?: ComputerUseCapabilityDescriptor;
-  declaredNodePluginTools: NodePluginToolDescriptor[];
-  nodePluginTools: NodePluginToolDescriptor[];
-  nodeSkills: NodeSkillDescriptor[];
-  declaredPermissions?: Record<string, boolean>;
-  permissions?: Record<string, boolean>;
-  pathEnv?: string;
-  connectedAtMs: number;
-  lastActiveAtMs?: number;
-  presenceUpdatedAtMs?: number;
-  hostStats?: NodeHostStats;
-  desktopAvailability?: DesktopAvailability;
-};
+export type { NodeSession } from "./node-session.types.js";
 
 type PairingBoundNodeSession = NodeSession & { pairingIdentity: string };
 export type NodeSessionConnectParams = GatewayWsClient["connect"] &
@@ -891,45 +856,24 @@ export class NodeRegistry {
   }
 
   /** Updates recent input activity for the exact authenticated node connection. */
-  updatePresenceActivity(params: {
-    nodeId: string;
-    connId?: string;
-    idleSeconds: number;
-    saturated?: boolean;
-    observedAtMs?: number;
-  }): NodeSession | null {
-    const node = this.nodesById.get(params.nodeId);
-    if (
-      !node ||
-      !params.connId ||
-      node.connId !== params.connId ||
-      node.permissions?.accessibility !== true
-    ) {
-      return null;
+  updatePresenceActivity(params: NodePresenceActivityUpdate): NodeSession | null {
+    const node = updateNodePresenceActivity(this.getRegisteredSession(params.nodeId), params);
+    if (node) {
+      this.publishActiveNodeContext();
     }
-    const observedAtMs = params.observedAtMs ?? Date.now();
-    const lastActiveAtMs = Math.max(0, observedAtMs - params.idleSeconds * 1000);
-    if (params.saturated !== true || node.lastActiveAtMs === undefined) {
-      node.lastActiveAtMs = Math.max(node.lastActiveAtMs ?? 0, lastActiveAtMs);
-    }
-    node.presenceUpdatedAtMs = observedAtMs;
-    this.publishActiveNodeContext();
     return node;
   }
 
   /** Clears recent input activity for the exact authenticated node connection. */
   clearPresenceActivity(params: { nodeId: string; connId?: string }): boolean | null {
-    const node = this.nodesById.get(params.nodeId);
-    if (!node || !params.connId || node.connId !== params.connId) {
-      return null;
+    const cleared = clearNodePresenceActivity(
+      this.getRegisteredSession(params.nodeId),
+      params.connId,
+    );
+    if (cleared) {
+      this.publishActiveNodeContext();
     }
-    if (node.lastActiveAtMs === undefined && node.presenceUpdatedAtMs === undefined) {
-      return false;
-    }
-    node.lastActiveAtMs = undefined;
-    node.presenceUpdatedAtMs = undefined;
-    this.publishActiveNodeContext();
-    return true;
+    return cleared;
   }
 
   /** Returns the connected node with the freshest reported local input. */
@@ -1164,7 +1108,12 @@ export class NodeRegistry {
               declared: node.declaredPermissions,
             });
       node.client.connect.permissions = node.permissions;
-      this.clearPresenceIfAccessibilityUnavailable(node);
+      if (
+        node.permissions?.accessibility !== true &&
+        clearNodePresenceActivity(node, node.connId, "system")
+      ) {
+        this.publishActiveNodeContext();
+      }
     }
 
     if (generationTransition) {
@@ -1193,15 +1142,6 @@ export class NodeRegistry {
     }
 
     return node;
-  }
-
-  private clearPresenceIfAccessibilityUnavailable(node: NodeSession): void {
-    if (node.permissions?.accessibility === true || node.lastActiveAtMs === undefined) {
-      return;
-    }
-    node.lastActiveAtMs = undefined;
-    node.presenceUpdatedAtMs = undefined;
-    this.publishActiveNodeContext();
   }
 
   async invoke(params: NodeInvokeParams): Promise<NodeInvokeResult> {

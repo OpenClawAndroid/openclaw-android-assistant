@@ -26,6 +26,7 @@ import {
   startTaskRegistryListener,
   withPendingTaskRegistryEvents,
 } from "./task-registry-listener-state.js";
+import { createTaskRegistryProjectionPreparation } from "./task-registry-projection-prepare.js";
 import { listTasksFromIndex, normalizeTaskTimestamps } from "./task-registry-records.js";
 import { createAsyncRegistryRestore, createSyncRegistryReader } from "./task-registry-restore.js";
 import type { TaskRegistryRestoreResult } from "./task-registry-restore.worker.js";
@@ -38,10 +39,9 @@ import {
   type TaskRegistryWorkerMutationContext,
 } from "./task-registry-worker-publication.js";
 import {
-  addRunIdIndex,
+  updateRunIdIndex,
   addTaskIndexes,
   removeTaskIndexes,
-  deleteRunIdIndex,
   addOwnerKeyIndex,
   deleteOwnerKeyIndex,
   addParentFlowIdIndex,
@@ -60,7 +60,6 @@ import {
 import {
   deliverTaskRegistryObserverEvent,
   getTaskRegistryStore,
-  loadTaskRegistryMutationSnapshots,
   type TaskRegistryStore,
 } from "./task-registry.store.js";
 import type {
@@ -391,35 +390,12 @@ export function assertTaskRegistryOwnerCurrent(
   }
 }
 
-export async function prepareTaskRegistryProjectionAsync(
-  context: OpenClawStateWorkerContext,
-  store: TaskRegistryStore,
-  maxAttempts = Number.POSITIVE_INFINITY,
-): Promise<boolean> {
-  assertTaskRegistryOwnerCurrent(context, store);
-  await ensureTaskRegistryReadyAsync(context);
-  assertTaskRegistryOwnerCurrent(context, store);
-  let attempts = 0;
-  while (projection.mutationDepth === 0 && (projection.dirty || dirtyScopes.size > 0)) {
-    if (attempts++ >= maxAttempts) {
-      return false;
-    }
-    const epoch = projection.epoch;
-    const scopes = projection.dirty ? [undefined] : [...dirtyScopes];
-    const snapshots = await loadTaskRegistryMutationSnapshots(context, store, scopes);
-    assertTaskRegistryOwnerCurrent(context, store);
-    if (epoch !== projection.epoch) {
-      continue;
-    }
-    for (const { snapshot, scope } of snapshots) {
-      installSnapshot(snapshot, scope);
-    }
-    // In-flight mutations retain their publication obligations after this read.
-    markTaskRegistryProjectionRestored();
-    return true;
-  }
-  return true;
-}
+export const prepareTaskRegistryProjectionAsync = createTaskRegistryProjectionPreparation({
+  ensureReady: ensureTaskRegistryReadyAsync,
+  assertCurrent: assertTaskRegistryOwnerCurrent,
+  installSnapshot,
+  markRestored: markTaskRegistryProjectionRestored,
+});
 
 function failTaskRegistryRestore(
   error: unknown,
@@ -515,10 +491,7 @@ function installSnapshot(
       if (!current) {
         addTaskIndexes(next);
       } else {
-        if (current.runId !== next.runId) {
-          deleteRunIdIndex(taskId, current.runId);
-          addRunIdIndex(taskId, next.runId);
-        }
+        updateRunIdIndex(current, next);
         if (current.ownerKey !== next.ownerKey) {
           deleteOwnerKeyIndex(taskId, current);
           addOwnerKeyIndex(taskId, next);
@@ -716,7 +689,6 @@ export async function runTaskRegistryWorkerMutation<T>(
         recoverPublication: recovery?.recover,
         taskRowsWritten: context.taskRowsWritten?.(),
       });
-      recovery?.bindExpected(pending.publication?.records.get(scope.taskId));
       assertOwner();
       await context.beforeObservers?.(assertOwner);
       assertOwner();

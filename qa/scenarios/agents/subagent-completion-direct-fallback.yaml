@@ -177,12 +177,22 @@ flow:
                         senderName: QA Terminal Reply Operator
                         text:
                           expr: "`Subagent terminal reply QA check: ${terminalCase.name}. Spawn one native worker, then finish the parent turn without waiting. Do not use ACP.`"
+                    # Child delivery can finish while the parent's acknowledgment is still queued.
                     - call: waitForCondition
                       saveAs: terminalTask
                       args:
                         - lambda:
                             async: true
-                            expr: "(async () => { const task = await readSettledTerminalTask(terminalCase.name); if (!task) return undefined; if (terminalCase.name !== 'silent' && (await readDirectFallbackReceipts(task)).length === 0) return undefined; const matchingCount = state.getSnapshot().messages.slice(startIndex).filter((candidate) => candidate.direction === 'outbound' && candidate.conversation.id === conversationId && String(candidate.text ?? '').trim() === terminalCase.marker).length; return terminalCase.expectedSendCount === 0 || matchingCount >= terminalCase.expectedSendCount ? task : undefined; })().catch(() => undefined)"
+                            expr: |
+                              (async () => {
+                                const task = await readSettledTerminalTask(terminalCase.name);
+                                if (!task) return undefined;
+                                if (terminalCase.name !== 'silent' && (await readDirectFallbackReceipts(task)).length === 0) return undefined;
+                                const outbound = state.getSnapshot().messages.slice(startIndex).filter((candidate) => candidate.direction === 'outbound' && candidate.conversation.id === conversationId);
+                                if (!outbound.some((candidate) => !candidate.deleted && String(candidate.text ?? '').trim() === config.parentAcknowledgment)) return undefined;
+                                const matchingCount = outbound.filter((candidate) => String(candidate.text ?? '').trim() === terminalCase.marker).length;
+                                return terminalCase.expectedSendCount === 0 || matchingCount >= terminalCase.expectedSendCount ? task : undefined;
+                              })().catch(() => undefined)
                         - 60000
                         - 250
                     - set: caseOutbound

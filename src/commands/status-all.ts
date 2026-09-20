@@ -10,20 +10,25 @@ import {
   resolveStatusServiceSummaries,
   resolveStatusUsageSummary,
 } from "./status-runtime-shared.ts";
+import {
+  resolveStatusGatewayProbeTimeoutMs,
+  type StatusGatewayProbeBudget,
+} from "./status.gateway-probe-budget.js";
 import { resolveNodeOnlyGatewayInfo } from "./status.node-mode.js";
 import { collectStatusScanOverview } from "./status.scan-overview.ts";
 
 /** Runs the full read-only status report and writes it to the runtime logger. */
 export async function statusAllCommand(
   runtime: RuntimeEnv,
-  opts?: { timeoutMs?: number; usage?: boolean; agent?: string },
+  opts: StatusGatewayProbeBudget & { usage?: boolean; agent?: string },
 ): Promise<void> {
   await withProgress({ label: "Scanning status --all…", total: 11 }, async (progress) => {
     const overview = await collectStatusScanOverview({
       env: process.env,
       commandName: "status --all",
       opts: {
-        timeoutMs: opts?.timeoutMs,
+        timeoutMs: opts.timeoutMs,
+        gatewayProbeDeadlineMs: opts.gatewayProbeDeadlineMs,
       },
       showSecrets: false,
       runtime,
@@ -42,7 +47,7 @@ export async function statusAllCommand(
       },
     });
     progress.setLabel("Checking services…");
-    const [daemon, nodeService] = await resolveStatusServiceSummaries(opts?.timeoutMs);
+    const [daemon, nodeService] = await resolveStatusServiceSummaries(opts.timeoutMs);
     const nodeOnlyGateway = await resolveNodeOnlyGatewayInfo({
       daemon,
       node: nodeService,
@@ -56,14 +61,16 @@ export async function statusAllCommand(
         nodeService,
         nodeOnlyGateway,
         progress,
-        timeoutMs: opts?.timeoutMs,
+        timeoutMs: opts.timeoutMs,
+        gatewayProbeDeadlineMs: opts.gatewayProbeDeadlineMs,
       })),
     });
 
-    if (opts?.usage) {
+    if (opts.usage) {
       const usage = await resolveStatusUsageSummary({
         config: overview.cfg,
-        timeoutMs: opts.timeoutMs,
+        timeoutMs: resolveStatusGatewayProbeTimeoutMs(opts),
+        gatewayProbeDeadlineMs: opts.gatewayProbeDeadlineMs,
         ...(opts.agent ? { agentId: opts.agent } : {}),
       });
       lines.push("", ...formatUsageReportLines(usage));

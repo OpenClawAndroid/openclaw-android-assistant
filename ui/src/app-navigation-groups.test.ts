@@ -63,8 +63,8 @@ describe("sidebar entries", () => {
     expect(search("Dock icon", capability)).toContainEqual(
       expect.objectContaining({ routeId: "device" }),
     );
-    expect(search("computer presence", null)).toEqual([]);
-    expect(search("computer presence", capability)).toContainEqual(
+    expect(search("System-wide presence detection", null)).toEqual([]);
+    expect(search("System-wide presence detection", capability)).toContainEqual(
       expect.objectContaining({ routeId: "device-permissions" }),
     );
     const browserGroups = visibleSettingsNavigationGroups(canAdmin);
@@ -122,7 +122,7 @@ describe("sidebar entries", () => {
       "Launch at login",
       "Quick Chat",
       "Cookie sync",
-      "computer presence",
+      "System-wide presence detection",
     ]) {
       expect(search(query, capability)).not.toEqual([]);
       expect(search(query, iosCapability)).toEqual([]);

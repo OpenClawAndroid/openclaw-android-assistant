@@ -32,12 +32,14 @@ import {
 import { expectNoNodeFsScans } from "../../src/test-utils/fs-scan-assertions.js";
 import { listGitTrackedFiles, sortRepoPaths, toRepoPath } from "../../src/test-utils/repo-files.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+import { createAgentsCoreIsolatedVitestConfig } from "../vitest/vitest.agents-core-isolated.config.ts";
 import { createAgentsCoreVitestConfig } from "../vitest/vitest.agents-core.config.ts";
 import {
   agentVitestProjectOwners,
   embeddedAgentVitestProjectOwners,
 } from "../vitest/vitest.agents-paths.mjs";
 import { createAgentsSupportVitestConfig } from "../vitest/vitest.agents-support.config.ts";
+import { createAgentsToolsVitestConfig } from "../vitest/vitest.agents-tools.config.ts";
 import { createAgentsVitestConfig } from "../vitest/vitest.agents.config.ts";
 import { cliProcessTestFiles } from "../vitest/vitest.cli-process-paths.mjs";
 import { createCliProcessVitestConfig } from "../vitest/vitest.cli-process.config.ts";
@@ -3428,6 +3430,30 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     expect(new Set(actual).size).toBe(actual.length);
   });
 
+  it.each(["github", "blacksmith", "hybrid"] as const)(
+    "bounds serial storage-state files per physical %s job without losing coverage",
+    (runnerBackend) => {
+      const owner = "core-runtime-infra-storage-state";
+      const expected = defaultShards.find((shard) => shard.shardName === owner)!.includePatterns!;
+      const plan = getCommittedCompactPlan("pull-request", runnerBackend);
+      const actual: string[] = [];
+      for (const job of plan) {
+        const files = job.groups
+          .filter((group) => group.shard_name.replace(/-hosted-\d+$/u, "") === owner)
+          .flatMap((group) => group.includePatterns ?? []);
+        expect(files.length, job.shardName).toBeLessThanOrEqual(64);
+        actual.push(...files);
+      }
+      expect(actual.toSorted()).toEqual(expected.toSorted());
+      expect(new Set(actual).size).toBe(actual.length);
+      expect(plan.length).toBeLessThanOrEqual(80);
+      const config = createInfraVitestConfig({});
+      expect(config.test?.fileParallelism).toBe(false);
+      expect(config.test?.isolate).toBe(true);
+      expect(config.test?.pool).toBe(diagnosticForksPool);
+    },
+  );
+
   it("preserves Gateway runner hooks while assigning database consumers to parallel forks", () => {
     const worker = createGatewayDatabaseWorkersVitestConfig({});
     const core = createGatewayCoreVitestConfig({});
@@ -3445,6 +3471,12 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       expect(worker.test?.setupFiles).toEqual(previous.test?.setupFiles);
     }
     expect(listMatchedTestFiles(worker)).toEqual(gatewayDatabaseWorkerTestFiles);
+    expect(listMatchedTestFiles(worker)).toEqual(
+      expect.arrayContaining([
+        "src/gateway/session-utils.queued-collector-admission.test.ts",
+        "src/gateway/session-utils.queued-collector.test.ts",
+      ]),
+    );
     const former = new Set([core, server, methods].flatMap(listMatchedTestFiles));
     for (const file of gatewayDatabaseWorkerTestFiles) {
       expect(former.has(file), file).toBe(false);
@@ -3468,15 +3500,25 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     const infra = createInfraVitestConfig({});
     const support = createAgentsSupportVitestConfig({});
     expect(infra.test?.pool).toBe(diagnosticForksPool);
+    expect(infra.test?.isolate).toBe(true);
     expect(infra.test?.setupFiles).toEqual(support.test?.setupFiles);
     const admitted = new Set(listMatchedTestFiles(infra));
-    expect(admitted.has("src/agents/sessions/sdk.auth-migration.test.ts")).toBe(true);
+    for (const file of [
+      "src/agents/sessions/sdk.auth-migration.test.ts",
+      "src/agents/subagents/spawn/subagent-spawn.in-process-gateway.test.ts",
+      "src/agents/subagents/spawn/subagent-spawn.authority.test.ts",
+      "src/agents/tools/swarm-tools.integration.test.ts",
+    ]) {
+      expect(admitted.has(file), file).toBe(true);
+    }
     const former = new Set(
       [
         createUnitVitestConfigWithOptions({}),
         createUnitFastVitestConfig(),
         createAgentsCoreVitestConfig({}),
+        createAgentsCoreIsolatedVitestConfig({}),
         support,
+        createAgentsToolsVitestConfig({}),
         createAgentsVitestConfig({}),
         createPluginSdkLightVitestConfig({}),
         createPluginSdkVitestConfig({}),

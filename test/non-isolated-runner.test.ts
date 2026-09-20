@@ -448,8 +448,8 @@ async function assertCompletion(
   const report: JsonTestResults = JSON.parse(await fs.readFile(expected.reportPath, "utf8"));
   expect(report.testResults.map((file) => file.name).toSorted()).toEqual(expected.files);
   expect(report).toMatchObject({
-    numTotalTests: 48,
-    numPassedTests: 47,
+    numTotalTests: 50,
+    numPassedTests: 49,
     numPendingTests: 1,
     numFailedTests: 0,
     numTodoTests: 0,

@@ -239,3 +239,30 @@ export function mockCallArg(
   }
   return call[argIndex] as Record<string, unknown>;
 }
+
+type SubagentRegistryModule =
+  typeof import("./subagents/registry/subagent-registry.test-helpers.js");
+export type SubagentRegistryHarness = Omit<SubagentRegistryModule, "registerSubagentRun"> & {
+  registerSubagentRun(params: SubagentRunParamsOverrides): void;
+};
+
+export function createSubagentRegistryHarness(
+  registry: SubagentRegistryModule,
+): SubagentRegistryHarness {
+  return {
+    ...registry,
+    registerSubagentRun: (params) => {
+      const registration = createSubagentRunParams(params);
+      if (registration.taskRowOwnership !== "required") {
+        return registry.registerSubagentRun({
+          ...registration,
+          taskRowOwnership: registration.taskRowOwnership,
+        });
+      }
+      if (registration.queued) {
+        throw new Error("Required queued registration belongs in awaited fixtures");
+      }
+      return registry.registerSubagentRun({ ...registration, queued: false });
+    },
+  };
+}

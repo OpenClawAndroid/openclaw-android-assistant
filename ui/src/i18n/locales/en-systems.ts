@@ -54,6 +54,7 @@ const enSystems = {
     memory: "Memory used",
     disk: "Disk available",
     sampled: "Sampled {time}",
+    collectingHistory: "Collecting history…",
     lastKnown: "Last reported {time}",
     noTelemetry: "This machine has not reported resource statistics.",
     attachedSessions: "Attached sessions",

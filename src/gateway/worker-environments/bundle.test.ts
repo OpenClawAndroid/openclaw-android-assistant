@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as tar from "tar";
@@ -130,6 +131,9 @@ describe("worker bundle producer", () => {
       }).prepare();
       expect(first.bundleHash).toMatch(/^[a-f0-9]{64}$/u);
       expect(second.bundleHash).toBe(first.bundleHash);
+      const compressed = await fs.readFile(first.tarballPath);
+      expect(first.tarballSha256).toBe(createHash("sha256").update(compressed).digest("hex"));
+      expect(first.tarballBytes).toBe(compressed.byteLength);
       await expect(listTarball(first.tarballPath)).resolves.toEqual([
         "github-exec-launcher.mjs",
         "image-processor.worker.mjs",

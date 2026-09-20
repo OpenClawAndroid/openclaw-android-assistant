@@ -1126,6 +1126,19 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  extensions/facetime:
+    dependencies:
+      typebox:
+        specifier: 1.3.30
+        version: 1.3.30
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+      openclaw:
+        specifier: workspace:*
+        version: link:../..
+
   extensions/fal:
     devDependencies:
       '@openclaw/plugin-sdk':
@@ -1406,6 +1419,10 @@ importers:
         version: link:../../packages/plugin-sdk
 
   extensions/llama-cpp:
+    dependencies:
+      '@openclaw/fs-safe':
+        specifier: 0.16.0
+        version: 0.16.0
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -1609,6 +1626,10 @@ importers:
         version: link:../../packages/plugin-sdk
 
   extensions/migrate-claude:
+    dependencies:
+      '@openclaw/fs-safe':
+        specifier: 0.16.0
+        version: 0.16.0
     devDependencies:
       '@openclaw/plugin-sdk':
         specifier: workspace:*
@@ -2021,6 +2042,9 @@ importers:
 
   extensions/signal:
     dependencies:
+      '@openclaw/fs-safe':
+        specifier: 0.16.0
+        version: 0.16.0
       ws:
         specifier: 8.21.3
         version: 8.21.3

@@ -24,12 +24,11 @@ function runShard(config: string, env: NodeJS.ProcessEnv): Promise<number> {
   return runManagedCommand({
     bin: process.execPath,
     shell: false,
-    args: distArtifactEntryArgs(path.join(repoRoot, "scripts/run-tsgo.mts"), [
-      "-b",
-      config,
-      "--builders",
-      "1",
-    ]),
+    args: distArtifactEntryArgs(
+      path.join(repoRoot, "scripts/run-tsgo.mts"),
+      ["-b", config, "--builders", "1"],
+      { native: true },
+    ),
     cwd: repoRoot,
     env,
     requireProcessTreeExit: process.platform !== "win32",

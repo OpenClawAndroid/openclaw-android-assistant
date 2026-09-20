@@ -241,7 +241,7 @@ suite.define(() => {
             await assertAnchor(cancelSamples);
             await gateway.setOnline(false);
             await gateway.closeLatest();
-            await page.locator('.agent-chat__composer-status[data-tone="warn"]').waitFor();
+            await page.locator('.agent-chat__composer-status[data-tone="info"]').waitFor();
             const queuedTexts = ["Review the next checkpoint", "Check the supporting notes"];
             for (const text of queuedTexts) {
               const queueSamples = sampleAnchor();

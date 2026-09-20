@@ -958,10 +958,13 @@ describe.skipIf(process.platform === "win32")("dist artifact ownership", () => {
     }, signal);
   }, 30_000);
 
-  it("preserves compiler shard concurrency inside one checkout owner", async ({ signal }) => {
+  it("preserves compiler shard concurrency without the tsx loader", async ({ signal }) => {
     await withProcesses(async ({ checkpoint, waitEvent, start }) => {
       const root = createCheckout();
-      installScripts(root, ["run-tsgo-core-test-shards.mts", "run-tsgo.mts"]);
+      installScripts(root, ["run-tsgo-core-test-shards.mts", "run-tsgo.mts"], {
+        dependencies: ["@openclaw/fs-safe"],
+      });
+      fs.unlinkSync(path.join(root, "scripts/tsx.mjs"));
       fs.unlinkSync(path.join(root, "node_modules/.bin/tsgo"));
       const compiler = write(
         root,

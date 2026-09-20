@@ -35,7 +35,15 @@ import {
 } from "../sessions/transcript-events.js";
 import { resetTaskRegistryForTests } from "../tasks/task-runtime.test-helpers.js";
 import { installInMemoryTaskRegistryRuntime } from "../test-utils/task-registry-runtime.js";
-import { abortChatRunById, registerChatAbortController } from "./chat-abort.js";
+import {
+  waitForChatAbortControllerRemoval,
+  waitForChatAbortTerminalPersistence,
+} from "./chat-abort-lifecycle-internal.js";
+import {
+  abortChatRunById,
+  registerChatAbortController,
+  removeChatAbortControllerEntry,
+} from "./chat-abort.js";
 import {
   createChatRunState,
   createSessionEventSubscriberRegistry,
@@ -615,6 +623,116 @@ describe("startGatewayEventSubscriptions", () => {
       { state: "Removed" },
     ]);
   });
+
+  it.each(
+    ["removed", "replacement", "retired replacement", "newer write"].flatMap((change) =>
+      [true, false].map((persisted) => ({ change, persisted })),
+    ),
+  )(
+    "settles captured terminal ownership after $change (persisted=$persisted)",
+    async ({ change, persisted }) => {
+      const params = createParams();
+      const runId = "captured-terminal";
+      const sessionKey = "agent:main:captured-terminal";
+      const register = () => {
+        const registration = registerChatAbortController({
+          chatAbortControllers: params.chatAbortControllers,
+          runId,
+          sessionId: "captured-session",
+          sessionKey,
+          timeoutMs: 60_000,
+        });
+        if (!registration.entry) {
+          throw new Error("expected captured registration");
+        }
+        return registration.entry;
+      };
+      const entry = register();
+      const terminal = createDeferred();
+      const successor = createDeferred();
+      const failure = new Error("captured terminal write failed");
+      agentEventHandlerMocks.persistLifecycle
+        .mockReturnValueOnce(terminal.promise)
+        .mockReturnValueOnce(successor.promise);
+      agentEventHandlerMocks.create.mockReturnValue(Object.assign(vi.fn(), { dispose: vi.fn() }));
+      unsubs = startGatewayEventSubscriptions(params);
+      const emitTerminal = (endedAt: number) =>
+        emitAgentEvent({
+          runId,
+          sessionKey,
+          sessionId: entry.sessionId,
+          stream: "lifecycle",
+          data: { phase: "end", endedAt },
+        });
+      emitTerminal(2_000);
+      expect(entry.projectSessionTerminalPersistence).toBe(terminal.promise);
+      const recovery = {
+        runId,
+        sessionKey,
+        sessionId: entry.sessionId,
+        lifecycleGeneration: getAgentEventLifecycleGeneration(),
+        observedAt: 2_000,
+      };
+      params.restartRecoveryCandidates.set(runId, recovery);
+      let current = entry;
+      if (change !== "newer write") {
+        expect(removeChatAbortControllerEntry(params.chatAbortControllers, runId, entry)).toBe(
+          true,
+        );
+      }
+      if (change.includes("replacement")) {
+        current = register();
+      }
+      if (change !== "removed") {
+        emitTerminal(3_000);
+        params.restartRecoveryCandidates.set(runId, { ...recovery, observedAt: 3_000 });
+      }
+      if (change === "retired replacement") {
+        expect(removeChatAbortControllerEntry(params.chatAbortControllers, runId, current)).toBe(
+          true,
+        );
+      }
+      const currentState = readLifecycleState(current);
+      try {
+        if (persisted) {
+          terminal.resolve();
+        } else {
+          terminal.reject(failure);
+        }
+        await terminal.promise.catch(() => {});
+        if (change === "newer write") {
+          expect(readLifecycleState(entry)).toEqual(currentState);
+        } else {
+          expect(entry.projectSessionTerminalPending).toBe(false);
+          expect(entry.projectSessionTerminalPersistence).toBeUndefined();
+          expect(entry.projectSessionTerminalPersisted).toBe(persisted);
+          expect(
+            await waitForChatAbortControllerRemoval({
+              entries: params.chatAbortControllers,
+              targets: [{ runId, entry }],
+              timeoutMs: 1_000,
+            }),
+          ).toBe(persisted);
+          if (!persisted) {
+            await expect(waitForChatAbortTerminalPersistence(entry)).rejects.toBe(failure);
+          }
+        }
+        if (change === "removed") {
+          expect(params.restartRecoveryCandidates.get(runId)).toEqual(recovery);
+        } else {
+          expect(params.chatAbortControllers.get(runId)).toBe(
+            change === "retired replacement" ? undefined : current,
+          );
+          expect(readLifecycleState(current)).toEqual(currentState);
+          expect(params.restartRecoveryCandidates.get(runId)?.observedAt).toBe(3_000);
+        }
+      } finally {
+        terminal.resolve();
+        successor.resolve();
+        await Promise.allSettled([terminal.promise, successor.promise]);
+      }
+    },
+  );
 
   it.each(["start", "end"] as const)(
     "generation-fences a current lifecycle %s event from a retired registration",

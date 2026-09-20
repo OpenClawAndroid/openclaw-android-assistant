@@ -32,6 +32,7 @@ import {
   isMessagingTool,
   normalizeHeartbeatToolResponse,
   projectPluginMessageDeliveryFact,
+  readToolOperatorHint,
   resolveToolExecutionErrorKind,
   resolveToolResultFailureKind,
   readEmbeddedMessageDeliveryFact,
@@ -82,13 +83,13 @@ import {
 } from "./dynamic-tool-catalog.js";
 import {
   createFailedDynamicToolResponse,
+  failedToolResult,
   type CodexDynamicToolRuntimeResponse,
 } from "./dynamic-tool-response-state.js";
 import { invalidInlineImageText, sanitizeInlineImageDataUrl } from "./image-payload-sanitizer.js";
 import type {
   CodexDynamicToolCallOutputContentItem,
   CodexDynamicToolCallParams,
-  CodexDynamicToolDiagnosticTerminalReason,
   CodexDynamicToolSpec,
 } from "./protocol.js";
 import { flattenCodexDynamicToolFunctions } from "./protocol.js";
@@ -756,6 +757,10 @@ export function createCodexDynamicToolBridge(params: {
           error,
           "OpenClaw dynamic tool call failed.",
         );
+        const operatorHint = readToolOperatorHint(error);
+        if (operatorHint) {
+          embeddedAgentLog.error(`[tools] ${toolName} failed: ${errorMessage} ${operatorHint}`);
+        }
         executionPrevented =
           executionPrevented ||
           consumePreExecutionBlockedToolCall(call.callId, toolResultHookContext.runId);
@@ -878,16 +883,6 @@ function notifyAgentToolResult(
     const message = formatToolExecutionErrorMessage(error, "Unknown error");
     embeddedAgentLog.warn(`onAgentToolResult handler failed: tool=${toolName} error=${message}`);
   }
-}
-
-function failedToolResult(
-  message: string,
-  status: "blocked" | CodexDynamicToolDiagnosticTerminalReason = "failed",
-): AgentToolResult<unknown> {
-  return {
-    content: [{ type: "text", text: message }],
-    details: { status, error: message },
-  };
 }
 
 function reportQuarantinedDynamicTools(params: {

@@ -105,3 +105,58 @@ Workspace access that has not started or has stopped throws
 `WorkspaceAccessUnavailableError`. Use `isWorkspaceAccessUnavailableError(error)`
 to recognize this condition through wrapped errors or separate SDK instances.
 The error code is `WORKSPACE_ACCESS_UNAVAILABLE`; do not match message text.
+
+The optional `memoryFiles` provider keeps workspace Memory files on the host while
+the native index, embedding providers and original sessions stay on Gateway. It
+supplies discovery, file inspection, reads and change notifications. Both indexing
+and `memory_get` use it; index publication rechecks the host file. The canonical
+source returned with a read supplies provenance, without resolving a stale Gateway
+copy. Stopping the workspace binding revokes retained file access and subscriptions.
+The Memory file worker supports `--files <workspace>` for native file
+operations without opening a host index or receiving embedding credentials. A
+provider can invoke it through its existing subprocess transport.
+`createWorkspaceMemoryFileClient` maps Gateway/host paths and preserves native
+errors for this worker. Supply `request` for one JSON exchange and `subscribe`
+for the `--watch-files` JSON-line stream, plus the binding's abort signal.
+Neither callback depends on Codex; providers own transport and authorization.
+
+`memoryFiles.maintenance` routes existing dreaming, promotion, corpus and forget
+file operations to the host. Compound writes reuse native atomic publication and
+conflict handling; maintenance decisions, locks and SQLite state stay on Gateway.
+A remote binding without maintenance support fails instead of using Gateway files.
+The file worker implements these operations and native change notifications.
+Paired-node adapter wiring is still required before a complete storage cutover.
+
+Task-time Skill preparation uses remote discovery. Channel-native menus use
+Gateway-owned Skills without waiting for the Harness; remote menu support is
+tracked in [Enterprise #241](https://github.com/openclaw/openclaw-enterprise/issues/241).
+
+The optional `skillResources` provider handles Skill reads separately from Agent
+document access. Its `readInstructions` reads the selected instruction file for
+Code Mode; `readSkillFiles` supplies a bundle for worker delivery. Gateway-owned
+bundled, plugin, Library, Workshop and user-level sources keep their Gateway paths.
+Workspace-owned sources use the remote provider. Gateway preserves source precedence
+and uses existing resource delivery for workers. Discovery assigns file ownership; a provider cannot
+request Gateway-local reads by returning a source label or `fileHost` value.
+Stopping the binding revokes retained host readers.
+
+`readWorkspaceSkillResources` lazily reuses the bounded native bundle reader.
+File-transfer adapters can check each file's requested and verified canonical paths
+before returning a bundle; admitting the Skill directory alone does not admit every child.
+
+Hosts can provide `watchSkills(request, onChange, signal)` to notify the existing
+snapshot cache when admitted Skill sources change. Keep the subscription alive
+until aborted, and send `change` after the initial scan and later edits. Send
+`unavailable` if file watching stops: preparation then refreshes on each call,
+without reopening the subscription. Hosts without `watchSkills` use that same
+fallback. `skills.load.watch: false` disables the subscription and this fallback.
+Gateway watches Workshop locally under the same snapshot invalidation lifecycle.
+
+## Tool failure diagnostics
+
+Agent harnesses can import `readToolOperatorHint(error)` from
+`openclaw/plugin-sdk/agent-harness-runtime` to read optional operator advice
+attached to a tool failure. Include it only in the operator log. Keep it out of
+model responses, tool-result callbacks, and serialized transcripts, and preserve
+the original error message. An unannotated or immutable error needs no substitute
+hint; the reader returns `undefined` when no advice is available.

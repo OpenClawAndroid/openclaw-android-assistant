@@ -197,8 +197,11 @@ class DevicePage extends OpenClawLightDomElement {
     const pending = capability ? pendingCookieSyncEdits.get(capability) : undefined;
     const domains = pending?.domains ?? sync.domains;
     const result = this.extensionSetupResult;
-    const installed = result !== null && result.installedProfiles > 0;
-    const needsSetup = result !== null && (!installed || !result.nativeHostRegistered);
+    const installed =
+      result !== null && (result.installedProfiles ?? result.discoveredProfiles) > 0;
+    const needsSetup = result
+      ? !installed || !result.nativeHostRegistered
+      : this.extensionError !== null;
     const addDomain = () => {
       this.updateDomains((current) => [...current, this.newDomain]);
       this.newDomain = "";
@@ -220,7 +223,7 @@ class DevicePage extends OpenClawLightDomElement {
                       ? "configPage.deviceSettings.chromeExtensionDetected"
                       : this.extensionOperation === "checking"
                         ? "configPage.deviceSettings.chromeExtensionChecking"
-                        : this.extensionError
+                        : this.extensionError || result?.installedProfiles === undefined
                           ? "configPage.deviceSettings.chromeExtensionUnknown"
                           : "configPage.deviceSettings.chromeExtensionNotInstalled",
                   ),
@@ -397,7 +400,7 @@ class DevicePage extends OpenClawLightDomElement {
       );
     }
     const result = this.extensionSetupResult;
-    if (result && result.installedProfiles > 0) {
+    if (result && (result.installedProfiles ?? result.discoveredProfiles) > 0) {
       return t(
         !result.nativeHostRegistered
           ? "configPage.deviceSettings.chromeExtensionRepairHint"
@@ -410,7 +413,9 @@ class DevicePage extends OpenClawLightDomElement {
       return t(
         result.installRequested
           ? "configPage.deviceSettings.chromeExtensionPending"
-          : "configPage.deviceSettings.chromeExtensionStoreRequired",
+          : result.installedProfiles === undefined
+            ? "configPage.deviceSettings.chromeExtensionStatusUnsupported"
+            : "configPage.deviceSettings.chromeExtensionStoreRequired",
       );
     }
     return t("configPage.deviceSettings.chromeExtensionHint");

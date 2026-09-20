@@ -48,6 +48,12 @@ it("preserves ordered scoped tasks and their exact delivery rows", async () => {
     record(`broad-${String(index).padStart(3, "0")}`, { runId: "broad-run" }),
   );
   const cases: Array<{ scope: TaskRegistryMutationScope; expected: TaskRecord[] }> = [
+    { scope: { taskId: direct.taskId }, expected: [direct] },
+    { scope: { taskId: "absent" }, expected: [] },
+    {
+      scope: { taskId: direct.taskId, runId: " ", childSessionKey: "\t\n" },
+      expected: [direct],
+    },
     { scope: { taskId: "absent", runId: " ", childSessionKey: " " }, expected: [] },
     {
       scope: { taskId: direct.taskId, runId: " shared-run ", childSessionKey: " shared-child " },
@@ -55,6 +61,7 @@ it("preserves ordered scoped tasks and their exact delivery rows", async () => {
     },
     { scope: { taskId: "absent", runId: "broad-run" }, expected: broad },
   ];
+  const prepare = vi.spyOn(db, "prepare");
   try {
     db.exec(OPENCLAW_STATE_SCHEMA_SQL);
     runSqliteImmediateTransactionSync(db, () => {
@@ -81,6 +88,7 @@ it("preserves ordered scoped tasks and their exact delivery rows", async () => {
       }
     });
     for (const { scope, expected } of cases) {
+      prepare.mockClear();
       const snapshot = tasks.readTaskRegistryMutationSnapshotInDatabase(db, scope);
       expect([...snapshot.tasks.values()]).toEqual(expected);
       expect([...snapshot.deliveryStates.values()]).toEqual(
@@ -91,8 +99,24 @@ it("preserves ordered scoped tasks and their exact delivery rows", async () => {
             left.taskId < right.taskId ? -1 : left.taskId > right.taskId ? 1 : 0,
           ),
       );
+      if (!scope.runId?.trim() && !scope.childSessionKey?.trim()) {
+        const taskQueries = prepare.mock.calls
+          .map(([query]) => query)
+          .filter((query) => query.includes('from "task_runs"'));
+        expect(taskQueries.length).toBeGreaterThan(0);
+        for (const query of taskQueries) {
+          const plan = db
+            .prepare(`EXPLAIN QUERY PLAN ${query}`)
+            .all()
+            .map((row) => row.detail)
+            .join("\n");
+          expect(plan).toContain("SEARCH task_runs USING INDEX");
+          expect(plan).not.toContain("SCAN task_runs");
+        }
+      }
     }
   } finally {
+    prepare.mockRestore();
     db.close();
   }
 });

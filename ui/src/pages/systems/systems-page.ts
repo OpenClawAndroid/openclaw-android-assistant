@@ -1,11 +1,14 @@
-import type { SystemInfoResult } from "@openclaw/gateway-protocol";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { html, nothing, type PropertyValues } from "lit";
 import { property } from "lit/decorators.js";
+import { keyed } from "lit/directives/keyed.js";
+import { repeat } from "lit/directives/repeat.js";
 import type { ApplicationContext } from "../../app/context.ts";
 import { icons } from "../../components/icons.ts";
-import "../../components/desktop/desktop-panel.ts";
+import "../../components/sparkline-tile.ts";
 import { DESKTOP_PANEL_TOGGLE_EVENT } from "../../components/panel-toggle-contract.ts";
+import "../../components/desktop/desktop-panel.ts";
+import type { SparklineSample } from "../../components/sparkline-tile.ts";
 import { t } from "../../i18n/index.ts";
 import { registerSystemsEnglish } from "../../i18n/locales/en-systems.ts";
 import { formatByteSize, formatTimeAgo } from "../../lib/format.ts";
@@ -21,23 +24,16 @@ import { SystemsController } from "./systems-controller.ts";
 import type { SystemsRouteData } from "./systems-controller.ts";
 import type { SystemsInventoryRow } from "./systems-data.ts";
 import { systemKind, systemName, systemStatus } from "./systems-sidebar.ts";
+import {
+  SYSTEMS_GATEWAY_STALE_MS,
+  SYSTEMS_NODE_STALE_MS,
+  systemMeasurements,
+  type HostMeasurements,
+  type SystemsTelemetrySample,
+} from "./systems-telemetry.ts";
 import "../../styles/systems.css";
 
 registerSystemsEnglish();
-
-type HostMeasurements = Pick<
-  SystemInfoResult,
-  | "cpuCount"
-  | "loadAverage"
-  | "memoryTotalBytes"
-  | "memoryFreeBytes"
-  | "diskTotalBytes"
-  | "diskAvailableBytes"
->;
-
-function measurements(row: SystemsInventoryRow): HostMeasurements | undefined {
-  return row.gatewaySystemInfo ?? row.node?.hostStats;
-}
 
 function bytes(value: number): string {
   return formatByteSize(value, {
@@ -48,42 +44,92 @@ function bytes(value: number): string {
   });
 }
 
-function renderMeasurements(
-  row: SystemsInventoryRow,
-  sampledAtMs: number | null,
-  connected: boolean,
-) {
-  const stats = measurements(row);
+function metricSamples(
+  history: readonly SystemsTelemetrySample[],
+  read: (stats: HostMeasurements) => number | undefined,
+): SparklineSample[] {
+  const samples: SparklineSample[] = [];
+  for (const { at, stats } of history) {
+    const value = read(stats);
+    if (value === undefined || !Number.isFinite(value)) {
+      samples.length = 0;
+    } else {
+      samples.push({ at, value });
+    }
+  }
+  return samples;
+}
+
+function renderMeasurements(row: SystemsInventoryRow, controller: SystemsController) {
+  const stats = systemMeasurements(row);
   if (!stats) {
     return html`<p class="systems-no-telemetry">${t("systems.noTelemetry")}</p>`;
   }
-  const observedAt = row.node?.hostStats?.updatedAtMs ?? sampledAtMs;
+  const observedAt = row.node?.hostStats?.updatedAtMs ?? controller.sampledAtMs;
+  const gatewayHost = row.environment.id === "gateway";
   const lastKnown =
-    !connected ||
+    !controller.connected ||
     row.environment.status !== "available" ||
-    (observedAt !== null && Date.now() - observedAt > 30_000);
-  return html`<div class="systems-metrics" data-stale=${lastKnown}>
-    <div>
-      <span>${t("systems.load")}</span
-      ><strong
-        >${stats.loadAverage ? stats.loadAverage[0].toFixed(2) : t("systems.unavailable")}</strong
-      ><small>${t("systems.cpuCount", { count: String(stats.cpuCount) })}</small>
-    </div>
-    <div>
-      <span>${t("systems.memory")}</span
-      ><strong
-        >${bytes(stats.memoryTotalBytes - stats.memoryFreeBytes)}
-        <small>/ ${bytes(stats.memoryTotalBytes)}</small></strong
+    Boolean(controller.inventory?.errors[gatewayHost ? "systemInfo" : "nodes"]) ||
+    (observedAt !== null &&
+      Date.now() - observedAt > (gatewayHost ? SYSTEMS_GATEWAY_STALE_MS : SYSTEMS_NODE_STALE_MS));
+  const retained = controller.telemetryHistory(row.environment.id);
+  const history = retained.length ? retained : [{ at: observedAt ?? 0, stats }];
+  const renderDisk = (path: string | undefined, totalBytes: number | undefined) => html`
+    <openclaw-sparkline
+      class="gateway-vital systems-vital systems-vital--disk"
+      title=${path ?? nothing}
+      .label=${path ? `${t("systems.disk")} ${path}` : t("systems.disk")}
+      .sub=${totalBytes === undefined ? "" : `/ ${bytes(totalBytes)}`}
+      .samples=${metricSamples(history, (sample) =>
+        path === undefined
+          ? sample.disks === undefined
+            ? sample.diskAvailableBytes
+            : undefined
+          : sample.disks?.find((disk) => disk.path === path)?.availableBytes,
+      )}
+      .format=${bytes}
+      .autorange=${true}
+    ></openclaw-sparkline>
+  `;
+  return keyed(
+    row.environment.id,
+    html`<div class="systems-metrics" data-stale=${lastKnown}>
+      <div
+        class="systems-vitals ${stats.disks && stats.disks.length !== 1 ? "systems-vitals--volumes" : ""}"
       >
-    </div>
-    <div>
-      <span>${t("systems.disk")}</span
-      ><strong
-        >${stats.diskAvailableBytes === undefined ? t("systems.unavailable") : bytes(stats.diskAvailableBytes)}</strong
-      >
-    </div>
-    ${observedAt === null ? nothing : html`<span class="systems-sample-time">${t(lastKnown ? "systems.lastKnown" : "systems.sampled", { time: formatTimeAgo(Math.max(0, Date.now() - observedAt)) })}</span>`}
-  </div>`;
+        <openclaw-sparkline
+          class="gateway-vital systems-vital systems-vital--load"
+          .label=${t("systems.load")}
+          .sub=${t("systems.cpuCount", { count: String(stats.cpuCount) })}
+          .samples=${metricSamples(history, (sample) => sample.loadAverage?.[0])}
+          .format=${(value: number) => value.toFixed(2)}
+          .floorMax=${stats.cpuCount}
+        ></openclaw-sparkline>
+        <openclaw-sparkline
+          class="gateway-vital systems-vital systems-vital--memory"
+          .label=${t("systems.memory")}
+          .sub=${`/ ${bytes(stats.memoryTotalBytes)}`}
+          .samples=${metricSamples(history, (sample) => sample.memoryTotalBytes - sample.memoryFreeBytes)}
+          .format=${bytes}
+          .floorMax=${stats.memoryTotalBytes}
+        ></openclaw-sparkline>
+        ${
+          stats.disks === undefined
+            ? renderDisk(undefined, stats.diskTotalBytes)
+            : repeat(
+                stats.disks,
+                (disk) => disk.path,
+                (disk) => renderDisk(disk.path, disk.totalBytes),
+              )
+        }
+      </div>
+      <div class="systems-metrics-caption">
+        ${!lastKnown && history.length < 2 ? html`<span>${t("systems.collectingHistory")}</span>` : nothing}
+        ${observedAt === null ? nothing : html`<span class="systems-sample-time">${t(lastKnown ? "systems.lastKnown" : "systems.sampled", { time: formatTimeAgo(Math.max(0, Date.now() - observedAt)) })}</span>`}
+      </div>
+    </div>`,
+  );
 }
 
 class SystemsPage extends OpenClawLightDomElement {
@@ -179,7 +225,7 @@ class SystemsPage extends OpenClawLightDomElement {
         <dd>${environment.platform ?? row.node?.platform ?? t("systems.unknown")}</dd>
       </dl>
       <h3>${t("systems.telemetry")}</h3>
-      ${renderMeasurements(row, controller.sampledAtMs, controller.connected)}
+      ${renderMeasurements(row, controller)}
       <h3>${t("systems.relatedSessions")}</h3>
       <p class="systems-detail-hint">${t("systems.relatedHint")}</p>
       ${
@@ -312,7 +358,7 @@ class SystemsPage extends OpenClawLightDomElement {
             </details>`
           : nothing
       }
-      ${controller.showStats && row ? renderMeasurements(row, controller.sampledAtMs, controller.connected) : nothing}
+      ${controller.showStats && row ? renderMeasurements(row, controller) : nothing}
       <div class="systems-body">
         <div class="systems-desktop">
           ${

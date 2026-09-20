@@ -11,6 +11,10 @@ import {
 import { executeSqliteQuerySync, executeSqliteQueryTakeFirstSync } from "../infra/kysely-sync.js";
 import { generateSecureUuid } from "../infra/secure-random.js";
 import {
+  MAX_USER_PROFILE_AVATAR_BYTES,
+  USER_PROFILE_AVATAR_MIME_TYPES,
+} from "../shared/avatar-limits.js";
+import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabaseOptions,
@@ -44,11 +48,7 @@ import {
   classifyTailscaleLogin,
   type TailscaleProfileIdentity,
 } from "./user-profiles-tailscale-login.js";
-import {
-  MAX_USER_PROFILE_AVATAR_BYTES,
-  USER_PROFILE_AVATAR_MIME_TYPES,
-  type UserProfileAvatarMime,
-} from "./user-profiles.types.js";
+import type { UserProfileAvatarMime } from "./user-profiles.types.js";
 
 export { formatUserProfileAvatarEtag, getProfileAvatar } from "./user-profiles-internal.js";
 export {

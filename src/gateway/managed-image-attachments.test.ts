@@ -44,9 +44,9 @@ import {
 } from "../state/openclaw-state-db.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import { createFixture } from "./managed-image-attachments.test-support.js";
 import {
   attachManagedImageRecordToMessage,
-  insertManagedImageRecord,
   listManagedImageRecordEntries,
   MANAGED_OUTGOING_ORIGINALS_SUBDIR,
   readManagedImageRecord,
@@ -289,50 +289,6 @@ async function prepareManagedSessionStore(stateDir: string): Promise<void> {
     }),
   ).toMatchObject({ found: true, value: { sessionKey: "agent:main:main" } });
   getRuntimeConfigMock.mockReturnValue({ session: { store: storePath } });
-}
-
-async function createFixture(
-  stateDir: string,
-  options?: {
-    sessionKey?: string;
-    agentId?: string;
-    attachmentId?: string;
-    filename?: string;
-    contentType?: string;
-    body?: Buffer;
-    messageId?: string | null;
-    createdAt?: string;
-  },
-) {
-  const attachmentId = options?.attachmentId ?? "11111111-1111-4111-8111-111111111111";
-  const sessionKey = options?.sessionKey ?? "agent:main:main";
-  const filename = options?.filename ?? `${attachmentId}-cat-full.png`;
-  const originalPath = path.join(stateDir, "media", MANAGED_OUTGOING_ORIGINALS_SUBDIR, filename);
-  await fs.mkdir(path.dirname(originalPath), { recursive: true });
-  const body = options?.body ?? Buffer.from("original-image");
-  await fs.writeFile(originalPath, body);
-  insertManagedImageRecord(
-    {
-      attachmentId,
-      sessionKey,
-      ...(options?.agentId ? { agentId: options.agentId } : {}),
-      messageId: options?.messageId === undefined ? "msg-1" : options.messageId,
-      createdAt: options?.createdAt ?? new Date().toISOString(),
-      alt: "Cat",
-      original: {
-        mediaRoot: path.join(stateDir, "media"),
-        mediaId: filename,
-        mediaSubdir: MANAGED_OUTGOING_ORIGINALS_SUBDIR,
-        contentType: options?.contentType ?? "image/png",
-        width: options?.contentType?.startsWith("image/") === false ? null : 1024,
-        height: options?.contentType?.startsWith("image/") === false ? null : 768,
-        sizeBytes: body.byteLength,
-        filename: options?.filename ?? "cat.png",
-      },
-    },
-    stateDir,
-  );
-  return { attachmentId, sessionKey, originalPath };
 }
 
 async function requestManagedImage(params: {
@@ -1180,62 +1136,72 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
     expect(download?.title).toBe("meeting-note.mp3");
   });
 
-  it("serves the same bounded thumbnail through local reads and the full-image artifact ticket", async () => {
-    const source = createSolidPngBuffer(640, 320, { r: 24, g: 64, b: 128 });
-    const { attachmentId, sessionKey } = await createFixture(stateDir, { body: source });
-    const canonicalPath = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
-    const transcriptMessages = [
-      {
-        role: "assistant",
-        content: [{ type: "image", url: canonicalPath, openUrl: canonicalPath }],
-        __openclaw: { id: "msg-1" },
-      },
-    ];
-    loadSessionEntryMock.mockReturnValue({
-      storePath: path.join(stateDir, "sessions.sqlite"),
-      entry: { sessionId: "sess-1", sessionFile: "session.jsonl" },
-    });
-    readSessionMessagesMock.mockResolvedValue(transcriptMessages);
-    const download = await resolveManagedOutgoingImageArtifactDownload({
-      sessionKey,
-      artifactId: `${MANAGED_OUTGOING_IMAGE_ARTIFACT_ID_PREFIX}${attachmentId}`,
-      stateDir,
-    });
-    const thumbnailUrl = download?.url.replace(/\/full(?=\?)/u, "/thumbnail") ?? "";
-    const localRequest = {
-      sessionKey,
-      artifactId: `${MANAGED_OUTGOING_IMAGE_ARTIFACT_ID_PREFIX}${attachmentId}`,
-      stateDir,
-      maxBytes: 12 * 1024 * 1024,
-      signal: new AbortController().signal,
-    };
-    const localThumbnail = await readManagedOutgoingImageThumbnail(localRequest);
-    expect(localThumbnail && readImageProbeFromHeader(localThumbnail)).toMatchObject({
-      width: 300,
-      height: 150,
-    });
-    await expect(
-      readManagedOutgoingImageThumbnail({ ...localRequest, maxBytes: 1 }),
-    ).rejects.toThrow("byte limit");
-    await expect(
-      readManagedOutgoingImageThumbnail({ ...localRequest, sessionKey: "agent:other:main" }),
-    ).resolves.toBeNull();
+  it.each([
+    { width: 1600, height: 800, previewWidth: 1200, previewHeight: 600 },
+    { width: 800, height: 1600, previewWidth: 600, previewHeight: 1200 },
+    { width: 160, height: 80, previewWidth: 160, previewHeight: 80 },
+  ])(
+    "serves a sharp bounded $width×$height thumbnail through local reads and the artifact ticket",
+    async ({ width, height, previewWidth, previewHeight }) => {
+      const source = createSolidPngBuffer(width, height, { r: 24, g: 64, b: 128 });
+      const { attachmentId, sessionKey } = await createFixture(stateDir, { body: source });
+      const canonicalPath = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
+      const transcriptMessages = [
+        {
+          role: "assistant",
+          content: [{ type: "image", url: canonicalPath, openUrl: canonicalPath }],
+          __openclaw: { id: "msg-1" },
+        },
+      ];
+      loadSessionEntryMock.mockReturnValue({
+        storePath: path.join(stateDir, "sessions.sqlite"),
+        entry: { sessionId: "sess-1", sessionFile: "session.jsonl" },
+      });
+      readSessionMessagesMock.mockResolvedValue(transcriptMessages);
+      const download = await resolveManagedOutgoingImageArtifactDownload({
+        sessionKey,
+        artifactId: `${MANAGED_OUTGOING_IMAGE_ARTIFACT_ID_PREFIX}${attachmentId}`,
+        stateDir,
+      });
+      const thumbnailUrl = `${download?.url.replace(/\/full(?=\?)/u, "/thumbnail")}&v=2`;
+      const localRequest = {
+        sessionKey,
+        artifactId: `${MANAGED_OUTGOING_IMAGE_ARTIFACT_ID_PREFIX}${attachmentId}`,
+        stateDir,
+        maxBytes: 12 * 1024 * 1024,
+        signal: new AbortController().signal,
+      };
+      const localThumbnail = await readManagedOutgoingImageThumbnail(localRequest);
+      expect(localThumbnail && readImageProbeFromHeader(localThumbnail)).toMatchObject({
+        width: previewWidth,
+        height: previewHeight,
+      });
+      await expect(
+        readManagedOutgoingImageThumbnail({ ...localRequest, maxBytes: 1 }),
+      ).rejects.toThrow("byte limit");
+      await expect(
+        readManagedOutgoingImageThumbnail({ ...localRequest, sessionKey: "agent:other:main" }),
+      ).resolves.toBeNull();
 
-    vi.clearAllMocks();
-    const { result } = await requestManagedImage({
-      stateDir,
-      pathName: thumbnailUrl,
-      denyAuth: true,
-      transcriptMessages,
-    });
+      vi.clearAllMocks();
+      const { result } = await requestManagedImage({
+        stateDir,
+        pathName: thumbnailUrl,
+        denyAuth: true,
+        transcriptMessages,
+      });
 
-    expect(result.statusCode).toBe(200);
-    expect(result.headers["content-type"]).toBe("image/png");
-    expect(result.headers["content-disposition"]).toContain("cat-thumbnail.png");
-    expect(readImageProbeFromHeader(result.body)).toMatchObject({ width: 300, height: 150 });
-    expect(result.body).toEqual(localThumbnail);
-    expect(authorizeGatewayHttpRequestOrReplyMock).not.toHaveBeenCalled();
-  });
+      expect(result.statusCode).toBe(200);
+      expect(result.headers["content-type"]).toBe("image/png");
+      expect(result.headers["content-disposition"]).toContain("cat-thumbnail.png");
+      expect(readImageProbeFromHeader(result.body)).toMatchObject({
+        width: previewWidth,
+        height: previewHeight,
+      });
+      expect(result.body).toEqual(localThumbnail);
+      expect(authorizeGatewayHttpRequestOrReplyMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects a managed global artifact owned by another agent", async () => {
     const { attachmentId } = await createFixture(stateDir, {

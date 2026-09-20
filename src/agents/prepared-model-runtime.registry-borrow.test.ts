@@ -15,6 +15,7 @@ import { isPluginRegistryRetired } from "../plugins/registry-lifecycle.js";
 import { clearActivePluginRegistry, setActivePluginRegistry } from "../plugins/runtime.js";
 import { setPluginRuntimeLoadContext } from "../plugins/runtime/load-context.js";
 import { createPluginRecord } from "../plugins/status.test-helpers.js";
+import { PreparedModelRuntimePublicationSupersededError } from "./prepared-model-runtime.errors.js";
 import { loadPreparedInboundPluginRegistry } from "./prepared-model-runtime.inbound-registry.js";
 import {
   acquireAgentRunPreparedModelRuntime,
@@ -158,6 +159,7 @@ describe("prepared registry construction borrows", () => {
       expect(() => instance.reserveReplacement()()).toThrow("active retained work");
       finishInspection.resolve();
       await expect(pending).rejects.toThrow("superseded");
+      await expect(pending).rejects.toBeInstanceOf(PreparedModelRuntimePublicationSupersededError);
       expect(isPluginRegistryRetired(registry)).toBe(true);
     } finally {
       finishInspection.resolve();

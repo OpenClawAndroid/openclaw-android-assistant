@@ -243,10 +243,10 @@ suite.define(() => {
         .toMatchObject({ theme: "claw", themeMode: "light" });
 
       await gateway.setOnline(false);
-      await page.locator(".sidebar-footer-bar__status").filter({ hasText: "Offline" }).waitFor();
+      await page.locator(".gateway-status__label").filter({ hasText: "Reconnecting…" }).waitFor();
       await page
         .locator(".agent-chat__composer-status-band")
-        .filter({ hasText: "Offline" })
+        .filter({ hasText: "You can keep writing." })
         .waitFor();
 
       await expect.poll(() => page.locator("html").getAttribute("data-theme-mode")).toBe("light");

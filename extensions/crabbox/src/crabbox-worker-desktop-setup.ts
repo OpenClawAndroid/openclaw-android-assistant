@@ -70,7 +70,8 @@ function browserLauncher(leaseId: string): string[] {
     "fi",
     'launch_log="$CRABBOX_BROWSER_PROFILE/launch.log"',
     ': >"$launch_log"',
-    `nohup /usr/local/bin/crabbox-browser --remote-debugging-address=127.0.0.1 --remote-debugging-port=${CRABBOX_WORKER_BROWSER_CDP_PORT} about:blank >>"$launch_log" 2>&1 </dev/null &`,
+    // The persistent browser and its children must not retain the launcher's readiness lock.
+    `nohup /usr/local/bin/crabbox-browser --remote-debugging-address=127.0.0.1 --remote-debugging-port=${CRABBOX_WORKER_BROWSER_CDP_PORT} about:blank >>"$launch_log" 2>&1 </dev/null 9>&- &`,
     "for _attempt in $(seq 1 40); do",
     '  if curl --fail --silent --show-error --max-time 1 "$cdp_url" >/dev/null; then',
     "    exit 0",

@@ -1,4 +1,5 @@
 import { resolveCronJobConfigRevision } from "../config-revision.js";
+import { withCronMutationCommitHook } from "../mutation-completion.js";
 import { createCronRunDiagnosticsFromError } from "../run-diagnostics.js";
 import {
   adjudicateActiveCronRunReceiptInDatabase,
@@ -243,6 +244,7 @@ export async function persistQueuedCronRunReservations(params: {
   scheduleMode?: "advance" | "preserve";
   manualRun?: {
     runId?: string;
+    commitGuard?: () => void;
     terminalTracker?: { emitted: boolean };
     scheduleOwnershipAtMs?: number;
     onExit?: {
@@ -269,6 +271,7 @@ export async function persistQueuedCronRunReservations(params: {
         state: params.state,
         job: params.manualRun?.onExit ? { ...job, enabled: false } : job,
         startedAtMs: params.reservedAtMs,
+        requestRunId: params.manualRun?.runId,
       }),
     ]),
   );
@@ -280,8 +283,9 @@ export async function persistQueuedCronRunReservations(params: {
         state: params.state,
         jobIds: pendingJobs.keys(),
         operationLabel: "cron.run-reservation",
+        transactionHooks: params.manualRun ? withCronMutationCommitHook("cron.run") : undefined,
         mutate: ({ database, jobs }) => {
-          params.manualRun?.onExit?.commitGuard();
+          (params.manualRun?.commitGuard ?? params.manualRun?.onExit?.commitGuard)?.();
           const jobIds = [...pendingJobs.keys()].toSorted();
           for (const jobId of jobIds) {
             if (!params.state.queuedRunReservationsByJobId.has(jobId)) {
@@ -351,6 +355,7 @@ export async function persistQueuedCronRunReservations(params: {
           }
           return {
             upsertJobIds: committed.map((job) => job.id),
+            runHooks: reservations.length > 0,
             value: reservations,
           };
         },

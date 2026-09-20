@@ -91,7 +91,8 @@ const MANAGED_OUTGOING_IMAGE_TICKET_SCOPE = "managed-outgoing-image";
 const MANAGED_OUTGOING_IMAGE_TICKET_TTL_MS = 5 * 60 * 1000;
 export const MANAGED_OUTGOING_IMAGE_ARTIFACT_ID_PREFIX = "artifact_managed_image_";
 export const MANAGED_OUTGOING_MEDIA_ARTIFACT_ID_PREFIX = "artifact_managed_media_";
-const MANAGED_IMAGE_THUMBNAIL_MAX_SIDE = 300;
+// Chat previews occupy up to 400 CSS pixels on displays with up to 3× density.
+const MANAGED_IMAGE_THUMBNAIL_MAX_SIDE = 1200;
 const MANAGED_OUTGOING_ATTACHMENT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const managedOutgoingImageTicketSecret = randomBytes(32);

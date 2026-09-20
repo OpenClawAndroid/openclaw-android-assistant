@@ -236,8 +236,7 @@ require_remote_testbox_gate_stamp() {
 
 require_active_org_admin_for_crabbox_gate() {
   local actor membership
-  # A relay's REST /user is not necessarily the mutation writer; keep viewer authority.
-  actor=$(pr_gh_plain api graphql -f 'query=query { viewer { login } }' --jq .data.viewer.login) || return
+  actor=$(pr_gh_writer_login) || return
   membership=$(pr_gh_plain api "orgs/openclaw/memberships/$actor" -H 'Cache-Control: max-age=0') || return
   if [ "$(printf '%s\n' "$membership" | jq -r .state)" != "active" ] ||
     [ "$(printf '%s\n' "$membership" | jq -r .role)" != "admin" ]; then

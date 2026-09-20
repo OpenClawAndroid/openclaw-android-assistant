@@ -1,67 +1,98 @@
+import { html, nothing } from "lit";
 import { areUiSessionKeysEquivalent } from "../../../lib/sessions/session-key.ts";
+import { createAsyncQuestionPanelProps } from "./chat-async-question.ts";
 import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types.ts";
-import { createGatewayQuestionPanelProps } from "./chat-question-card.ts";
+import {
+  createGatewayQuestionPanelProps,
+  type QuestionPanelOptions,
+  type QuestionPanelProps,
+} from "./chat-question-card.ts";
+
+export function renderComposerQuestionDock(panel: QuestionPanelProps | null) {
+  return panel
+    ? html`<div class="agent-chat__question-dock">
+        <openclaw-chat-question-panel .props=${panel}></openclaw-chat-question-panel>
+      </div>`
+    : nothing;
+}
 
 export function resolveComposerQuestionPanel(
   props: ChatComposerProps,
   state: ChatComposerState,
   requestUpdate: () => void,
-) {
-  const gatewayQuestionPrompts =
+): QuestionPanelProps | null {
+  const gatewayQuestions =
     props.gatewayQuestionPrompts?.filter(
       (prompt) =>
-        props.disabledBanner?.kind !== "composer-replacement" &&
         prompt.status === "pending" &&
         prompt.sessionKey !== undefined &&
         areUiSessionKeysEquivalent(prompt.sessionKey, props.sessionKey),
     ) ?? [];
-  let gatewayQuestionIndex = gatewayQuestionPrompts.findIndex(
-    (prompt) => prompt.id === state.activeGatewayQuestionId,
+  const asyncQuestions = props.asyncQuestions;
+  const requests =
+    props.disabledBanner?.kind === "composer-replacement"
+      ? []
+      : [
+          ...gatewayQuestions.map((prompt) => ({
+            key: `gateway:${prompt.id}`,
+            panel: (options: QuestionPanelOptions) =>
+              createGatewayQuestionPanelProps(prompt, {
+                ...options,
+                onChange: props.onGatewayQuestionChange,
+                onSubmit: props.onGatewayQuestionSubmit
+                  ? (answers) => props.onGatewayQuestionSubmit?.(prompt.id, answers)
+                  : undefined,
+                onSkip: props.onGatewayQuestionSkip
+                  ? () => props.onGatewayQuestionSkip?.(prompt.id)
+                  : undefined,
+              }),
+          })),
+          ...(asyncQuestions?.submit
+            ? asyncQuestions.pending.map((question) => ({
+                key: JSON.stringify([asyncQuestions.scope, question.itemId]),
+                panel: (options: QuestionPanelOptions) =>
+                  createAsyncQuestionPanelProps(question, asyncQuestions, options),
+              }))
+            : []),
+        ];
+  // A newly arrived blocking request takes priority, but navigation can still
+  // reach async questions without repeatedly switching back on every render.
+  const newGatewayQuestion = gatewayQuestions.find(
+    (prompt) => !state.gatewayQuestionIds.has(prompt.id),
   );
-  if (gatewayQuestionIndex < 0 && gatewayQuestionPrompts.length > 0) {
-    gatewayQuestionIndex = 0;
-    state.activeGatewayQuestionId = gatewayQuestionPrompts[0]?.id ?? null;
-    state.gatewayQuestionCollapsed = false;
-  } else if (gatewayQuestionPrompts.length === 0) {
-    state.activeGatewayQuestionId = null;
-    state.gatewayQuestionCollapsed = false;
+  state.gatewayQuestionIds = new Set(gatewayQuestions.map((prompt) => prompt.id));
+  const activeGatewayQuestion = gatewayQuestions.some(
+    (prompt) => state.activeQuestionKey === `gateway:${prompt.id}`,
+  );
+  if (newGatewayQuestion && !activeGatewayQuestion) {
+    state.activeQuestionKey = `gateway:${newGatewayQuestion.id}`;
+    state.questionCollapsed = false;
   }
-  const gatewayQuestionPrompt = gatewayQuestionPrompts[gatewayQuestionIndex];
-  const selectGatewayQuestion = (index: number) => {
-    const prompt = gatewayQuestionPrompts[index];
-    if (!prompt) {
-      return;
-    }
-    state.activeGatewayQuestionId = prompt.id;
-    state.gatewayQuestionCollapsed = false;
+  let index = requests.findIndex((request) => request.key === state.activeQuestionKey);
+  if (index < 0) {
+    index = 0;
+    state.activeQuestionKey = requests[0]?.key ?? null;
+    state.questionCollapsed = false;
+  }
+  const request = requests[index];
+  if (!request) {
+    return null;
+  }
+  const selectRequest = (next: number) => {
+    state.activeQuestionKey = requests[next]!.key;
+    state.questionCollapsed = false;
     requestUpdate();
   };
-  return gatewayQuestionPrompt
-    ? createGatewayQuestionPanelProps(gatewayQuestionPrompt, {
-        collapsed: state.gatewayQuestionCollapsed,
-        onCollapsedChange: (collapsed) => {
-          state.gatewayQuestionCollapsed = collapsed;
-          state.restoreComposerFocus = collapsed;
-          requestUpdate();
-        },
-        onChange: props.onGatewayQuestionChange,
-        onSubmit: props.onGatewayQuestionSubmit
-          ? (answers) => props.onGatewayQuestionSubmit?.(gatewayQuestionPrompt.id, answers)
-          : undefined,
-        onSkip: props.onGatewayQuestionSkip
-          ? () => props.onGatewayQuestionSkip?.(gatewayQuestionPrompt.id)
-          : undefined,
-        requestPosition:
-          gatewayQuestionPrompts.length > 1
-            ? { current: gatewayQuestionIndex + 1, total: gatewayQuestionPrompts.length }
-            : undefined,
-        onPreviousRequest: () =>
-          selectGatewayQuestion(
-            (gatewayQuestionIndex - 1 + gatewayQuestionPrompts.length) %
-              gatewayQuestionPrompts.length,
-          ),
-        onNextRequest: () =>
-          selectGatewayQuestion((gatewayQuestionIndex + 1) % gatewayQuestionPrompts.length),
-      })
-    : null;
+  return request.panel({
+    collapsed: state.questionCollapsed,
+    onCollapsedChange: (collapsed) => {
+      state.questionCollapsed = collapsed;
+      state.restoreComposerFocus = collapsed;
+      requestUpdate();
+    },
+    requestPosition:
+      requests.length > 1 ? { current: index + 1, total: requests.length } : undefined,
+    onPreviousRequest: () => selectRequest((index - 1 + requests.length) % requests.length),
+    onNextRequest: () => selectRequest((index + 1) % requests.length),
+  });
 }

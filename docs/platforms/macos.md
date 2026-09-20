@@ -185,8 +185,11 @@ Open windows for saved Gateway profiles follow sign-in route changes after a
 reconnect. An unchanged route keeps the current dashboard and its navigation.
 
 The account card at the bottom-left of the dashboard shows your name and the
-current Gateway, including its health and primary status. While disconnected,
-it shows **Reconnecting…**. Open the card's **Gateway** section to switch Gateways,
+current Gateway and its primary status. A single subtitle below
+your name explains planned suspension and restart, reconnect, and recovery. An
+outbox count covers unresolved messages for this Gateway, including messages
+needing review; it does not promise that every message will send automatically.
+Open the card's **Gateway** section to switch Gateways,
 Command-click or Control-click a Gateway to open it in another window, or choose
 **Gateway settings…**. **Set as primary…** appears when the current Gateway can
 be promoted. These controls are available even with only one saved Gateway.

@@ -123,6 +123,7 @@ final class MacNodeModeCoordinator: NSObject {
     private let session: GatewayNodeSession
     private let channelStatus: MacNodeChannelStatusStore
     private let nodeHostWorker: (any MacNodeHostWorking)?
+    private var appActivityMonitor: Any?
     private let presenceReporter: MacNodePresenceReporter
     private let desktopAvailability: MacDesktopAvailabilityCoordinator
     private let workerHostingEnabled: @Sendable () async -> Bool
@@ -263,6 +264,13 @@ final class MacNodeModeCoordinator: NSObject {
 
     func start() {
         guard self.task == nil else { return }
+        self.appActivityMonitor = NSEvent.addLocalMonitorForEvents(matching: [
+            .keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown,
+            .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel,
+        ]) { [weak self] event in
+            self?.presenceReporter.recordAppActivity()
+            return event
+        }
         self.task = Task { [weak self] in
             await self?.run()
         }
@@ -310,6 +318,10 @@ final class MacNodeModeCoordinator: NSObject {
     }
 
     private func cancelCoordinatorTasks() {
+        if let appActivityMonitor = self.appActivityMonitor {
+            NSEvent.removeMonitor(appActivityMonitor)
+            self.appActivityMonitor = nil
+        }
         self.channelStatus.record(.idle)
         self.task?.cancel()
         self.task = nil

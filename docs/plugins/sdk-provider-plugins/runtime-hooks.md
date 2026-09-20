@@ -131,9 +131,19 @@ additive fields on the existing contract; they add no hook or user setting.
     },
     fetchUsageSnapshot: async (ctx) => {
       // fetchAcmeUsage is your plugin's own vendor API call, not an SDK export.
-      return await fetchAcmeUsage(ctx.token, ctx.timeoutMs);
+      return await fetchAcmeUsage(ctx.token, ctx.timeoutMs, {
+        fetch: ctx.fetchFn,
+        signal: ctx.signal,
+      });
     },
     ```
+
+    Both usage hooks receive an optional `ctx.signal` for collection cancellation.
+    `ctx.fetchFn` already combines it with request cancellation; custom transports
+    must forward `ctx.signal` to their I/O. Check cancellation before starting
+    additional auth work after an await. An exhausted budget invokes neither hook
+    and produces a visible `Timeout` snapshot. Core retains completed siblings and
+    tracks unfinished work through cleanup, including auth-owned credential refresh.
 
     `resolveUsageAuth` has three outcomes. Return
     `{ token, accountId?, subscriptionType?, rateLimitTier? }` when the
@@ -256,6 +266,7 @@ provider request and releases the request lease.
 
 Runtime fallback notes:
 
+- `isCacheTtlEligible(ctx)` receives `provider`, `modelId`, optional `modelApi`, and the resolved route facts `baseUrl` and `supportsPromptCacheKey`. The same bounded context is used when installing cache-TTL pruning and recording cache touches; it does not include the full model, headers, or extra request parameters. OpenAI defaults to eligible on official Platform and Codex endpoints, honors an explicit `supportsPromptCacheKey: false`, and requires explicit opt-in for custom proxy routes. This controls client-side idle pruning, not a guarantee of a provider cache hit.
 - Error classification uses the prepared provider owner or already loaded provider hooks. `matchesContextOverflowError` and `classifyFailoverReason` never trigger plugin discovery while handling an error; provider preparation owns loading those hooks.
 - `normalizeConfig` resolves one owning plugin per provider id (bundled providers first, then the matched runtime plugin) and calls only that hook - there is no scan across other providers. Google's own `normalizeConfig` hook is what normalizes `google` / `google-vertex` / `google-antigravity` config entries; it is not a separate core fallback.
 - `resolveConfigApiKey` uses the provider hook when exposed. Amazon Bedrock keeps AWS env-marker resolution in its provider plugin; runtime auth itself still uses the AWS SDK default chain when configured with `auth: "aws-sdk"`.

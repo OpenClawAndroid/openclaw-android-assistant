@@ -177,7 +177,12 @@ export async function runUpdateCommandRepair(params: {
                 runId,
                 {
                   step: "repairing",
-                  status: event.status === "repaired" ? "completed" : "failed",
+                  status:
+                    event.status === "repaired"
+                      ? "completed"
+                      : event.status === "unavailable" && activeTurn === 0
+                        ? "skipped"
+                        : "failed",
                   endedAtMs: Date.now(),
                   detail: `${targetClass}: ${event.reason ?? event.status}${lastValidation?.stopReason ? ` — ${lastValidation.summary}` : ""}`,
                 },

@@ -40,9 +40,14 @@ export function getCurrentActiveNodeContext(): ActiveNodeContext | null {
   return snapshotActiveNodeContext(activeNodeContext);
 }
 
-/** Formats the stable authenticated id; node-controlled labels stay out of prompt text. */
-export function formatActiveNodeContextLabel(
-  context: ActiveNodeContext | null,
-): string | undefined {
-  return context?.nodeId;
+/** Bounds the authenticated id; explicit unknown clears stale hints without injecting labels. */
+export function formatActiveNodeContextLabel(context: ActiveNodeContext | null): string {
+  const nodeId = context?.nodeId;
+  return nodeId && /^[a-zA-Z0-9._:-]{1,128}$/.test(nodeId) ? nodeId : "unknown";
+}
+
+/** Stable turn context; explicit unknown supersedes a warm runtime's earlier device hint. */
+export function buildActiveNodeContextText(): string {
+  const nodeId = formatActiveNodeContextLabel(getCurrentActiveNodeContext());
+  return `Current active computer (latest physical input, not message origin): active_node=${nodeId}`;
 }

@@ -23,6 +23,8 @@ type QuestionPanelViewModel = {
   secretStoreAllowedHostsDraft?: string;
   collapsed: boolean;
   autoFocus?: boolean;
+  nonBlocking?: boolean;
+  collapsedLabel?: string;
   disabled: boolean;
   submitting?: boolean;
   drafts: Map<string, QuestionDraft>;
@@ -30,7 +32,7 @@ type QuestionPanelViewModel = {
   requestPosition?: { current: number; total: number };
 };
 
-type QuestionPanelProps = {
+export type QuestionPanelProps = {
   model: QuestionPanelViewModel;
   onSubmit?: (answersById: Record<string, string[]>) => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
@@ -42,7 +44,7 @@ type QuestionPanelProps = {
   onNextRequest?: () => void;
 };
 
-type GatewayQuestionPanelOptions = {
+export type QuestionPanelOptions = {
   onChange?: () => void;
   onSubmit?: (answers: Record<string, string[]>) => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
@@ -55,7 +57,7 @@ type GatewayQuestionPanelOptions = {
 
 export function createGatewayQuestionPanelProps(
   prompt: QuestionPrompt,
-  options: GatewayQuestionPanelOptions,
+  options: QuestionPanelOptions,
 ): QuestionPanelProps {
   const { onChange, onSubmit, onSkip } = options;
   return {
@@ -446,8 +448,10 @@ class ChatQuestionPanel extends OpenClawLightDomElement {
             @click=${() => this.setCollapsed(false)}
             aria-label=${t("chat.questions.expand")}
           >
-            <span>${question.header}</span>
-            <span class="chat-question-panel__progress">${progress}</span>
+            <span
+              >${model.collapsedLabel ? html`<strong>${model.collapsedLabel}</strong> · ${question.question}` : question.header}</span
+            >
+            ${model.collapsedLabel ? nothing : html`<span class="chat-question-panel__progress">${progress}</span>`}
             <span class="chat-question-panel__chevron">${icons.chevronDown}</span>
           </button>
           ${requestNavigation}

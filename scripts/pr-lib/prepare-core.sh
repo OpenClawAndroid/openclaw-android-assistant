@@ -210,7 +210,7 @@ prepare_init() {
   checkout_pr_worktree_target "$pr" "$reviewed_head_sha" || return 1
 
   local json
-  json=$(pr_meta_json "$pr")
+  json=$(read_pr_view_json "$pr" "headRefName,headRefOid") || return 1
   local author_access_at_prep
   author_access_at_prep=$(resolve_pr_author_access_at_prepare "${PR_AUTHOR:-}") || return 1
 

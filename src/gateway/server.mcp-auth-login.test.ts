@@ -513,11 +513,16 @@ describe("registered mcp.authLogin", () => {
     expect(await terminal(started.sessionId)).toMatchObject({ status: "error" });
     expect(readMcpOAuthStore(identity().storeKey).codeVerifier).toBeUndefined();
     const next = await begin();
+    const session = expectDefined(
+      admitted?.context.wizardSessions.get(next.sessionId),
+      "admitted login session",
+    );
     expect(await rpcReq(owner, "wizard.cancel", { sessionId: next.sessionId })).toMatchObject({
       ok: true,
       payload: { status: "cancelled" },
     });
     expect((await callback(next.state)).status).toBe(410);
+    await whenAdmittedWizardSessionSettled(session);
     expect(readMcpOAuthStore(identity().storeKey).codeVerifier).toBeUndefined();
   });
 

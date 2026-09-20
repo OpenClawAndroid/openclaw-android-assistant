@@ -26,8 +26,8 @@ import {
   normalizeChromeMcpOptions,
 } from "./chrome-mcp-options.js";
 import {
+  extractChromeMcpToolError,
   extractStructuredPages,
-  extractToolErrorMessage,
   formatChromeMcpToolErrorMessage,
   shouldReconnectForToolError,
 } from "./chrome-mcp-result.js";
@@ -270,8 +270,8 @@ export async function callTool(
   }
   // Ordinary tool errors leave the session usable. A stale selected-page list
   // poisons it, so the outer pre-operation list may reconnect once.
-  if (result.isError) {
-    const message = extractToolErrorMessage(result, name);
+  const message = extractChromeMcpToolError(result, name, args);
+  if (message) {
     if (shouldReconnectForToolError(name, message)) {
       if (!lease.temporary && lease.owner.isCurrent(lease.session)) {
         await lease.owner.close(lease.session);

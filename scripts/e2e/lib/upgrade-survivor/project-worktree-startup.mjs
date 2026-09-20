@@ -407,9 +407,11 @@ async function seed(ctx, packageRoot) {
     throw new AggregateError(errors, "Published fixture owners did not settle");
   }
   const spawnedCwd = path.join(worktree.path, "packages/app");
+  // Keep Doctor's title repair separate from workspace preservation.
   const entries = {
     [KEY]: {
       sessionId: SESSION,
+      displayName: "Legacy project worktree",
       updatedAt: 10,
       lastActivityAt: 10,
       projectId: project.id,
@@ -417,7 +419,12 @@ async function seed(ctx, packageRoot) {
       worktree: { id: worktree.id, branch: worktree.branch, repoRoot: worktree.repoRoot },
       sessionFile: `${SESSION}.jsonl`,
     },
-    [OTHER_KEY]: { sessionId: OTHER_SESSION, updatedAt: 20, sessionFile: `${OTHER_SESSION}.jsonl` },
+    [OTHER_KEY]: {
+      sessionId: OTHER_SESSION,
+      displayName: "Unrelated legacy session",
+      updatedAt: 20,
+      sessionFile: `${OTHER_SESSION}.jsonl`,
+    },
   };
   writeJson(legacyStore, entries);
   for (const id of [SESSION, OTHER_SESSION]) {

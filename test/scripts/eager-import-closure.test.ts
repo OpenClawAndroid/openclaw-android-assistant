@@ -20,6 +20,62 @@ import { copyPrWrapperSources, linkPrWrapperDependencies } from "./pr-wrapper.te
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const itPosix = process.platform === "win32" ? it.skip : it;
 
+it("acquires and releases wrapper leases without the application command runtime", () => {
+  const root = tempDirs.make("openclaw-pr-lease-bootstrap-");
+  copyPrWrapperSources(root);
+  linkPrWrapperDependencies(root);
+  expect(existsSync(join(root, "src/state/openclaw-state-worker-runtime.ts"))).toBe(false);
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      join(root, "scripts/tsx.mjs"),
+      "--input-type=module",
+      "-e",
+      `
+        import assert from "node:assert/strict";
+        import { withOpenClawStateLease } from "./src/state/openclaw-state-lease.ts";
+        import {
+          closeOpenClawStateDatabaseAsync,
+          openOpenClawStateDatabase,
+        } from "./src/state/openclaw-state-db.ts";
+        const options = {
+          scope: "core:wrapper-bootstrap",
+          key: "lease",
+          database: { scope: "shared", options: { env: process.env } },
+          leaseMs: 60_000,
+          waitMs: 0,
+        };
+        for (let grant = 0; grant < 2; grant += 1) {
+          await withOpenClawStateLease(options, async (lease) => lease.assertOwned());
+        }
+        const database = openOpenClawStateDatabase({ env: process.env });
+        const row = database.db.prepare(
+          "SELECT COUNT(*) AS count FROM state_leases WHERE scope = ? AND lease_key = ?",
+        ).get(options.scope, options.key);
+        assert.equal(Number(row.count), 0);
+        await closeOpenClawStateDatabaseAsync();
+        console.log("LEASE_BOOTSTRAP_OK");
+      `,
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 30_000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: root,
+        OPENCLAW_STATE_DIR: join(root, "state"),
+        TSX_TSCONFIG_PATH: join(root, "tsconfig.json"),
+        NODE_OPTIONS: "",
+        NODE_PATH: "",
+      },
+    },
+  );
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toContain("LEASE_BOOTSTRAP_OK");
+});
+
 it("resolves wrapper package exports and workspace aliases from the extracted dependency context", () => {
   const root = tempDirs.make("openclaw-pr-package-closure-");
   copyPrWrapperSources(root);

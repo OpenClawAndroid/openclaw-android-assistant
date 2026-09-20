@@ -55,6 +55,8 @@ Gateway startup and config, plugin, or auth publication build one prepared model
 
 Standalone embedded runtimes publish the same snapshot shape at their activation boundary. A failed or stale generation is never served alongside a newer partial generation. The lifecycle owner must publish a complete replacement first.
 
+Runtime selections resolve in the requesting agent's scope before becoming owner keys. Lease admission carries that prepared choice forward and reads the exact owner's snapshot. Retries must observe a changed owner or publication gate; unchanged publication state fails with a retryable error instead of blocking the Gateway event loop.
+
 ## Compute workers
 
 Code-mode execution and compaction planning use the reusable `WorkerTaskPool`.

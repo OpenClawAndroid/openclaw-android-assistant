@@ -408,7 +408,7 @@ Use `isLoopbackHost(host)` when a plugin must accept only the local machine. It 
     | `plugin-sdk/device-bootstrap` | Device bootstrap and pairing token helpers, including `BOOTSTRAP_HANDOFF_OPERATOR_SCOPES` |
     | `plugin-sdk/extension-shared` | Shared passive-channel, status, and ambient proxy helper primitives |
     | `plugin-sdk/models-provider-runtime` | `/models` command/provider reply helpers. Display `ModelsProviderData.refreshWarning` alongside usable choices, and use `MODEL_PICKER_CHANGED_MESSAGE` when a saved menu choice is no longer available. |
-    | `plugin-sdk/skill-commands-runtime` | Skill command listing helpers |
+    | `plugin-sdk/skill-commands-runtime` | Synchronous Skill command listing. Remote workspaces expose Gateway-owned Skills only; menus do not wait for the Harness. |
     | `plugin-sdk/native-command-registry` | Native command registry/build/serialize helpers |
     | `plugin-sdk/agent-harness` | Experimental trusted-plugin surface for low-level agent harnesses: harness types, active-run steer/abort helpers, OpenClaw tool bridge helpers, runtime-plan tool policy helpers, terminal outcome classification, tool progress formatting/detail helpers, and attempt result utilities |
     | `plugin-sdk/async-lock-runtime` | Private-local after July 2026; Process-local async lock helper for small runtime state files |

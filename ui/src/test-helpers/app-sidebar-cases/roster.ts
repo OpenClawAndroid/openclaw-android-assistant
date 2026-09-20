@@ -337,9 +337,15 @@ describe("AppSidebar agent roster", () => {
       await vi.waitFor(() => expect(context.agentSelection.state.selectedId).toBe("working"));
       sidebar.sessionKey = "agent:working:task";
       await sidebar.updateComplete;
-      sidebar
-        .querySelector<HTMLButtonElement>('[data-session-key="legacy-task"] .session-action--pin')
-        ?.click();
+      const pin = sidebar.querySelector<HTMLButtonElement>(
+        '[data-session-key="legacy-task"] .session-action--pin',
+      );
+      if (!pin) {
+        throw new Error("Expected the default-agent session pin action");
+      }
+      expect(pin.disabled).toBe(false);
+      pin.click();
+      await vi.dynamicImportSettled();
       await vi.waitFor(() =>
         expect(sessions.patch).toHaveBeenCalledWith(
           "legacy-task",

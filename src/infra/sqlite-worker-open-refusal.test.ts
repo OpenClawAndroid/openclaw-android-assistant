@@ -15,6 +15,11 @@ import {
 import type { FixtureOperations } from "./sqlite-worker-store.test-support.js";
 import * as coordinatorOwner from "./state-database-coordinator.js";
 
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  availableParallelism: () => 32,
+}));
+
 const stores = new Set<SqliteWorkerStore<FixtureOperations>>();
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(async () => {

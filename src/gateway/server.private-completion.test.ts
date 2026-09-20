@@ -35,7 +35,7 @@ import { waitForChatAbortControllerRemoval } from "./chat-abort-lifecycle-intern
 import { abortChatRunById } from "./chat-abort.js";
 import { dispatchGatewayMethodInProcess } from "./server-plugin-in-process-dispatch.js";
 import { startGatewayServerHarness, type GatewayServerHarness } from "./server.e2e-ws-harness.js";
-import { persistGatewaySessionLifecycleEvent } from "./session-lifecycle-state.js";
+import * as lifecycleState from "./session-lifecycle-state.js";
 import { loadSessionEntry } from "./session-utils.js";
 import {
   agentCommandMock,
@@ -221,7 +221,7 @@ describe("private subagent completion processing receipts", () => {
         } catch (error) {
           // Exercise the real persisted lifecycle projection using the command's
           // error classification, not a mock that silently drops lifecycle errors.
-          await persistGatewaySessionLifecycleEvent({
+          await lifecycleState.persistGatewaySessionLifecycleEvent({
             sessionKey,
             event: {
               runId,
@@ -692,6 +692,21 @@ describe("private subagent completion processing receipts", () => {
         "executing controller",
       );
       expect(active.executionStarted).toBe(true);
+      const releaseTerminalWrite = createDeferred();
+      let terminalWrite: Promise<void> | undefined;
+      const persistLifecycle = lifecycleState.persistGatewaySessionLifecycleEvent;
+      const delayedTerminalWrite =
+        kind === "abandoned"
+          ? vi
+              .spyOn(lifecycleState, "persistGatewaySessionLifecycleEvent")
+              .mockImplementation((params) => {
+                if (params.event.runId !== runId) {
+                  return persistLifecycle(params);
+                }
+                terminalWrite = releaseTerminalWrite.promise.then(() => persistLifecycle(params));
+                return terminalWrite;
+              })
+          : undefined;
       active.expiresAtMs = Date.now() - 1;
       const { startGatewayMaintenanceTimers } = await import("./server-maintenance.js");
       const { createGatewayMaintenanceStateForTest } =
@@ -712,8 +727,12 @@ describe("private subagent completion processing receipts", () => {
         expect(kernel.gatewayRequestContext.chatAbortControllers.get(runId)).toBe(active);
         expect(completions()).toEqual([]);
         if (kind === "abandoned") {
+          // Keep the real terminal write pending through maintenance retirement.
+          expect(terminalWrite).toBeInstanceOf(Promise);
           await vi.advanceTimersByTimeAsync(60_000);
           expect(kernel.gatewayRequestContext.chatAbortControllers.has(runId)).toBe(false);
+          expect(active.projectSessionTerminalPending).toBe(true);
+          expect(active.projectSessionTerminalPersistence).toBe(terminalWrite);
           expect(JSON.parse(String(completions()[0]?.outcome_json))).toMatchObject({
             reason: "timed_out",
             status: "timeout",
@@ -729,15 +748,19 @@ describe("private subagent completion processing receipts", () => {
         await timers.stopMediaCleanup();
         await timers.stopSessionColdStorageMaintenance();
         vi.useRealTimers();
+        releaseTerminalWrite.resolve();
         release.resolve();
+        try {
+          await terminalWrite;
+        } finally {
+          delayedTerminalWrite?.mockRestore();
+        }
       }
       const response = await observed;
       const rows = completions();
       const outcome = JSON.parse(String(rows[0]?.outcome_json));
       expect(response).toMatchObject({ value: { status: "timeout", stopReason: "timeout" } });
       expect(outcome).toMatchObject({ status: "timeout", stopReason: "timeout" });
-      // The RPC receipt can precede terminal session persistence. Join the
-      // captured registration's lifecycle owner before asserting its removal.
       expect(
         await waitForChatAbortControllerRemoval({
           entries: kernel.gatewayRequestContext.chatAbortControllers,

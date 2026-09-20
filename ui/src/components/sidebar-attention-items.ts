@@ -1,10 +1,13 @@
 import type { CronJob, ModelAuthStatusResult } from "../api/types.ts";
 import { t } from "../i18n/index.ts";
+import { registerSidebarAttentionEnglish } from "../i18n/locales/en-sidebar-attention.ts";
 import { isCronJobActiveFailure, isCronJobRunning } from "../lib/cron-status.ts";
 import { clampText, formatTimeAgo } from "../lib/format.ts";
 import { isMonitoredAuthProvider, listEffectiveModelAuthProviders } from "../lib/model-auth.ts";
 import type { CustodianAlert } from "./custodian-alert-contract.ts";
 import type { SidebarAttentionItem } from "./sidebar-attention-entries.ts";
+
+registerSidebarAttentionEnglish();
 
 // A cron job counts as overdue when its next planned run is this far in the
 // past; mirrors the threshold the Overview attention list used.

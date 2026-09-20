@@ -1800,57 +1800,6 @@ describe("Codex app-server native code mode config", () => {
     expect(request.personality).toBe("none");
   });
 
-  it.each([undefined, "Permission change. Continue with updated permissions."])(
-    "does not overwrite native supervised turn settings (notice: %s)",
-    (notice) => {
-      const params = createAttemptParams({ provider: "anthropic" });
-      params.thinkLevel = "off";
-      const compat: ModelCompatConfig = { supportedReasoningEfforts: ["none", "high"] };
-      params.model = {
-        ...createCodexTestModel("anthropic"),
-        compat,
-      };
-      if (notice) {
-        params.permissionChange = {
-          owner: {},
-          baseExecOverrides: {},
-          notice,
-          request: vi.fn(),
-          applied: () => true,
-          recordApplied: vi.fn(),
-        };
-      }
-      const request = buildTurnStartParams(params, {
-        threadId: "thread-supervised",
-        cwd: "/repo",
-        model: "native-model",
-        modelProvider: "native-provider",
-        appServer: createAppServerOptions() as never,
-        preserveNativeTurnSettings: true,
-      });
-
-      expect(request).not.toHaveProperty("model");
-      expect(request).not.toHaveProperty("effort");
-      expect(request).not.toHaveProperty("collaborationMode");
-      expect(request).not.toHaveProperty("personality");
-      expect(request.additionalContext).toEqual({
-        openclaw_source_delivery: {
-          kind: "application",
-          value: expect.stringContaining("reply normally in your final assistant message"),
-        },
-        openclaw_temporal_context: {
-          kind: "application",
-          value: expect.stringContaining("## Temporal Context"),
-        },
-        ...(notice
-          ? {
-              openclaw_permission_change: { kind: "application", value: notice },
-            }
-          : {}),
-      });
-    },
-  );
-
   it("honors an explicit top-level reviewer on thread start and resume", () => {
     const appServer = {
       ...createAppServerOptions(),

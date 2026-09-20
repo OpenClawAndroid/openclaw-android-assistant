@@ -139,6 +139,7 @@ case "$1 $2" in
         else
           printf '%s\\n' '{"base":{"ref":"caller-release"},"head":{"sha":""}}'
         fi ;;
+      repos/fixture/repo/pulls/123/files?per_page=100) printf '%s\\n' '[[]]' ;;
       *) echo "Unexpected GitHub operation: $*" >&2; exit 99 ;;
     esac ;;
   "api graphql") printf '%s\\n' '${JSON.stringify(response)}' ;;
@@ -263,7 +264,7 @@ describePosix("native PR wrapper repository ownership", () => {
         command === "ci-dispatch"
           ? "missing remote headRefName/headRefOid metadata"
           : command === "review-init"
-            ? "Invalid PR identity for #123: expected complete base/head OIDs and refs before reading checks."
+            ? "did not include a head SHA"
             : "targets owner-release",
       );
       expect(f.readCalls()).toEqual([
@@ -275,6 +276,11 @@ describePosix("native PR wrapper repository ownership", () => {
           : []),
         `${f.owner}\tbrowse --no-browser`,
         `${f.owner}\tapi --hostname github.com repos/fixture/repo/pulls/123`,
+        ...(command === "review-init"
+          ? [
+              `${f.owner}\tapi --hostname github.com repos/fixture/repo/pulls/123/files?per_page=100 --paginate --slurp -H Cache-Control: max-age=0`,
+            ]
+          : []),
       ]);
       expect(f.git(f.owner, ["rev-parse", outcomeRef])).toBe(f.intent);
       expect(f.git(f.owner, ["for-each-ref", "--format=%(refname)", lockRef])).toBe("");

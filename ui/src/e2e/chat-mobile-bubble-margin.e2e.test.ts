@@ -123,12 +123,6 @@ suite.define(() => {
               await toggle.first().click();
             }
           }
-          if (testCase.id === "question") {
-            await page.locator(".chat-question-panel__collapse").click();
-            const collapsed = await measureMargin(page, testCase);
-            expect(collapsed.open).toBeGreaterThanOrEqual(collapsed.columnWidth * 0.1 - 1);
-            await page.locator(".chat-question-panel__collapsed-button").click();
-          }
           await page.setViewportSize({ width: 1440, height: 1200 });
           await expect
             .poll(

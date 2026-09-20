@@ -14,6 +14,7 @@ import {
 } from "../config/sessions/session-accessor.sqlite-scope.js";
 import { readHotSessionTranscriptSnapshot } from "../config/sessions/session-cold-storage-read.js";
 import { SessionTranscriptColdError } from "../config/sessions/session-cold-storage-state.js";
+import { readOpenClawAgentDatabaseIdentity } from "../state/openclaw-agent-db-identity.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
 import { isIncognitoOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.js";
 import { encodeOpenClawStateWorkerError } from "../state/openclaw-state-worker-error.js";
@@ -33,9 +34,11 @@ import {
   projectCostUsageSummary,
   projectSessionCostSummaries,
 } from "./session-cost-usage-projection.js";
+import { UsageCostRefreshCheckpoints } from "./session-cost-usage-refresh-checkpoints.js";
 import {
   decodeUsageCostRollup,
   isUsageCostRollupFresh,
+  USAGE_COST_ROLLUP_VERSION,
   type UsageCostStoredRollup,
 } from "./session-cost-usage-rollup-codec.js";
 import { scanUsageCostRollupInWorker } from "./session-cost-usage-worker-refresh.js";
@@ -65,6 +68,8 @@ type ReadDatabase = <T>(
   database: UsageCostWorkerDatabase,
   read: () => T | Promise<T>,
 ) => Promise<T>;
+
+const refreshCheckpoints = new UsageCostRefreshCheckpoints();
 
 export async function executeUsageCostWorker(
   input: UsageCostWorkerInput,
@@ -194,6 +199,7 @@ export async function executeUsageCostWorker(
       ? selectedFiles.flatMap((file) => (file ? [file.filePath] : []))
       : undefined;
   let rows: SessionCostUsageRollupRow[];
+  let cacheIncarnation: string | undefined;
   if (
     isIncognitoOpenClawAgentSqlitePath(location.databasePath, { agentId: location.agentId, env })
   ) {
@@ -218,7 +224,12 @@ export async function executeUsageCostWorker(
       readDatabase(database, () => {
         try {
           const result = withOpenClawAgentDatabaseReadOnly(
-            (opened) => readSessionCostUsageRollupRowsInDatabase(opened.db, selectedPaths),
+            (opened) => {
+              if (operation.kind === "refresh") {
+                cacheIncarnation = readOpenClawAgentDatabaseIdentity(opened).incarnation;
+              }
+              return readSessionCostUsageRollupRowsInDatabase(opened.db, selectedPaths);
+            },
             { ...database, env },
           );
           return result.found ? result.value : [];
@@ -273,6 +284,18 @@ export async function executeUsageCostWorker(
   for (const file of requestedFiles) {
     filesByPath.set(file.filePath, file);
   }
+  refreshCheckpoints.prepare(
+    cacheIncarnation !== undefined
+      ? JSON.stringify([
+          location.agentId,
+          location.databasePath,
+          cacheIncarnation,
+          operation.pricingFingerprint,
+          USAGE_COST_ROLLUP_VERSION,
+        ])
+      : undefined,
+    filesByPath,
+  );
   for (const row of rows) {
     if (filesByPath.has(row.key)) {
       continue;
@@ -294,13 +317,18 @@ export async function executeUsageCostWorker(
       continue;
     }
     const row = byPath.get(file.filePath);
+    if (row && cacheIncarnation !== undefined && refreshCheckpoints.isFresh(row, file)) {
+      continue;
+    }
     const entry = row
       ? decodeUsageCostRollup(row.valueJson, operation.pricingFingerprint)
       : undefined;
     const previous: UsageCostStoredRollup | undefined =
       entry && row ? { entry, valueJson: row.valueJson } : undefined;
-    if (!isUsageCostRollupFresh({ stored: previous, file })) {
+    if (!isUsageCostRollupFresh({ checkpoint: entry?.checkpoint, file })) {
       stale.push({ file, previous });
+    } else if (entry && row) {
+      refreshCheckpoints.remember(file.filePath, row.valueJson, entry.checkpoint);
     }
   }
   stale.sort((a, b) => a.file.size - b.file.size || a.file.filePath.localeCompare(b.file.filePath));
@@ -396,7 +424,8 @@ export async function executeUsageCostWorker(
       readRows,
       access,
     });
-    const value = new TextEncoder().encode(JSON.stringify(entry));
+    const valueJson = JSON.stringify(entry);
+    const value = new TextEncoder().encode(valueJson);
     const rawPrevious = byPath.get(file.filePath)?.valueJson;
     const previousValue = rawPrevious === undefined ? null : new TextEncoder().encode(rawPrevious);
     const written = await host(
@@ -407,6 +436,7 @@ export async function executeUsageCostWorker(
     if (!written) {
       throw new Error(`usage rollup changed while refreshing: ${file.filePath}`);
     }
+    refreshCheckpoints.remember(file.filePath, valueJson, entry.checkpoint);
   }
   return { kind: "refresh" };
 }

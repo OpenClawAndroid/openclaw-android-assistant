@@ -4053,7 +4053,6 @@ describe("agent event handler", () => {
       },
       "session-recovery",
     );
-    const settleTrackedTerminal = vi.fn();
     const trackTrackedRunTerminalPersistence = vi.fn();
     const {
       broadcast,
@@ -4066,7 +4065,6 @@ describe("agent event handler", () => {
     } = createHarness({
       resolveSessionKeyForRun: () => "session-recovery",
       lifecycleErrorRetryGraceMs: 0,
-      settleTrackedTerminal,
       trackTrackedRunTerminalPersistence,
     });
     sessionEventSubscribers.subscribe("conn-session");
@@ -4104,16 +4102,11 @@ describe("agent event handler", () => {
       persistence: expect.any(Promise),
     });
     await waitForFast(() => {
-      expect(settleTrackedTerminal).toHaveBeenCalledWith({
-        runId: "completed-during-marker-write",
-        clientRunId: "completed-during-marker-write",
-        sessionKey: "session-recovery",
-      });
       expect(
         broadcastToConnIds.mock.calls.filter(([event]) => event === "sessions.changed"),
       ).toHaveLength(1);
     });
-    expect(settleTrackedTerminal.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(trackTrackedRunTerminalPersistence.mock.invocationCallOrder[0]).toBeLessThan(
       broadcastToConnIds.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
     expect(chatRunState.registry.peek("completed-during-marker-write")).toBeUndefined();
@@ -4374,11 +4367,11 @@ describe("agent event handler", () => {
     persistGatewaySessionLifecycleEventMock.mockRejectedValueOnce(
       new Error("disk full sk-abcdefghijklmnopqrstuvwxyz123456"),
     );
-    const settleTrackedTerminal = vi.fn();
+    const trackTrackedRunTerminalPersistence = vi.fn();
     const { broadcastToConnIds, handler, sessionEventSubscribers } = createHarness({
       resolveSessionKeyForRun: () => "session-failed-write",
       lifecycleErrorRetryGraceMs: 0,
-      settleTrackedTerminal,
+      trackTrackedRunTerminalPersistence,
     });
     sessionEventSubscribers.subscribe("conn-session");
 
@@ -4407,13 +4400,14 @@ describe("agent event handler", () => {
     expect(logErrorMock).toHaveBeenCalledWith(
       "gateway: terminal session persistence failed session=session-failed-write run=run-failed-write error=Error: disk full sk-abc…3456",
     );
-    expect(settleTrackedTerminal).toHaveBeenCalledWith({
+    expect(trackTrackedRunTerminalPersistence).toHaveBeenCalledWith({
       runId: "run-failed-write",
       clientRunId: "run-failed-write",
       sessionKey: "session-failed-write",
-      persisted: false,
+      sessionId: "session-failed-write",
+      persistence: expect.any(Promise),
     });
-    expect(settleTrackedTerminal.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(trackTrackedRunTerminalPersistence.mock.invocationCallOrder[0]).toBeLessThan(
       broadcastToConnIds.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
   });
@@ -6084,10 +6078,10 @@ describe("agent event handler", () => {
     "preserves reply-dispatch ownership (delivery=%s, execution=%s)",
     async (settled, executionSettled) => {
       vi.useFakeTimers();
-      const settleTrackedTerminal = vi.fn();
+      const trackTrackedRunTerminalPersistence = vi.fn();
       const harness = createHarness({
         resolveSessionKeyForRun: () => "session-reply-dispatch",
-        settleTrackedTerminal,
+        trackTrackedRunTerminalPersistence,
       });
       const { broadcast, chatRunState, clearAgentRunContext, agentRunSeq, handler } = harness;
       const runId = "run-reply-dispatch";
@@ -6132,10 +6126,12 @@ describe("agent event handler", () => {
       }
       expect(clearAgentRunContext).not.toHaveBeenCalled();
       expect(persistGatewaySessionLifecycleEventMock).toHaveBeenCalledOnce();
-      expect(settleTrackedTerminal).toHaveBeenCalledWith({
+      expect(trackTrackedRunTerminalPersistence).toHaveBeenCalledWith({
         runId,
         clientRunId: runId,
         sessionKey: "session-reply-dispatch",
+        sessionId: undefined,
+        persistence: expect.any(Promise),
       });
     },
   );
@@ -6634,7 +6630,6 @@ describe("agent event handler", () => {
       runId: "run-maintenance-child",
       clientRunId: "run-maintenance-child",
       sessionKey: "session-maintenance-parent",
-      persisted: false,
     });
   });
 

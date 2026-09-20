@@ -458,7 +458,7 @@ describe("update repair ledger recovery", () => {
 
     await updateRepairCommand({});
 
-    expect(mocks.finalize).toHaveBeenCalledWith({}, []);
+    expect(mocks.finalize).toHaveBeenCalledWith({}, [run.runId]);
     expect(getUpdateRun(run.runId)).toEqual(recorded);
   });
 

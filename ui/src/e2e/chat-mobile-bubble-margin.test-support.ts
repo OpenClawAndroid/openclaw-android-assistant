@@ -181,24 +181,6 @@ export const marginCases = [
     selector: ".chat-bubble",
   },
   {
-    id: "question",
-    messages: [
-      message("assistant", "Which audience should the summary address?", {
-        openclawAsyncDelivery: {
-          itemId: "audience",
-          questions: [
-            {
-              title: "Which audience should the detailed release summary address?",
-              options: ["Engineers", "Everyone"],
-            },
-          ],
-        },
-      }),
-    ],
-    side: "left",
-    selector: ".chat-question-panel",
-  },
-  {
     id: "clawhub",
     messages: [
       message("assistant", [

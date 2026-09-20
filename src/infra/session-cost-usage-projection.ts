@@ -219,7 +219,7 @@ export function projectCostUsageSummary(
     if (entry) {
       latestScan = Math.max(latestScan, entry.scannedAt);
     }
-    if (!isUsageCostRollupFresh({ stored, file })) {
+    if (!isUsageCostRollupFresh({ checkpoint: entry?.checkpoint, file })) {
       staleFiles += 1;
     }
     if (!stored || !canUseUsageCostRollupForPartial({ stored, file })) {
@@ -301,9 +301,8 @@ export function projectSessionCostSummaries(
       continue;
     }
     latestScan = Math.max(latestScan, entry.scannedAt);
-    const stored = { entry, valueJson: row.valueJson };
     for (const { index, session, file } of requests) {
-      if (!isUsageCostRollupFresh({ stored, file })) {
+      if (!isUsageCostRollupFresh({ checkpoint: entry.checkpoint, file })) {
         continue;
       }
       cachedFiles += 1;

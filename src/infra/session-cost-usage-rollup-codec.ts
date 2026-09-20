@@ -41,6 +41,10 @@ export type UsageCostStoredRollup = {
   valueJson: string;
 };
 
+export type UsageCostFreshnessCheckpoint =
+  | Pick<UsageCostJsonlCheckpoint, "kind" | "observedSize" | "observedMtimeMs" | "device" | "inode">
+  | Pick<UsageCostSqliteCheckpoint, "kind" | "maxSeq" | "eventCount" | "size" | "mtimeMs">;
+
 export function decodeUsageCostRollup(
   valueJson: string,
   pricingFingerprint: string,
@@ -70,10 +74,10 @@ export function decodeUsageCostRollup(
 }
 
 export function isUsageCostRollupFresh(params: {
-  stored: UsageCostStoredRollup | undefined;
+  checkpoint: UsageCostFreshnessCheckpoint | undefined;
   file: UsageCostTranscriptFile;
 }): boolean {
-  const checkpoint = params.stored?.entry.checkpoint;
+  const { checkpoint } = params;
   if (!checkpoint || checkpoint.kind !== params.file.kind) {
     return false;
   }

@@ -617,7 +617,12 @@ export function createGatewayBroadcaster(params: {
           // Headers precede source hooks and reads performed while preparing projection.
           getFrameFields();
           let canSkipSourcePayload = false;
-          if (!retained && event === "session.message" && !isProxy(payload) && isRecord(payload)) {
+          if (
+            !retained &&
+            (event === "session.message" || event === "sessions.changed") &&
+            !isProxy(payload) &&
+            isRecord(payload)
+          ) {
             // Classify without executing getters or Proxy traps.
             const prototype = Object.getPrototypeOf(payload);
             canSkipSourcePayload =

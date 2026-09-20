@@ -1061,7 +1061,7 @@ install_companion_plugins() {
     tag="${BASH_REMATCH[1]}"
   fi
   openclaw_e2e_fixture_plugin_command openclaw -- \
-    plugins install "@openclaw/$plugin@$tag"
+    plugins install "@openclaw/$plugin@$tag" --force
   node scripts/e2e/lib/upgrade-survivor/assertions.mjs assert-baseline-plugin "$baseline_plugin_version" "$plugin" "$tag"
 }
 

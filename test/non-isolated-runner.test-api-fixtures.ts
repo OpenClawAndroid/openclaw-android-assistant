@@ -3,6 +3,26 @@ import path from "node:path";
 export function testApiLifecycleFixtureFiles(repoRoot: string): Record<string, string> {
   const sourcePath = (name: string) => JSON.stringify(path.join(repoRoot, "src", name));
   const files: Record<string, string> = {};
+  for (const generation of ["producer", "observer"]) {
+    files[`05-${generation === "producer" ? "c" : "d"}-task-registry.test.ts`] = `
+import { expect, it } from "vitest";
+import { emitAgentEvent } from ${sourcePath("infra/agent-events.ts")};
+import { prepareTaskRegistryRead } from ${sourcePath("tasks/task-registry-read.ts")};
+import { configureInMemoryTaskStoresForTests, createTaskFixture } from ${sourcePath("tasks/task-registry.test-support.ts")};
+it("receives task events in the ${generation} file", async () => {
+  configureInMemoryTaskStoresForTests();
+  const runId = "runner-task-${generation}";
+  const task = createTaskFixture("cli", {
+    runId,
+    task: "Observe task events across file cleanup",
+    notifyPolicy: "silent",
+  });
+  emitAgentEvent({ runId, stream: "tool", data: { phase: "start", name: "read" } });
+  const read = await prepareTaskRegistryRead();
+  expect(read?.getTaskById(task.taskId)).toMatchObject({ toolUseCount: 1, lastToolName: "read" });
+});
+`;
+  }
   for (const [prefix, generation] of [
     ["09-d", "producer"],
     ["09-e", "observer"],

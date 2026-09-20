@@ -154,7 +154,7 @@ export function clearBlockedPageRef(cdpUrl: string, page: Page): void {
   blockedPageRefsByCdpUrl.get(normalizeCdpUrl(cdpUrl))?.delete(page);
 }
 
-export function takeCachedPlaywrightBrowserConnection(cdpUrl: string): ConnectedBrowser | null {
+function takeCachedPlaywrightBrowserConnection(cdpUrl: string): ConnectedBrowser | null {
   const normalized = normalizeCdpUrl(cdpUrl);
   const cur = cachedByCdpUrl.get(normalized);
   cachedByCdpUrl.delete(normalized);
@@ -175,7 +175,7 @@ export function takeCachedPlaywrightBrowserConnection(cdpUrl: string): Connected
 }
 
 /** Raised when a page target has been quarantined after policy denial. */
-export class BlockedBrowserTargetError extends Error {
+class BlockedBrowserTargetError extends Error {
   constructor() {
     super("Browser target is unavailable after SSRF policy blocked its navigation.");
     this.name = "BlockedBrowserTargetError";
@@ -196,9 +196,7 @@ function releaseClosingPlaywrightConnection(connection: ConnectedBrowser): void 
   }
 }
 
-export async function closeTrackedPlaywrightConnection(
-  connection: ConnectedBrowser,
-): Promise<void> {
+async function closeTrackedPlaywrightConnection(connection: ConnectedBrowser): Promise<void> {
   const existing = closeConnectionPromises.get(connection);
   if (existing) {
     return await existing;
@@ -352,8 +350,6 @@ function hasBlockedTargetsForCdpUrl(cdpUrl: string): boolean {
   return false;
 }
 
-/** Raised when a page target has been quarantined after policy denial. */
-
 function observeContext(context: BrowserContext) {
   if (observedContexts.has(context)) {
     return;
@@ -406,6 +402,10 @@ export async function connectBrowser(
   // Run SSRF policy check only on cache miss so transient DNS failures
   // do not break active sessions that already hold a live CDP connection.
   const configuredPin = await assertCdpEndpointAllowed(normalized, ssrfPolicy);
+  const connectedDuringPolicyCheck = cachedByCdpUrl.get(normalized);
+  if (connectedDuringPolicyCheck) {
+    return connectedDuringPolicyCheck;
+  }
   const connecting = connectingByCdpUrl.get(normalized);
   if (connecting) {
     return await connecting.promise;

@@ -387,7 +387,10 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +2: typed workspace unavailability and its structural classifier.
       // +13: twelve decision contract types and one prepared plugin secret reader.
       // +6: shared delivery facts, source-reply detection, argument sanitization, and media comparison.
-      4517,
+      // +1: workspace Memory file client.
+      // +2: prepare admitted input attachments and bind a workspace transfer adapter.
+      // +1: approved host workspace Skill resource reader.
+      4522,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -534,7 +537,10 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: workspace unavailability classifier.
       // +1: prepared plugin capability secret reader.
       // +6: shared delivery facts, source-reply detection, argument sanitization, and media comparison.
-      2661,
+      // +1: workspace Memory file client.
+      // +2: prepare admitted input attachments and bind a workspace transfer adapter.
+      // +1: approved host workspace Skill resource reader.
+      2666,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

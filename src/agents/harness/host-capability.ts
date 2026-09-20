@@ -1,5 +1,6 @@
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { buildActiveNodeContextText } from "../../infra/active-node-context.js";
 import { emitAgentRunOutputTokens } from "../../infra/agent-events.js";
 import { getActiveDiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import {
@@ -510,6 +511,10 @@ export function createAgentHarnessHostCapabilities(params: {
         managedLocalIdentity: preparedRunEnvironment.managedLocalIdentity,
         ...(localProcessEnv ? { localProcessEnv } : {}),
       });
+    },
+    activeComputerContext: () => {
+      assertActive();
+      return buildActiveNodeContextText();
     },
     bindToolSurface,
     createToolSurface: (options, bindingOptions) => {

@@ -1,7 +1,6 @@
 import type { SqlBool } from "kysely";
+import type { USER_PROFILE_AVATAR_MIME_TYPES } from "../shared/avatar-limits.js";
 
-export const MAX_USER_PROFILE_AVATAR_BYTES = 512 * 1024;
-export const USER_PROFILE_AVATAR_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 export type UserProfileAvatarMime = (typeof USER_PROFILE_AVATAR_MIME_TYPES)[number];
 
 export type UserProfilesDatabase = {

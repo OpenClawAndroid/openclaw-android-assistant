@@ -60,7 +60,7 @@ export function rateLimitRetryGuidance({ remaining, resetUtc, retryAfter }) {
 function main(exitCode, response) {
   const { status, body, remaining, limit, resetUtc, retryAfter, resource } =
     parseGithubResponse(response);
-  const login = body?.data?.viewer?.login;
+  const login = body?.login;
   if (
     exitCode === 0 &&
     status === "200" &&
@@ -68,6 +68,7 @@ function main(exitCode, response) {
     login.trim().length > 0 &&
     (body.errors === undefined || (Array.isArray(body.errors) && body.errors.length === 0))
   ) {
+    process.stdout.write(`${login}\n`);
     return;
   }
 

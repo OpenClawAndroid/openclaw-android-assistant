@@ -16,6 +16,7 @@ import {
   type SqliteWorkerStore,
 } from "../infra/sqlite-worker-store.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { runInDetachedAsyncContext } from "../shared/async-work-scope.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import {
   publishOpenClawStateDatabaseWorkerAdmission,
@@ -35,19 +36,14 @@ import type {
   OpenClawStateWorkerOperations,
   OpenClawStateWorkerInspectionOperations,
   OpenClawStateWorkerCleanupOperations,
+  OpenClawStateWorkerOperationOptions as OperationOptions,
 } from "./openclaw-state-worker-contract.js";
 import { hydrateOpenClawStateWorkerError } from "./openclaw-state-worker-error.js";
 
 type StoreOperations = OpenClawStateWorkerOperations & OpenClawStateWorkerInspectionOperations;
 type Store = SqliteWorkerStore<StoreOperations>;
 type DomainScope = Pick<SqliteWorkerStore<OpenClawStateWorkerOperations>, "execute">;
-type OperationOptions = {
-  /** Acquire matching lifecycle custody for each dispatched command. */
-  requireStateLifecycle?: boolean;
-  existingOnly?: boolean;
-  assertCurrent?: (commandType?: PropertyKey) => void;
-  createAdmission?: SqliteWorkerAdmissionFactory;
-};
+
 const log = createSubsystemLogger("state/worker");
 const SHARED_STATE_WORKER_IDLE_INSPECT_MS = 60_000;
 const SHARED_STATE_WORKER_IDLE_RETIRE_MS = 30 * 60_000;
@@ -198,14 +194,16 @@ function createSharedStateWorkerOwner() {
           await retire(entry);
         }
       };
-      const timer: IdleTimer = setTimeout(() => {
-        void settle().catch((error: unknown) => {
-          log.warn("Idle shared-state worker retirement failed", {
-            path: entry.context.admission.databasePath,
-            error,
+      const timer: IdleTimer = runInDetachedAsyncContext(() =>
+        setTimeout(() => {
+          void settle().catch((error: unknown) => {
+            log.warn("Idle shared-state worker retirement failed", {
+              path: entry.context.admission.databasePath,
+              error,
+            });
           });
-        });
-      }, delay);
+        }, delay),
+      );
       entry.idleTimer = timer;
       timer.unref?.();
     };
@@ -446,20 +444,22 @@ function createSharedStateWorkerOwner() {
           existingOnly,
           activeOperations: 0,
           operationGeneration: 0,
-          opening: openSharedStateSqliteWorkerStore<StoreOperations>(
-            {
-              moduleUrl,
-              databasePath: admission.databasePath,
-              existingOnly,
-            },
-            context,
-            assertOpeningAdmission,
-            {
-              maintenanceScope: context.maintenanceScope,
-              retainCleanup: (cleanup) => {
-                admitted.cleanup = cleanup;
+          opening: runInDetachedAsyncContext(() =>
+            openSharedStateSqliteWorkerStore<StoreOperations>(
+              {
+                moduleUrl,
+                databasePath: admission.databasePath,
+                existingOnly,
               },
-            },
+              context,
+              assertOpeningAdmission,
+              {
+                maintenanceScope: context.maintenanceScope,
+                retainCleanup: (cleanup) => {
+                  admitted.cleanup = cleanup;
+                },
+              },
+            ),
           ),
         };
         entry = admitted;
@@ -572,13 +572,13 @@ export async function executeOpenClawStateWorker<Key extends keyof OpenClawState
 export function runOpenClawStateWorkerOperation<T>(
   context: OpenClawStateWorkerContext,
   operation: (scope: DomainScope) => Promise<T>,
-  options: OperationOptions & { existingOnly: true },
-): Promise<T | undefined>;
+  options?: OperationOptions & { existingOnly?: false },
+): Promise<T>;
 export function runOpenClawStateWorkerOperation<T>(
   context: OpenClawStateWorkerContext,
   operation: (scope: DomainScope) => Promise<T>,
-  options?: OperationOptions & { existingOnly?: false },
-): Promise<T>;
+  options: OperationOptions & { existingOnly: boolean },
+): Promise<T | undefined>;
 export async function runOpenClawStateWorkerOperation<T>(
   context: OpenClawStateWorkerContext,
   operation: (scope: DomainScope) => Promise<T>,

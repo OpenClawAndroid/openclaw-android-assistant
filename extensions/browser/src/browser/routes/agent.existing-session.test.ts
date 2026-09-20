@@ -20,6 +20,7 @@ const chromeMcpMocks = vi.hoisted(() => ({
     async (_params: { profileName: string; targetId: string; fn: string }) => true,
   ),
   fillChromeMcpElement: vi.fn(async () => {}),
+  selectChromeMcpOption: vi.fn(async () => {}),
   navigateChromeMcpPage: vi.fn(async ({ url }: { url: string }) => ({ url })),
   takeChromeMcpScreenshot: vi.fn(async () => Buffer.from("png")),
   takeChromeMcpSnapshot: vi.fn<() => Promise<ChromeMcpSnapshotNode>>(async () => ({
@@ -48,6 +49,7 @@ vi.mock("../chrome-mcp.js", () => ({
   dragChromeMcpElement: vi.fn(async () => {}),
   evaluateChromeMcpScript: chromeMcpMocks.evaluateChromeMcpScript,
   fillChromeMcpElement: chromeMcpMocks.fillChromeMcpElement,
+  selectChromeMcpOption: chromeMcpMocks.selectChromeMcpOption,
   fillChromeMcpForm: vi.fn(async () => {}),
   hoverChromeMcpElement: vi.fn(async () => {}),
   navigateChromeMcpPage: chromeMcpMocks.navigateChromeMcpPage,
@@ -156,6 +158,7 @@ describe("existing-session browser routes", () => {
     chromeMcpMocks.clickChromeMcpElement.mockClear();
     chromeMcpMocks.evaluateChromeMcpScript.mockReset();
     chromeMcpMocks.fillChromeMcpElement.mockClear();
+    chromeMcpMocks.selectChromeMcpOption.mockClear();
     chromeMcpMocks.navigateChromeMcpPage.mockClear();
     chromeMcpMocks.takeChromeMcpScreenshot.mockClear();
     chromeMcpMocks.takeChromeMcpSnapshot.mockClear();
@@ -177,7 +180,7 @@ describe("existing-session browser routes", () => {
     );
 
     expect(response.statusCode).toBe(200);
-    expect(chromeMcpMocks.fillChromeMcpElement).toHaveBeenCalledWith(
+    expect(chromeMcpMocks.selectChromeMcpOption).toHaveBeenCalledWith(
       expect.objectContaining({ targetId: "7", uid: "select-1", value }),
     );
   });
@@ -218,6 +221,42 @@ describe("existing-session browser routes", () => {
     expect(navigationGuardMocks.assertBrowserNavigationResultAllowed).not.toHaveBeenCalled();
     expect(chromeMcpMocks.takeChromeMcpScreenshot).toHaveBeenCalled();
   });
+
+  it.each(["snapshot", "screenshot"])(
+    "clears %s labels when injection finishes after the caller aborts",
+    async (operation) => {
+      const failure = new Error("label injection timed out");
+      const controller = new AbortController();
+      chromeMcpMocks.evaluateChromeMcpScript.mockReset().mockImplementationOnce(async () => {
+        controller.abort(failure);
+        throw failure;
+      });
+      const response = createBrowserRouteResponse();
+      const handler = operation === "snapshot" ? getSnapshotGetHandler() : getSnapshotPostHandler();
+      const request = handler?.(
+        {
+          params: {},
+          query: { format: "ai", labels: "1" },
+          body: { labels: true },
+          signal: controller.signal,
+        },
+        response.res,
+      );
+      if (operation === "snapshot") {
+        await request;
+        expect(response.body).toEqual({ error: failure.message });
+      } else {
+        await expect(request).rejects.toBe(failure);
+      }
+      expect(chromeMcpMocks.takeChromeMcpScreenshot).not.toHaveBeenCalled();
+      expect(chromeMcpMocks.evaluateChromeMcpScript).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          signal: undefined,
+          fn: expect.stringContaining("node.remove()"),
+        }),
+      );
+    },
+  );
 
   it.each(["snapshot", "screenshot"])(
     "clears %s labels after media persistence fails and its caller aborts",
@@ -707,7 +746,7 @@ describe("existing-session browser routes", () => {
       {
         params: {},
         query: {},
-        body: { kind: "clickCoords", x: 25, y: "32", doubleClick: true, delayMs: 5 },
+        body: { kind: "clickCoords", x: 25, y: "32", doubleClick: true },
       },
       response.res,
     );
@@ -728,6 +767,20 @@ describe("existing-session browser routes", () => {
     expect(clickParams.y).toBe(32);
     expect(clickParams.doubleClick).toBe(true);
     expect(clickParams.button).toBeUndefined();
-    expect(clickParams.delayMs).toBe(5);
+    expect(clickParams.delayMs).toBeUndefined();
   });
+
+  it.each([{ button: "right" }, { button: "middle" }, { delayMs: 5 }])(
+    "rejects unsupported native coordinate input %j before clicking",
+    async (options) => {
+      const handler = getActPostHandler();
+      const response = createBrowserRouteResponse();
+      await handler?.(
+        { params: {}, query: {}, body: { kind: "clickCoords", x: 25, y: 32, ...options } },
+        response.res,
+      );
+      expect(response.statusCode).toBe(501);
+      expect(chromeMcpMocks.clickChromeMcpCoords).not.toHaveBeenCalled();
+    },
+  );
 });

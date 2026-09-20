@@ -13,6 +13,14 @@ import {
   type SystemsInventory,
   type SystemsInventoryRow,
 } from "./systems-data.ts";
+import {
+  SYSTEMS_GATEWAY_STALE_MS,
+  SYSTEMS_NODE_STALE_MS,
+  systemMeasurements,
+  type SystemsTelemetrySample,
+} from "./systems-telemetry.ts";
+
+const TELEMETRY_SAMPLE_LIMIT = 120;
 
 export type SystemsSortMode = "name" | "online-first" | "offline-first";
 export type SystemsStatusFilter = "all" | "online" | "offline";
@@ -31,6 +39,7 @@ export class SystemsController {
   loading = false;
   error: string | null = null;
   sampledAtMs: number | null = null;
+  private readonly telemetry = new Map<string, readonly SystemsTelemetrySample[]>();
   private readonly listeners = new Set<() => void>();
   private readonly lifecycle;
   private subscriptions: Array<() => void> = [];
@@ -63,6 +72,10 @@ export class SystemsController {
       : undefined;
   }
 
+  telemetryHistory(id: string): readonly SystemsTelemetrySample[] {
+    return this.current ? (this.telemetry.get(id) ?? []) : [];
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -84,6 +97,40 @@ export class SystemsController {
             this.context.sessions.state.result?.sessions ?? [],
           )
         : [];
+  }
+
+  private recordTelemetry(gatewaySampled: boolean): void {
+    const currentIds = new Set(this.rows.map((row) => row.environment.id));
+    for (const id of this.telemetry.keys()) {
+      if (!currentIds.has(id)) {
+        this.telemetry.delete(id);
+      }
+    }
+    for (const row of this.rows) {
+      const id = row.environment.id;
+      const stats = systemMeasurements(row);
+      if (!stats) {
+        this.telemetry.delete(id);
+        continue;
+      }
+      const gatewayHost = id === "gateway";
+      if (gatewayHost && !gatewaySampled) {
+        continue;
+      }
+      const at = row.node?.hostStats?.updatedAtMs ?? this.sampledAtMs;
+      if (at === null) {
+        continue;
+      }
+      const previous = this.telemetry.get(id) ?? [];
+      const last = previous.at(-1);
+      // node.list can return the same report across several UI polls.
+      if (last && at <= last.at) {
+        continue;
+      }
+      const staleAfter = gatewayHost ? SYSTEMS_GATEWAY_STALE_MS : SYSTEMS_NODE_STALE_MS;
+      const history = last && at - last.at <= staleAfter ? previous : [];
+      this.telemetry.set(id, [...history.slice(-(TELEMETRY_SAMPLE_LIMIT - 1)), { at, stats }]);
+    }
   }
 
   select(id: string): void {
@@ -142,6 +189,7 @@ export class SystemsController {
           this.clear();
         } else if (changed) {
           this.cancelRefresh();
+          this.telemetry.clear();
           if (snapshot.phase === "connected") {
             void this.refresh();
           }
@@ -169,7 +217,9 @@ export class SystemsController {
         this.notify();
       }),
     ];
-    this.lifecycle.transition(this.context.gateway.snapshot);
+    if (this.lifecycle.transition(this.context.gateway.snapshot)) {
+      this.telemetry.clear();
+    }
     if (!this.current) {
       this.clear();
     } else {
@@ -194,12 +244,15 @@ export class SystemsController {
     this.selectedId = null;
     this.error = null;
     this.sampledAtMs = null;
+    this.telemetry.clear();
     this.query = "";
   }
 
   async refresh(): Promise<void> {
     const snapshot = this.context.gateway.snapshot;
-    this.lifecycle.transition(snapshot);
+    if (this.lifecycle.transition(snapshot)) {
+      this.telemetry.clear();
+    }
     const scope = this.lifecycle.capture();
     if (
       !this.presented ||
@@ -238,6 +291,7 @@ export class SystemsController {
       this.inventory = inventory;
       this.projectRows();
       this.sampledAtMs = Date.now();
+      this.recordTelemetry(true);
       // Only initial entry picks a default. Later updates never replace an explicit or missing selection.
       if (initial && this.selectedId === null) {
         const currentSession = this.context.gateway.snapshot.sessionKey;
@@ -324,6 +378,7 @@ export class SystemsController {
         this.inventory = { ...this.inventory, nodes: result.nodes, errors };
       }
       this.projectRows();
+      this.recordTelemetry(gatewayHost);
     } catch (error) {
       if (isCurrent() && this.inventory) {
         this.inventory = {

@@ -12,7 +12,10 @@ import { describe, expect, it, vi, type MockInstance } from "vitest";
 import * as authBridge from "./auth-bridge.js";
 import { runBoundedCodexAppServerTurn } from "./bounded-turn.js";
 import { CodexAppServerClient } from "./client.js";
-import { resolveCodexSupervisionAppServerRuntimeOptions } from "./config.js";
+import {
+  resolveCodexAppServerRuntimeOptions,
+  resolveCodexSupervisionAppServerRuntimeOptions,
+} from "./config.js";
 import { setCodexTestToolFactory } from "./host-capability.test-support.js";
 import { createCodexNativeTestState } from "./native-app-server.test-support.js";
 import { buildCodexAppServerConnectionFingerprint } from "./plugin-app-cache-key.js";
@@ -423,7 +426,28 @@ describe.skipIf(process.platform === "win32")(
             "openai",
           );
           fixture.setPhase(closure === "before completion" ? "hold" : "probe");
-          const admittedClient = createDeferred<CodexAppServerClient>();
+          // Process/auth startup is setup for the close-event contract below.
+          const client = await sharedClients.createIsolatedCodexAppServerClient({
+            startOptions: resolveCodexAppServerRuntimeOptions({ pluginConfig }).start,
+            authProfileId: HOST_PROFILE,
+            authProfileStore: fixture.authProfileStore,
+            agentDir: fixture.agentDir,
+            timeoutMs: 15_000,
+          });
+          let settled: Promise<unknown> = Promise.resolve();
+          cleanups.push(async () => {
+            await closeNativeClient(client);
+            await settled;
+          });
+          if (closure === "after completion") {
+            client.addNotificationHandler((notification) => {
+              if (notification.method === "turn/completed") {
+                // The router receives this native frame synchronously; close before
+                // its asynchronous projections run to exercise terminal precedence.
+                queueMicrotask(() => client.close());
+              }
+            });
+          }
           const run = runBoundedCodexAppServerTurn({
             model: { mode: "required", id: HOST_MODEL },
             profile: HOST_PROFILE,
@@ -438,30 +462,10 @@ describe.skipIf(process.platform === "win32")(
             requireNoExternalCapabilities: true,
             options: {
               pluginConfig,
-              clientFactory: async (options) => {
-                const client = await sharedClients.createIsolatedCodexAppServerClient({
-                  ...options,
-                  authProfileStore: fixture.authProfileStore,
-                });
-                if (closure === "after completion") {
-                  client.addNotificationHandler((notification) => {
-                    if (notification.method === "turn/completed") {
-                      // The router receives this native frame synchronously; close before
-                      // its asynchronous projections run to exercise terminal precedence.
-                      queueMicrotask(() => client.close());
-                    }
-                  });
-                }
-                admittedClient.resolve(client);
-                cleanups.push(async () => {
-                  await closeNativeClient(client);
-                  await settled;
-                });
-                return client;
-              },
+              clientFactory: async () => client,
             },
           });
-          const settled = run.then(
+          settled = run.then(
             () => undefined,
             (error: unknown) => error,
           );
@@ -471,7 +475,6 @@ describe.skipIf(process.platform === "win32")(
               throw new Error("Bounded turn ended before provider admission", { cause: error });
             }),
           ]);
-          const client = await admittedClient.promise;
           if (closure === "before completion") {
             client.close();
             await expect(run).rejects.toThrow("closed");

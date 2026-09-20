@@ -2,9 +2,8 @@ import { html, nothing, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../../test/helpers/promise.js";
 import { renderCompactAttachmentCard } from "./chat-attachment-card.ts";
-import { renderAssistantAttachments } from "./chat-message-attachments.ts";
 import { renderMessageImages } from "./chat-message-images.ts";
-import { releaseChatMediaResourceSubscriber } from "./chat-message-media.ts";
+import { projectMessageMedia, releaseChatMediaResourceSubscriber } from "./chat-message-media.ts";
 import "../../../test-helpers/load-styles.ts";
 
 const browserMode = "__vitest_browser__" in globalThis;
@@ -223,8 +222,8 @@ describe.runIf(browserMode)("chat image loading geometry", () => {
         render(
           html`${
               kind === "attachment"
-                ? renderAssistantAttachments(
-                    [
+                ? renderMessageImages(
+                    projectMessageMedia({}, [
                       {
                         type: "attachment",
                         attachment: {
@@ -235,7 +234,7 @@ describe.runIf(browserMode)("chat image loading geometry", () => {
                           height: 800,
                         },
                       },
-                    ],
+                    ]).images,
                     { sessionKey: "image-proof", agentId: "main", onRequestUpdate: draw },
                   )
                 : renderMessageImages(

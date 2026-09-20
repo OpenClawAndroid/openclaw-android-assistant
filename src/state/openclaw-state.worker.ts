@@ -11,6 +11,7 @@ import {
 import type { OpenClawStateDatabase } from "./openclaw-state-db-contract.js";
 import { assertOpenClawStateDatabaseOwner } from "./openclaw-state-db-maintenance.js";
 import { openOpenClawStateDatabase } from "./openclaw-state-db.js";
+import { acquireOpenClawStateLeaseInWorker } from "./openclaw-state-lease-worker.js";
 import type { OpenClawStateWorkerBackend } from "./openclaw-state-worker-contract.js";
 
 const loadRuntime = createLazyRuntimeModule(() => import("./openclaw-state-worker-runtime.js"));
@@ -68,6 +69,7 @@ function createSharedStateWorkerBackend(
       if (
         commandType === "plugins.metadata.read" ||
         commandType === "database.inspectIdle" ||
+        commandType === "stateLease.acquire" ||
         runtime
       ) {
         return undefined;
@@ -79,6 +81,9 @@ function createSharedStateWorkerBackend(
     execute(command) {
       if (closed) {
         throw new Error("Shared-state worker is closed");
+      }
+      if (command.type === "stateLease.acquire") {
+        return acquireOpenClawStateLeaseInWorker(command.input, context.databasePath, open);
       }
       if (command.type === "plugins.metadata.read") {
         return readPluginMetadataStateRowSync(

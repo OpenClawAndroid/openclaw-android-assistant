@@ -174,6 +174,9 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
     plugins: config.plugins,
   });
   outputPrefix = "legacy-finalizer/";
+  const fixtureBoundaries = new Set(
+    legacyFinalizerBuildSources.map((source) => path.join(root, source)),
+  );
   await build({
     ...config,
     // Array entries honor root; object entries infer src/ and break import.meta paths.
@@ -186,7 +189,28 @@ async function compileVitestWorkerArtifacts(directory: string): Promise<void> {
     inputOptions: { preserveEntrySignatures: "strict" },
     outputOptions: { entryFileNames: "[name].js", chunkFileNames: "[name].js" },
     // Hooked service and authority owners must stay in this single preserved graph.
-    plugins: commonPlugins,
+    plugins: [
+      {
+        name: "openclaw:fixture-module-boundaries",
+        resolveId(id, importer) {
+          if (!importer || !id.startsWith(".")) {
+            return null;
+          }
+          const source = path.resolve(path.dirname(importer), id).replace(/\.js$/u, ".ts");
+          if (!fixtureBoundaries.has(source)) {
+            return null;
+          }
+          // Keep hookable barrels intact instead of redirecting imports to their leaf owners.
+          return {
+            id: pathToFileURL(
+              path.join(outDir, outputPrefix, path.relative(root, source).replace(/\.ts$/u, ".js")),
+            ).href,
+            external: "absolute",
+          };
+        },
+      },
+      ...commonPlugins,
+    ],
   });
   for (const source of legacyFinalizerBuildSources) {
     fs.accessSync(path.join(outDir, outputPrefix, source.replace(/\.ts$/u, ".js")));

@@ -209,7 +209,7 @@ export function createHarness(
       return placementStore.fail(params);
     },
     list: () => placementStore.list(),
-    listForReconcile: () => placementStore.listForReconcile(),
+    listForReconcile: (sessionKey) => placementStore.listForReconcile(sessionKey),
     startDrain: (params) => {
       log.push("placement:draining");
       if (options.claimOnDrain && !placementStore.get(params.sessionId)?.turnClaim) {

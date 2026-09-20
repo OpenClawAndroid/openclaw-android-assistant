@@ -821,10 +821,12 @@ describe("transcripts tool", () => {
           ],
         },
       };
+      const entered = createDeferred<TranscriptStartRequest>();
       const start = vi.fn(async (request: TranscriptStartRequest) => {
         await request.onUtterance({
           text: "Decision: keep meeting notes with their routed agent.",
         });
+        entered.resolve(request);
         return { ok: true as const, session: request.session };
       });
       getTranscriptSourceProviderMock.mockReturnValue({
@@ -850,8 +852,9 @@ describe("transcripts tool", () => {
 
       service.start();
       try {
-        await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
-        const sessionId = start.mock.calls[0]![0].session.sessionId;
+        const request = await entered.promise;
+        expect(start).toHaveBeenCalledOnce();
+        const sessionId = request.session.sessionId;
         await expect(storeFor(stateDir).readSession(sessionId)).resolves.toMatchObject({
           metadata: { agentId: "research" },
           source: { agentId: "research", accountId: "account-a" },

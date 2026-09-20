@@ -68,7 +68,7 @@ describe("scripts/run-vitest", () => {
     },
   );
 
-  it("avoids concurrent compiler shutdown waits in test children by default", () => {
+  it("keeps Sparkplug compilation synchronous in test processes", () => {
     expect(resolveVitestNodeArgs({ PATH: "/usr/bin" })).toEqual([
       "--no-maglev",
       "--no-concurrent-sparkplug",
@@ -887,13 +887,13 @@ registerHooks({resolve(specifier, context, nextResolve) {
     );
   });
 
-  it("allows opting back into Maglev explicitly", () => {
+  it("allows opting back into Maglev while keeping Sparkplug compilation synchronous", () => {
     expect(
       resolveVitestNodeArgs({
         OPENCLAW_VITEST_ENABLE_MAGLEV: "1",
         PATH: "/usr/bin",
       }),
-    ).toStrictEqual([]);
+    ).toStrictEqual(["--no-concurrent-sparkplug"]);
   });
 
   it("parses the optional no-output timeout env", () => {

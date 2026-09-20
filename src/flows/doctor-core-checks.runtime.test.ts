@@ -4,6 +4,7 @@ import { GatewayClientRequestError } from "../../packages/gateway-client/src/ind
 import { retainGatewayResponsePayload } from "../../packages/gateway-client/src/protocol-request.js";
 import { createMcpProofPluginRegistry } from "../agents/mcp-connection-resolver.test-fixtures.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
+import { collectGatewayHealthFindings } from "../commands/doctor-gateway-health.js";
 import { GATEWAY_HEALTH_RATE_LIMITED_MESSAGE } from "../commands/gateway-health-auth-diagnostic.js";
 import { collectNodeRuntimeFindings } from "../commands/node-runtime-diagnostics.js";
 import { GatewaySecretRefUnavailableError } from "../gateway/credentials.js";
@@ -99,7 +100,6 @@ vi.mock("../plugins/providers.runtime.js", () => ({
 
 const {
   collectGatewayDaemonFindings,
-  collectGatewayHealthFindings,
   collectProviderCatalogProjectionFindings,
   collectRuntimeToolSchemaFindings,
 } = await import("./doctor-core-checks.runtime.js");

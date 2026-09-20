@@ -123,6 +123,15 @@ gateway stops accepting new work, then waits for active agent turns and
 background tasks to finish, up to a drain budget (5 minutes by default). Most
 restarts therefore interrupt nothing at all.
 
+On Linux and macOS, this also applies when startup recovers from an unsupported
+Node version and the service manager tracks a launcher parent. The launcher
+forwards the stop signal and waits for the serving Gateway to drain within the
+shared service budget. Managed restart intent targets the live serving owner,
+so unfinished work still follows restart recovery when its drain budget expires.
+The launchd stop budget remains 20 seconds; Linux units use the deadlines below.
+This requires a Gateway started with the updated launcher: replacing files cannot
+change a launcher that is already running.
+
 On Linux, the systemd unit must use `KillMode=mixed` so the initial stop signal
 reaches only the Gateway. Systemd still kills remaining child processes when the
 Gateway exits or its stop deadline expires. Older `KillMode=control-group` units
@@ -212,6 +221,11 @@ in a healthy queue does not consume separate failed-start attempts.
 `sessions.abort` waits for the cancellation's session write before acknowledging
 success. Restarting immediately after that acknowledgment preserves the terminal
 outcome even if the run's finalizer has not finished.
+This also applies to a parent that yielded while waiting for spawned tasks:
+successfully stopping its children records the captured parent's cancellation
+before acknowledging, without overwriting a newer turn in that session.
+If another child cannot be stopped, the response still reports incomplete
+cancellation; the captured parent's cancellation is persisted before that error.
 
 ## Host sleep and process freezes
 
@@ -410,11 +424,13 @@ other stores continue recovery. `openclaw status` and `openclaw doctor` show
 outstanding startup recovery failures from the running Gateway; the warning clears
 when the store scan succeeds.
 
-If an older Gateway left a session running with a dead writer and an unfinished
-recovery cycle, `sessions.recover` reconciles that writer and starts a continuation
-in the same session. It preserves the session key and transcript. A live run or
-cloud worker still prevents this repair. Tombstoned sessions retain their separate
-recovery path into a new session.
+If an older Gateway left a dead writer and an unfinished recovery cycle in a
+running, failed, or statusless session, `sessions.recover` reconciles that writer
+and starts a continuation in the same session. A new Control UI message also reconciles this
+state before admission, so a rejected send cannot trap the conversation in a
+"conversation changed" retry loop. Both paths preserve the session key and
+transcript. A live run or cloud worker still prevents this repair. Tombstoned
+sessions retain their separate recovery path into a new session.
 
 ## Automatic resume
 

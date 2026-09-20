@@ -309,11 +309,13 @@ else if(args[0]==="api"&&args.some(arg=>new RegExp("^repos/[^/]+/[^/]+$").test(a
   if(s.repoAuthorityUnavailable) fail("repository metadata unavailable");
   out(s.repoAuthority);
 }
-else if(args[0]==="api"&&args.includes("user")) out("relay-reader");
+else if(args[0]==="api"&&args.includes("user")) {
+  if(route==="direct"&&JSON.stringify(args)===JSON.stringify(["api","--hostname","github.com","user","--include"])) out("HTTP/2.0 200 OK\\n\\n"+JSON.stringify({login:s.operator}));
+  else out("relay-reader");
+}
 else if(args[0]==="api"&&args.includes("repos/fixture/repo/pulls/123")) {
   out({mergeable:s.pr.mergeable==="UNKNOWN"?null:s.pr.mergeable==="MERGEABLE",mergeable_state:s.pr.mergeStateStatus.toLowerCase()});
 }
-else if(args.includes("graphql")&&args.includes("query=query { viewer { login } }")) out(args.includes("--include") ? "HTTP/2.0 200 OK\\n\\n" + JSON.stringify({data:{viewer:{login:s.operator}}}) : s.operator);
 else if(args[0]==="pr"&&args[1]==="checks") {
   if(s.duringChecks?.bodyPath) fs.writeFileSync(s.duringChecks.bodyPath,"Changed later");
   if(s.duringChecks?.head) s.pr.headRefOid=s.duringChecks.head;

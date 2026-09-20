@@ -3,46 +3,20 @@ import { spawn, spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { consumeRootOptionToken as consumeLauncherRootOptionToken } from "./cli-root-options.mjs";
+import { isForegroundGatewayRunArgv } from "./gateway-run-argv.mjs";
+import {
+  GATEWAY_SERVICE_STOP_TIMEOUT_MS,
+  LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS,
+} from "./gateway-shutdown-budget.mjs";
 import {
   detectCurrentSqliteCapabilities,
   nodeRuntimeFailure,
   SQLITE_CAPABILITY_PROBE,
 } from "./node-sqlite.mjs";
 
-const LAUNCHER_ROOT_BOOLEAN_FLAGS = new Set(["--dev", "--no-color"]);
-const LAUNCHER_ROOT_VALUE_FLAGS = new Set(["--profile", "--log-level", "--container"]);
+export { consumeLauncherRootOptionToken };
 export const isNativeHookRelayInvocation = (argv) => argv[2] === "hooks" && argv[3] === "relay";
-
-const isLauncherRootOptionValueToken = (arg) => {
-  if (!arg || arg === "--") {
-    return false;
-  }
-  if (!arg.startsWith("-")) {
-    return true;
-  }
-  return /^-\d+(?:\.\d+)?$/.test(arg);
-};
-
-export const consumeLauncherRootOptionToken = (args, index) => {
-  const arg = args[index];
-  if (!arg) {
-    return 0;
-  }
-  if (LAUNCHER_ROOT_BOOLEAN_FLAGS.has(arg)) {
-    return 1;
-  }
-  if (
-    arg.startsWith("--profile=") ||
-    arg.startsWith("--log-level=") ||
-    arg.startsWith("--container=")
-  ) {
-    return 1;
-  }
-  if (LAUNCHER_ROOT_VALUE_FLAGS.has(arg)) {
-    return isLauncherRootOptionValueToken(args[index + 1]) ? 2 : 1;
-  }
-  return 0;
-};
 
 // Mirror the entry's foreground Gmail policy: a wrapper would kill that run before descendant cleanup finishes.
 export const isForegroundGmailRunInvocation = (argv) => {
@@ -70,6 +44,17 @@ const respawnSignalForceKillGraceMs = 1_000;
 const respawnSignalHardExitGraceMs = 1_000;
 
 export const runRespawnedChild = (command, args, env) => {
+  const launchdService = env.OPENCLAW_LAUNCHD_LABEL?.trim();
+  const serviceStopTimeoutMs =
+    process.platform === "darwin" && launchdService && env.XPC_SERVICE_NAME === launchdService
+      ? LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS * 1_000
+      : GATEWAY_SERVICE_STOP_TIMEOUT_MS;
+  // The serving Gateway owns drain and cleanup. Reap a stuck child only in the
+  // supervisor's exit margin, after that owner has had its full shutdown budget.
+  const signalExitGraceMs =
+    process.platform !== "win32" && isForegroundGatewayRunArgv(process.argv)
+      ? serviceStopTimeoutMs - respawnSignalForceKillGraceMs - respawnSignalHardExitGraceMs
+      : respawnSignalExitGraceMs;
   const stdioIsTerminal = process.stdin.isTTY || process.stdout.isTTY;
   const child = spawn(command, args, {
     stdio: "inherit",
@@ -131,7 +116,7 @@ export const runRespawnedChild = (command, args, env) => {
     }
     signalExitTimer = setTimeout(() => {
       requestChildTermination();
-    }, respawnSignalExitGraceMs);
+    }, signalExitGraceMs);
     signalExitTimer.unref?.();
   };
   for (const signal of respawnSignals) {

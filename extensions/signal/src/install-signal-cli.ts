@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { walkDirectory } from "@openclaw/fs-safe/walk";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { readProviderJsonObjectResponse } from "openclaw/plugin-sdk/provider-http";
 import { runPluginCommandWithTimeout } from "openclaw/plugin-sdk/run-command";
@@ -226,23 +227,12 @@ export async function downloadToFile(
 }
 
 async function findSignalCliBinary(root: string): Promise<string | null> {
-  const candidates: string[] = [];
-  const enqueue = async (dir: string, depth: number) => {
-    if (depth > 3) {
-      return;
-    }
-    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await enqueue(full, depth + 1);
-      } else if (entry.isFile() && entry.name === "signal-cli") {
-        candidates.push(full);
-      }
-    }
-  };
-  await enqueue(root, 0);
-  return candidates[0] ?? null;
+  const { entries } = await walkDirectory(root, {
+    maxDepth: 4,
+    symlinks: "skip",
+    include: (entry) => entry.kind === "file" && entry.name === "signal-cli",
+  });
+  return entries[0]?.path ?? null;
 }
 
 // ---------------------------------------------------------------------------

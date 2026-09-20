@@ -382,6 +382,96 @@ describe("worker publication scope", () => {
     },
   );
 
+  it("does not deliver an acknowledged receipt superseded by queued worker readbacks", async () => {
+    const other = { ...task, taskId: "blocking-task", runId: "blocking-run" };
+    const { store, context } = await prepare([task, other]);
+    const receipt = { ...task, task: "Ready" };
+    const predecessorStarted = createDeferred();
+    const releasePredecessor = createDeferred();
+    const written = createDeferred();
+    const acknowledge = createDeferred();
+    const claimed = createDeferred();
+    const published = vi.fn();
+    const publicationError = vi.fn();
+    const owners: Promise<unknown>[] = [];
+    const predecessor = runTaskRegistryWorkerMutation(
+      {
+        admission: context.admission,
+        scope: { taskId: other.taskId },
+        publicationRecords: () => new Map(),
+      },
+      async () => {},
+      async () => {
+        const snapshot = store.loadSnapshot();
+        predecessorStarted.resolve();
+        await releasePredecessor.promise;
+        return snapshot;
+      },
+    );
+    owners.push(predecessor);
+    try {
+      await predecessorStarted.promise;
+      const pending = runTaskRegistryWorkerMutation(
+        {
+          admission: context.admission,
+          scope: { taskId: task.taskId },
+          publicationRecords: () => {
+            claimed.resolve();
+            return new Map([[task.taskId, receipt]]);
+          },
+          recoverPublication: () => undefined,
+          forcePublish: () => receipt,
+          onPublished: published,
+          onPublicationError: publicationError,
+        },
+        async (beginRecovery) => {
+          beginRecovery();
+          store.upsertTaskWithDeliveryState({ task: receipt });
+          written.resolve();
+          await acknowledge.promise;
+          return receipt;
+        },
+        async () => store.loadSnapshot(),
+      );
+      owners.push(pending);
+      await written.promise;
+      // Later commits register their readbacks before the held receipt is acknowledged.
+      for (const record of [{ ...receipt, task: "Other writer" }, receipt]) {
+        const competingClaimed = createDeferred();
+        owners.push(
+          runTaskRegistryWorkerMutation(
+            {
+              admission: context.admission,
+              scope: { taskId: task.taskId },
+              publicationRecords: () => {
+                competingClaimed.resolve();
+                return new Map([[task.taskId, record]]);
+              },
+            },
+            async () => {
+              store.upsertTaskWithDeliveryState({ task: record });
+              return record;
+            },
+            async () => store.loadSnapshot(),
+          ),
+        );
+        await competingClaimed.promise;
+      }
+      acknowledge.resolve();
+      await claimed.promise;
+      releasePredecessor.resolve();
+      await expect(pending).resolves.toEqual(receipt);
+      await Promise.all(owners);
+      expect(tasks.get(task.taskId)).toEqual(receipt);
+      expect(publicationError).not.toHaveBeenCalled();
+      expect(published).not.toHaveBeenCalled();
+    } finally {
+      acknowledge.resolve();
+      releasePredecessor.resolve();
+      await Promise.allSettled(owners);
+    }
+  });
+
   it.each(["owner", "requester"] as const)(
     "does not publish a child related only through its %s session",
     async (relation) => {

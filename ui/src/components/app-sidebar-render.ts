@@ -9,6 +9,7 @@ import {
   type SidebarZoneEntry,
 } from "../app-navigation.ts";
 import { isRouteId, isSessionRouteId } from "../app-route-paths.ts";
+import { gatewayPresentationScope } from "../app/gateway-presentation-scope.ts";
 import type { NativeGateway, NativeGatewaysSnapshot } from "../app/native-gateways.runtime.ts";
 import { isHomePanelAvailable } from "../app/panel-availability.ts";
 import { controlUiPublicAssetPath } from "../app/public-assets.ts";
@@ -17,7 +18,6 @@ import { CONTROL_UI_BUILD_INFO } from "../build-info.ts";
 import { t } from "../i18n/index.ts";
 import { normalizeAgentLabel, resolveAgentTextAvatar } from "../lib/agents/display.ts";
 import { resolveAgentAvatarUrl } from "../lib/avatar.ts";
-import { redactLoginFailureError } from "../lib/connection-hints.ts";
 import { renderHoverMarquee } from "../lib/hover-marquee.ts";
 import {
   formatKeyboardShortcutCombo,
@@ -45,6 +45,7 @@ import { renderSidebarSessionFilter } from "./app-sidebar-session-filter-summary
 import type { AppSidebarSessionNavigationElement } from "./app-sidebar-session-navigation.ts";
 import { renderSidebarSessionSectionHeader } from "./app-sidebar-session-section-header.ts";
 import type { SidebarRecentSession } from "./app-sidebar-session-types.ts";
+import { renderGatewayStatus } from "./gateway-status.ts";
 import { icons } from "./icons.ts";
 import { renderNewSessionLink } from "./new-session-link.ts";
 import { HOME_PANEL_TOGGLE_EVENT } from "./panel-toggle-contract.ts";
@@ -54,16 +55,11 @@ import {
   sessionAttentionTooltipLabel,
 } from "./session-attention-presentation.ts";
 import { renderSessionGlyph, renderSessionUnreadBadge } from "./session-glyph.ts";
-import {
-  renderSessionRowBadges,
-  renderSidebarConnectionStatus,
-  resolveSidebarConnectionStatus,
-} from "./session-row-badges.ts";
+import { renderSessionRowBadges } from "./session-row-badges.ts";
 import { formatSidebarBuildSubtitle } from "./sidebar-build-chip-format.ts";
 
 export type AppSidebarRenderHost = AppSidebarSessionNavigationElement & {
   activePluginTabId: string;
-  offline: boolean;
   teamOnlineExpanded: boolean;
   getRouteSessionKey(): string;
   renderPinnedSidebarSession(session: SidebarRecentSession): unknown;
@@ -467,17 +463,10 @@ export function renderAppSidebarOnline(host: AppSidebarRenderHost) {
 
 /** Zone 5: product chrome recedes to one slim footer bar. */
 export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
-  const connectionStatus = resolveSidebarConnectionStatus({
-    offline: host.offline,
-    restartPending: host.restartPending,
-    suspensionPhase: host.suspensionPhase,
-    phase: host.sessionDataContext?.gateway.snapshot.phase,
-  });
-  const selfUser = resolveCurrentSelfUser({
-    snapshotUser: host.sessionDataContext?.gateway.snapshot.selfUser,
-    presenceEntries: readPresenceEntries(host.sessionData.presencePayload),
-    presenceInstanceId: host.sessionData.presenceInstanceId,
-  });
+  const connectionStatus = host.connectionStatus;
+  const selfUser = host.sessionDataContext
+    ? gatewayPresentationScope(host.sessionDataContext.gateway).displayUser
+    : null;
   const selfLabel = selfUser?.name ?? selfUser?.email ?? t("nav.owner");
   const avatarUser = {
     id: "owner",
@@ -489,11 +478,22 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
   const buildSubtitle = formatSidebarBuildSubtitle(CONTROL_UI_BUILD_INFO);
   const gatewayPrimaryTag = gateway?.isPrimary ? t("nav.gateway.primaryTag") : null;
   const identityMenuLabel = t("profilePage.identity.menuButtonLabel", { name: selfLabel });
-  const identityDetail = host.offline
-    ? t("connection.reconnecting")
+  const statusLabel = connectionStatus ? t(`connection.${connectionStatus}`) : null;
+  const identityDetail = statusLabel
+    ? statusLabel
     : gateway
       ? `${gateway.name}${gatewayPrimaryTag ? `, ${gatewayPrimaryTag}` : ""}`
       : buildSubtitle;
+  const outboxLabel = host.queuedOutboxCount
+    ? t("connection.queuedCount", { count: String(host.queuedOutboxCount) })
+    : null;
+  const accessibleDetail = [identityDetail, outboxLabel].filter(Boolean).join(" · ");
+  const announcement = [
+    statusLabel ? statusLabel : host.connected ? t("nav.gateway.connected") : null,
+    outboxLabel,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return html`
     <div class="sidebar-footer-bar sidebar-footer-bar--one-action">
       <button
@@ -501,7 +501,7 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
         class="sidebar-identity-card"
         aria-haspopup="menu"
         aria-expanded=${String(host.sidebarMenus.identityMenuPosition !== null)}
-        aria-label=${identityDetail ? `${identityMenuLabel}: ${identityDetail}` : identityMenuLabel}
+        aria-label=${accessibleDetail ? `${identityMenuLabel}: ${accessibleDetail}` : identityMenuLabel}
         @click=${(event: MouseEvent) =>
           host.sidebarMenus.toggleIdentityMenu(event.currentTarget as HTMLElement)}
       >
@@ -509,34 +509,30 @@ export function renderAppSidebarFooterBar(host: AppSidebarRenderHost) {
         <span class="sidebar-identity-card__text">
           ${renderHoverMarquee(selfLabel, "sidebar-identity-card__name", { loop: true, delay: 300, speed: 35 })}
           ${
-            gateway
-              ? html`<span class="sidebar-identity-card__gateway" aria-hidden="true">
+            connectionStatus
+              ? renderGatewayStatus({
+                  kind: connectionStatus,
+                  queuedOutboxCount: host.queuedOutboxCount,
+                  lastError: host.lastError,
+                  announce: false,
+                })
+              : html`
                   ${
-                    host.offline
-                      ? t("connection.reconnecting")
-                      : html`
-                          <span class="sidebar-gateway-health" data-health=${gateway.health}></span>
+                    gateway
+                      ? html`<span class="sidebar-identity-card__gateway" aria-hidden="true">
                           <span class="sidebar-gateway-name">${gateway.name}</span>
                           ${gatewayPrimaryTag ? html`<span class="sidebar-gateway-primary">${gatewayPrimaryTag}</span>` : nothing}
-                        `
+                        </span>`
+                      : nothing
                   }
-                </span>`
-              : nothing
+                  ${renderGatewayStatus({ kind: null, queuedOutboxCount: host.queuedOutboxCount, announce: false })}
+                `
           }
         </span>
       </button>
-      ${
-        connectionStatus
-          ? renderSidebarConnectionStatus({
-              kind: connectionStatus,
-              queuedOutboxCount: host.queuedOutboxCount,
-              title: host.lastError
-                ? redactLoginFailureError(host.lastError)
-                : t("connection.reconnecting"),
-              onRetry: () => host.onRetryConnect?.(),
-            })
-          : nothing
-      }
+      <span class="sr-only" role="status" aria-live="polite" aria-atomic="true"
+        >${announcement}</span
+      >
       <span class="sidebar-footer-actions">
         ${
           isHomePanelAvailable(host.sessionDataContext?.gateway)

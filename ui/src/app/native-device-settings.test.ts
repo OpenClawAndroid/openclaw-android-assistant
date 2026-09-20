@@ -47,6 +47,17 @@ describe("native device settings wire contract", () => {
     await expect(capability![method]()).rejects.toThrow("invalid result");
     post.mockRejectedValueOnce(new Error("CLI unavailable"));
     await expect(capability![method]()).rejects.toThrow("CLI unavailable");
+    const shippedReply = {
+      nativeHostRegistered: true,
+      installRequested: false,
+      discoveredProfiles: 1,
+    };
+    post.mockResolvedValueOnce(shippedReply);
+    if (method === "installChromeExtension") {
+      await expect(capability![method]()).resolves.toEqual(shippedReply);
+    } else {
+      await expect(capability![method]()).rejects.toThrow("invalid result");
+    }
   });
   it("exists only with the native message handler and reads the document-start snapshot", () => {
     vi.stubGlobal("webkit", undefined);

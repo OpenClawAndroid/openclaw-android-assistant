@@ -69,6 +69,8 @@ export type AgentHarnessHostCapabilities = Readonly<{
   }>;
   /** Closure-bound non-secret maps prepared before harness placement. */
   preparedEnvironment?: () => AgentHarnessPreparedEnvironment;
+  /** Current bounded presence hint; physical activity does not identify the message source. */
+  activeComputerContext?: () => string;
   /** Applies the exact host caller binding to a plugin-built tool surface. */
   bindToolSurface: (tools: AnyAgentTool[], options?: Readonly<{ cwd?: string }>) => AnyAgentTool[];
   /** Creates and binds core tools without exposing admitted-run correlation to the plugin. */

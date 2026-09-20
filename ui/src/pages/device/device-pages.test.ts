@@ -180,6 +180,22 @@ describe("native device settings pages", () => {
     capability.installChromeExtension.mockRejectedValueOnce(new Error("CLI missing"));
     row(page, "Chrome on this Mac").querySelector<HTMLButtonElement>("button")!.click();
     await vi.waitFor(() => expect(page.textContent).toContain("Setup could not finish"));
+    capability.installChromeExtension.mockResolvedValueOnce({
+      nativeHostRegistered: true,
+      installRequested: false,
+      discoveredProfiles: 0,
+    });
+    row(page, "Chrome on this Mac").querySelector<HTMLButtonElement>("button")!.click();
+    await vi.waitFor(() =>
+      expect(page.textContent).toContain(
+        "Automatic installation checks require an updated Mac app",
+      ),
+    );
+    expect(row(page, "Chrome on this Mac").textContent).toContain("Status unavailable");
+    expect(row(page, "Chrome on this Mac").textContent).not.toContain("Not installed");
+    expect(row(page, "Chrome on this Mac").textContent).not.toContain(
+      "Add OpenClaw from the Chrome Web Store",
+    );
   });
   it.each([
     {
@@ -760,7 +776,7 @@ describe("native device settings pages", () => {
       expect(native.capability.requestPermission).toHaveBeenCalledWith("calendars");
       row(page, "Reminders").querySelector<HTMLButtonElement>("button")!.click();
       expect(native.capability.openSystemSettings).toHaveBeenCalledWith("reminders");
-      expect(page.textContent).not.toContain("Active computer presence");
+      expect(page.textContent).not.toContain("System-wide presence detection");
       expect(row(page, "Precise location").querySelector("wa-switch")).toBeNull();
       expect(row(page, "Precise location").textContent).toContain("Disabled");
       const settings = row(page, "Precise location").querySelector<HTMLButtonElement>("button")!;
@@ -803,13 +819,13 @@ describe("native device settings pages", () => {
     );
     toggle(page, "Precise location", true);
     expect(native.capability.set).toHaveBeenCalledWith("permissions.location.precise", true);
-    toggle(page, "Active computer presence", true);
+    toggle(page, "System-wide presence detection", true);
     expect(native.capability.set).toHaveBeenCalledWith(
       "capabilities.activeComputerPresenceEnabled",
       true,
     );
-    expect(row(page, "Active computer presence").textContent).toContain(
-      "Never sends keys, pointer positions, app names, or window titles.",
+    expect(row(page, "System-wide presence detection").textContent).toContain(
+      "Shares only idle duration, never keys, pointer positions, app names, or window titles.",
     );
   });
 });

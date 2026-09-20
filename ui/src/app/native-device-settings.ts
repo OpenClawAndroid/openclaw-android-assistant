@@ -193,8 +193,13 @@ type NativeDeviceSettingsMessage =
 const nativeChromeExtensionSetupResultSchema = z.object({
   nativeHostRegistered: z.boolean(),
   installRequested: z.boolean(),
-  installedProfiles: z.number().int().nonnegative(),
+  // v2026.9.5 Mac apps can load newer Gateway UIs but omit this in setup replies.
+  // Keep optional until the minimum supported Mac app includes status discovery.
+  installedProfiles: z.number().int().nonnegative().optional(),
   discoveredProfiles: z.number().int().nonnegative(),
+});
+const nativeChromeExtensionStatusResultSchema = nativeChromeExtensionSetupResultSchema.required({
+  installedProfiles: true,
 });
 export type NativeChromeExtensionSetupResult = z.infer<
   typeof nativeChromeExtensionSetupResultSchema
@@ -292,7 +297,11 @@ export function createNativeDeviceSettingsCapability(): NativeDeviceSettingsCapa
       throw new Error("Native device settings is unavailable");
     }
     const reply = await post({ type });
-    const result = nativeChromeExtensionSetupResultSchema.safeParse(reply);
+    const schema =
+      type === "chrome-extension-status"
+        ? nativeChromeExtensionStatusResultSchema
+        : nativeChromeExtensionSetupResultSchema;
+    const result = schema.safeParse(reply);
     if (disposed || !result.success) {
       throw new Error("Native Chrome setup returned an invalid result");
     }

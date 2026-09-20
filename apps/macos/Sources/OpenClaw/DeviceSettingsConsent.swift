@@ -75,7 +75,7 @@ enum DeviceSettingsConsent: Equatable {
         case .camera:
             String(localized: "Allow the Gateway to use this Mac's camera?")
         case .activityReporting:
-            String(localized: "Share this Mac's activity with the Gateway?")
+            String(localized: "Enable system-wide presence detection?")
         case .voiceWake:
             String(localized: "Enable continuous microphone listening?")
         case .locationWhileUsing:
@@ -137,7 +137,12 @@ enum DeviceSettingsConsent: Equatable {
         case .voiceWake:
             String(localized: "Voice Wake will continuously listen for wake phrases through this Mac's microphone.")
         case .activityReporting:
-            String(localized: "The Gateway will receive this Mac's idle time to determine when you are active.")
+            String(
+                localized: """
+                OpenClaw activity already identifies this Mac without extra permissions. \
+                This also shares idle duration from activity in other apps and requires Accessibility. \
+                It never sends keys, pointer positions, app names, or window titles.
+                """)
         case .locationWhileUsing:
             String(localized: "The Gateway can request this Mac's location while OpenClaw is in use.")
         case .locationAlways:

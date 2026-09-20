@@ -88,6 +88,15 @@ inspection before model inference. For a deadline error, retry after host
 responsiveness recovers. For a permissions error, check access to `/proc` on
 Linux or `ps` on macOS.
 
+**A new turn fails during cleanup after a Gateway restart:** OpenClaw checks
+registered Codex processes before starting a replacement. Registrations for
+processes that have exited or whose PID has been reused are removed automatically,
+without scanning unrelated processes. Boot cleanup and new connections serialize
+recovery so they cannot stop or resume the same orphan concurrently. Live orphaned
+processes still require verified descendant cleanup before replacement work starts.
+If cleanup remains blocked, check Gateway logs and host process-inspection access;
+do not delete process registrations to bypass recovery.
+
 The bundled Codex has no heap or RSS limit and no configurable idle-unload
 delay. After the last client unsubscribes, an inactive thread can remain loaded
 for up to 30 minutes. OpenClaw independently keeps up to 64 idle conversation

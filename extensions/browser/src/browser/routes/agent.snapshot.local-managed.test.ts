@@ -23,9 +23,9 @@ const routeState = vi.hoisted(() => ({
 }));
 
 const cdpMocks = vi.hoisted(() => ({
-  getMainFrameDocumentIdentityViaCdp: vi.fn<(_opts?: unknown) => Promise<string | undefined>>(
-    async () => "cdp:test-document",
-  ),
+  getDocumentIdentitiesViaCdp: vi.fn<
+    (_opts?: unknown) => Promise<{ mainFrame?: string; frameTree?: string }>
+  >(async () => ({ mainFrame: "cdp:test-document", frameTree: "cdp:test-tree" })),
   snapshotAria: vi.fn(async () => ({
     nodes: [{ ref: "1", role: "link", name: "private", depth: 0 }],
   })),
@@ -50,7 +50,7 @@ const navigationGuardMocks = vi.hoisted(() => ({
 
 vi.mock("../cdp.js", () => ({
   captureScreenshot: vi.fn(),
-  getMainFrameDocumentIdentityViaCdp: cdpMocks.getMainFrameDocumentIdentityViaCdp,
+  getDocumentIdentitiesViaCdp: cdpMocks.getDocumentIdentitiesViaCdp,
   snapshotAria: cdpMocks.snapshotAria,
   snapshotRoleViaCdp: cdpMocks.snapshotRoleViaCdp,
 }));
@@ -126,7 +126,10 @@ function getSnapshotGetHandler(
 
 function createPwModule(overrides: Record<string, ReturnType<typeof vi.fn>> = {}) {
   return {
-    getMainFrameDocumentIdentityViaPlaywright: vi.fn(async () => "pw:test-document"),
+    getDocumentIdentitiesViaPlaywright: vi.fn(async () => ({
+      mainFrame: "pw:test-document",
+      frameTree: "pw:test-tree",
+    })),
     getObservedBrowserStateViaPlaywright: vi.fn(async () => ({
       dialogs: { pending: [], recent: [] },
     })),
@@ -144,7 +147,9 @@ function createPwModule(overrides: Record<string, ReturnType<typeof vi.fn>> = {}
 describe("local-managed browser snapshot routes", () => {
   beforeEach(() => {
     routeState.profileCtx.ensureTabAvailable.mockClear();
-    cdpMocks.getMainFrameDocumentIdentityViaCdp.mockReset().mockResolvedValue("cdp:test-document");
+    cdpMocks.getDocumentIdentitiesViaCdp
+      .mockReset()
+      .mockResolvedValue({ mainFrame: "cdp:test-document", frameTree: "cdp:test-tree" });
     cdpMocks.snapshotAria.mockClear();
     cdpMocks.snapshotRoleViaCdp.mockReset().mockResolvedValue({
       snapshot: '- link "private" [ref=e1]',
@@ -306,8 +311,40 @@ describe("local-managed browser snapshot routes", () => {
       cdpUrl: "http://127.0.0.1:18800",
       targetId: "7",
       nodes: [{ ref: "1", role: "link", name: "private", depth: 0 }],
+      expectedDocumentIdentity: "pw:test-document",
     });
   });
+
+  it.each([
+    ["native AI", true, { format: "ai" }, true],
+    ["recursive CDP", false, { format: "ai" }, true],
+    ["main-frame ARIA", true, { format: "aria" }, false],
+    ["main-frame role", true, { format: "ai", interactive: "true" }, false],
+    ["scoped frame with a changing sibling", true, { format: "ai", frame: "#selected" }, false],
+  ])(
+    "validates only captured documents for %s snapshots",
+    async (_label, playwright, query, reject) => {
+      navigationGuardMocks.assertBrowserNavigationResultAllowed.mockResolvedValue(undefined);
+      const identities = vi
+        .fn()
+        .mockResolvedValueOnce({ mainFrame: "main", frameTree: "before-child-navigation" })
+        .mockResolvedValue({ mainFrame: "main", frameTree: "after-child-navigation" });
+      if (playwright) {
+        pwState.module = createPwModule({ getDocumentIdentitiesViaPlaywright: identities });
+      } else {
+        cdpMocks.getDocumentIdentitiesViaCdp.mockImplementation(identities);
+      }
+      const handler = getSnapshotGetHandler();
+      const response = createBrowserRouteResponse();
+      await handler?.({ params: {}, query }, response.res);
+      expect(response.statusCode).toBe(reject ? 400 : 200);
+      if (reject) {
+        expect(response.body).toEqual({
+          error: "Frame changed while its browser snapshot was being captured; retry.",
+        });
+      }
+    },
+  );
 
   it.each([
     ["the default cap", {}, { maxChars: 40_000 }],
@@ -368,21 +405,24 @@ describe("local-managed browser snapshot routes", () => {
     expect(snapshotAiViaPlaywright).not.toHaveBeenCalled();
   });
 
-  it("rejects a snapshot when the main-frame loader changes during capture", async () => {
-    navigationGuardMocks.assertBrowserNavigationResultAllowed.mockResolvedValueOnce(undefined);
-    cdpMocks.getMainFrameDocumentIdentityViaCdp
-      .mockResolvedValueOnce("cdp:before")
-      .mockResolvedValueOnce("cdp:after");
-    const handler = getSnapshotGetHandler();
-    const response = createBrowserRouteResponse();
+  it.each(["ai", "aria"])(
+    "rejects a %s snapshot when the main-frame loader changes during capture",
+    async (format) => {
+      navigationGuardMocks.assertBrowserNavigationResultAllowed.mockResolvedValueOnce(undefined);
+      cdpMocks.getDocumentIdentitiesViaCdp
+        .mockResolvedValueOnce({ mainFrame: "cdp:before", frameTree: "cdp:tree-before" })
+        .mockResolvedValueOnce({ mainFrame: "cdp:after", frameTree: "cdp:tree-after" });
+      const handler = getSnapshotGetHandler();
+      const response = createBrowserRouteResponse();
 
-    await handler?.({ params: {}, query: { format: "ai", interactive: "true" } }, response.res);
+      await handler?.({ params: {}, query: { format, interactive: "true" } }, response.res);
 
-    expect(response.statusCode).toBe(400);
-    expect(response.body).toEqual({
-      error: "Frame changed while its browser snapshot was being captured; retry.",
-    });
-  });
+      expect(response.statusCode).toBe(400);
+      expect(response.body).toEqual({
+        error: "Frame changed while its browser snapshot was being captured; retry.",
+      });
+    },
+  );
 
   it("uses the tab lookup pin when reading delta document identity via CDP", async () => {
     navigationGuardMocks.assertBrowserNavigationResultAllowed.mockResolvedValue(undefined);
@@ -392,7 +432,7 @@ describe("local-managed browser snapshot routes", () => {
     await handler?.({ params: {}, query: { format: "ai", interactive: "true" } }, response.res);
 
     expect(response.statusCode).toBe(200);
-    expect(cdpMocks.getMainFrameDocumentIdentityViaCdp).toHaveBeenCalledWith(
+    expect(cdpMocks.getDocumentIdentitiesViaCdp).toHaveBeenCalledWith(
       expect.objectContaining({
         wsUrl: "ws://127.0.0.1/devtools/page/7",
         lookup: tabLookup,
@@ -402,7 +442,7 @@ describe("local-managed browser snapshot routes", () => {
 
   it("disables deltas when no stable document identity is available", async () => {
     navigationGuardMocks.assertBrowserNavigationResultAllowed.mockResolvedValue(undefined);
-    cdpMocks.getMainFrameDocumentIdentityViaCdp.mockResolvedValue(undefined);
+    cdpMocks.getDocumentIdentitiesViaCdp.mockResolvedValue({});
     const handler = getSnapshotGetHandler();
     const first = createBrowserRouteResponse();
     const second = createBrowserRouteResponse();

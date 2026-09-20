@@ -606,11 +606,15 @@ describe("installSignalCliFromRelease", () => {
 });
 
 describe("installSignalCli", () => {
-  it("uses Homebrew on macOS instead of downloading the first GitHub release archive", async () => {
+  it.each([
+    { binaryDir: "bin", found: true },
+    { binaryDir: path.join("libexec", "native", "bin"), found: true },
+    { binaryDir: path.join("libexec", "nested", "native", "bin"), found: false },
+  ])("finds Homebrew binaries within four levels: $binaryDir", async ({ binaryDir, found }) => {
     setProcessPlatform("darwin", "arm64");
     const brewPrefix = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-signal-brew-"));
-    await fs.mkdir(path.join(brewPrefix, "bin"), { recursive: true });
-    await fs.writeFile(path.join(brewPrefix, "bin", "signal-cli"), "");
+    await fs.mkdir(path.join(brewPrefix, binaryDir), { recursive: true });
+    await fs.writeFile(path.join(brewPrefix, binaryDir, "signal-cli"), "");
     resolveBrewExecutableMock.mockReturnValue("/opt/homebrew/bin/brew");
     runPluginCommandWithTimeoutMock
       .mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" })
@@ -620,11 +624,15 @@ describe("installSignalCli", () => {
     try {
       const result = await installSignalCli(createRuntimeSpies());
 
-      expect(result).toEqual({
-        ok: true,
-        cliPath: path.join(brewPrefix, "bin", "signal-cli"),
-        version: "0.14.5",
-      });
+      expect(result).toEqual(
+        found
+          ? {
+              ok: true,
+              cliPath: path.join(brewPrefix, binaryDir, "signal-cli"),
+              version: "0.14.5",
+            }
+          : { ok: false, error: "brew install succeeded but signal-cli binary was not found." },
+      );
       expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
     } finally {
       await fs.rm(brewPrefix, { recursive: true, force: true });

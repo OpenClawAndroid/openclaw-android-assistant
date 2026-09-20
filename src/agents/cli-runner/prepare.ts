@@ -111,10 +111,7 @@ import {
   applyEmbeddedAttemptToolsAllow,
   mergeForcedEmbeddedAttemptToolsAllow,
 } from "../embedded-agent-runner/run/attempt-tool-construction-plan.js";
-import {
-  buildCurrentInboundPrompt,
-  buildRuntimeContextCustomMessage,
-} from "../embedded-agent-runner/run/runtime-context-prompt.js";
+import { buildCurrentInboundPrompt } from "../embedded-agent-runner/run/runtime-context-prompt.js";
 import {
   mapSandboxSkillEntriesForPrompt,
   remapSkillReferencePaths,
@@ -134,7 +131,6 @@ import {
   type PreparedRootedExecutionCapability,
 } from "../rooted-run-params.js";
 import { collectRuntimeChannelCapabilities } from "../runtime-capabilities.js";
-import { buildMediaTaskRuntimeContext } from "../runtime-facts-prompt.js";
 import { ensureSandboxWorkspaceForSession } from "../sandbox.js";
 import { resolveSandboxRuntimeStatus } from "../sandbox/runtime-status.js";
 import { buildSystemPromptReport } from "../system-prompt-report.js";
@@ -170,7 +166,11 @@ import {
   normalizeOptionalMcpContextValue,
 } from "./mcp-grant-context.js";
 import { CLAUDE_CLI_CONTEXT_MODEL_ALIASES, detectNodeClaudePlacement } from "./prepare-claude.js";
-import { composeCliPromptContext, prepareCliSystemPrompt } from "./prompt-context.js";
+import {
+  buildCliTurnAppendContext,
+  composeCliPromptContext,
+  prepareCliSystemPrompt,
+} from "./prompt-context.js";
 import {
   buildCliSessionHistoryPrompt,
   hasCliSessionTranscript,
@@ -2106,18 +2106,16 @@ async function prepareCliRunContextWithinReadFence(
         ]
           .filter((value): value is string => Boolean(value?.trim()))
           .join("\n\n");
-        const mediaTaskContext = await buildMediaTaskRuntimeContext({
+        const appendContext = await buildCliTurnAppendContext({
           capabilityToolNames: new Set(promptTools.map((tool) => tool.name)),
           sessionKey: params.sessionKey,
           agentId: sessionAgentId,
+          backend: preparedBackendFinal.backend,
+          isNewSession:
+            !reusableCliSessionId?.trim() || reusableCliSession.mode === "reuse-with-drift",
+          systemPrompt,
+          context: [hookResult?.appendContext, authorizedPromptBuildResult?.appendContext],
         });
-        const appendContext = [
-          hookResult?.appendContext,
-          authorizedPromptBuildResult?.appendContext,
-          buildRuntimeContextCustomMessage(mediaTaskContext)?.content,
-        ]
-          .filter((value): value is string => Boolean(value?.trim()))
-          .join("\n\n");
         const logicalPrompt = composeCliPromptContext(preparedPrompt, {
           prependContext,
           appendContext,

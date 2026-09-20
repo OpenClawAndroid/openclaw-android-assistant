@@ -25,6 +25,7 @@ import type { readSessionRowFacts } from "./server-methods/session-placement-rea
 import { yieldSessionListWork } from "./session-projection-work.js";
 import { readSessionRowModelFacts } from "./session-row-model-facts.js";
 import { withPreparedSessionRows, type SessionRowReadView } from "./session-row-prepared-read.js";
+import { readSessionRowAncestors } from "./session-row-projection-ancestors.js";
 import {
   createSessionRowProjectionArchive,
   isColdArchivedSessionRow as isCold,
@@ -518,15 +519,7 @@ export async function createSessionRowProjection(params: {
           }
           markRelated(row);
           if ("current" in mutation && mutation.current.sessionKeys.includes(row.key)) {
-            put({
-              ...row,
-              entry: undefined,
-              storedEntry: undefined,
-              materialized: undefined,
-              lastMessagePreview: undefined,
-              fallbackModel: undefined,
-              generation: Symbol("row"),
-            });
+            put(records.renewGeneration(row));
             dirty.add(records.identity(row));
           } else {
             remove(records.identity(row));
@@ -648,6 +641,8 @@ export async function createSessionRowProjection(params: {
       return row?.entry?.sessionId === query.sessionId ? [row] : [];
     },
     describe,
+    ancestorRows: (record: records.MaterializedRow) =>
+      readSessionRowAncestors(record, { cfg, context: metadata.current, referenced, describe }),
     setArchivePageSize: archive.setPageSize,
     modelFacts(row: records.EntryRow) {
       return readSessionRowModelFacts({

@@ -219,6 +219,21 @@ place, and a running Gateway can otherwise try to load core or plugin files
 mid-swap. Restart the Gateway after the package manager finishes so it picks up
 the new install.
 
+Gateways with installation-replacement detection also check the installed build
+on their maintenance tick. If the running and installed builds differ, the
+Gateway records the replacement, stops accepting new work, and gives active work
+its existing bounded shutdown window before handing over to its service manager.
+A foreground Gateway exits with instructions to run `openclaw gateway run` again.
+Status and Doctor report the replacement while the Gateway drains. Afterward,
+`openclaw gateway status --deep`, `openclaw update status`, and Doctor show the
+recorded replacement as historical information until the next Gateway shutdown.
+This record does not by itself confirm that the new Gateway is healthy.
+If a reply's delivery module disappears before sending starts, the reply remains
+eligible for recovery instead of being treated as an uncertain send.
+This recovery cannot prevent every failure during a package manager's in-place
+swap, and older running Gateways do not gain it from files installed underneath
+them. `openclaw update` remains the supported path for coordinating replacement.
+
 Release packages include generated compatibility files for lazy imports from
 updaters in the supported upgrade window, including the 2026.9.1 service restart path. These
 files let the old updater finish after its installation is replaced. They do not
@@ -329,6 +344,13 @@ still use them. `openclaw update` still runs Doctor after installing the candida
 after a manual package replacement, run `openclaw doctor --fix` before restarting
 the Gateway.
 
+Doctor also brings drifted active official npm plugins to the installed OpenClaw
+release, honoring recorded non-default tags and pins newer than its plugin cohort.
+It uses the same plugin updater as `openclaw update` and leaves third-party plugins
+unchanged. An unavailable plugin produces a warning with
+the reason; it does not prevent the other repairs from completing. Restore
+registry access or wait for the missing package, then rerun `openclaw doctor --fix`.
+
 `OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL=1` skips package-local postinstall
 cleanup, but still completes the lifecycle marker. It does not disable Doctor or
 Gateway startup migrations.
@@ -340,6 +362,37 @@ To evaluate an affected package without changing a working Gateway, use a
 disposable environment with separate home, config, and state directories. A
 different npm prefix alone does not isolate operator state.
 </Warning>
+
+### Stuck on 2026.9.3
+
+The published 2026.9.3 updater has a fixed five-minute limit that can stop an
+upgrade before it finishes. A timeout fix in the target release cannot replace
+the updater already running. Bypass that older updater once with a manual
+package installation.
+
+Create a [verified backup](/install/updating/rollback-and-recovery#before-updating-create-a-verified-backup)
+first. Keep the same service account, npm prefix, profile, and state/config
+overrides. Stop the Gateway through its owning supervisor before replacing the
+package. For a managed npm install:
+
+```bash
+openclaw gateway stop
+npm install -g openclaw@latest --allow-scripts=openclaw
+openclaw doctor --fix
+openclaw gateway restart
+openclaw gateway status --deep
+```
+
+Omit `--allow-scripts=openclaw` on npm 11.15 and earlier. For an external
+supervisor, use its stop and restart commands. Doctor keeps an already-stopped
+Gateway stopped, so complete the restart after reviewing its repair results.
+
+Automatic official-plugin drift repair was added after 2026.9.5. If the installed
+release still prints **Fix each drifted plugin**, run its printed
+`openclaw plugins update` commands before restarting. Once installed, a build
+with automatic drift repair performs those official-plugin updates during
+`doctor --fix`; any remaining readiness warning names the plugin that still
+needs attention.
 
 ### Advanced npm install topics
 

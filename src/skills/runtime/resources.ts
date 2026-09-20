@@ -5,11 +5,16 @@ import { Value } from "typebox/value";
 import {
   SKILL_LIBRARY_MAX_BUNDLE_BYTES,
   SKILL_LIBRARY_MAX_FILE_BYTES,
+  type SkillLibraryFile,
 } from "../../../packages/gateway-protocol/src/schema/skill-library.js";
 import {
   SkillResourceDeliverySchema,
   type SkillResourceDelivery,
 } from "../../../packages/gateway-protocol/src/schema/skill-resources.js";
+import {
+  getAgentWorkspaceAccess,
+  WorkspaceAccessUnavailableError,
+} from "../../agents/workspace-access.js";
 import { isMissingPathError } from "../../infra/errors.js";
 import { removeTemporaryArtifacts } from "../../infra/temp-artifact-cleanup.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -21,10 +26,10 @@ import {
 import { SkillLibraryError } from "../library/errors.js";
 import { readSelectedSkillLibraryFiles } from "../library/selection.js";
 import { loadSingleSkillDirectory } from "../loading/local-loader.js";
-import { createSyntheticSourceInfo } from "../loading/skill-contract.js";
+import { createSyntheticSourceInfo, type Skill } from "../loading/skill-contract.js";
 import { shouldSyncSkillPath } from "../loading/skill-paths.js";
 import { formatSkillsForPromptBounded } from "../loading/skill-prompt-limits.js";
-import type { ExplicitSkillSelection, SkillSnapshot } from "../types.js";
+import type { ExplicitSkillSelection, SkillSnapshot, SkillResourceSourceReader } from "../types.js";
 import { resolveSkillResourceCandidates } from "./resource-candidates.js";
 
 const log = createSubsystemLogger("skills/resources");
@@ -48,11 +53,60 @@ function isMissingDiscoveredSkillRoot(error: unknown): error is SkillTreeDirecto
   );
 }
 
+export async function resolveExplicitSkillResource(
+  selection: ExplicitSkillSelection,
+): Promise<Skill | null> {
+  const skillDir = path.dirname(selection.path);
+  const rootRealPath = await fs.realpath(skillDir);
+  return (
+    loadSingleSkillDirectory({
+      skillDir,
+      rootRealPath,
+      source: "openclaw-resources",
+      maxBytes: SKILL_LIBRARY_MAX_FILE_BYTES,
+    })?.skill ?? null
+  );
+}
+
+export async function readSkillResourceFiles(
+  skill: Skill,
+  options: {
+    allowMissingRoot: boolean;
+    assertFileAccess?: (requestedPath: string, canonicalPath: string) => void;
+  },
+): Promise<SkillLibraryFile[] | null> {
+  try {
+    return await readSkillBundleTree(skill.baseDir, shouldSyncSkillPath, {
+      symlinks: "follow-within-root",
+      assertFileAccess: options.assertFileAccess,
+    });
+  } catch (error) {
+    // Translate the native root-only disappearance on the host, before transport serialization.
+    if (options.allowMissingRoot && isMissingDiscoveredSkillRoot(error)) {
+      log.warn("Skipping stale discovered skill during worker resource preparation.", {
+        skill: skill.name,
+        root: skill.baseDir,
+        failedPath: error.failedPath,
+        error: error.message,
+      });
+      return null;
+    }
+    throw error;
+  }
+}
+
+const localSkillResourceReader: SkillResourceSourceReader = {
+  readInstructions: (filePath, options) => fs.readFile(filePath, { ...options, encoding: "utf8" }),
+  resolveExplicitSkill: resolveExplicitSkillResource,
+  readSkillFiles: readSkillResourceFiles,
+};
+
 // The caller retains these bytes for its turn. Catalog versions do not version supporting files.
 export async function prepareSkillResourceDelivery(
   snapshot: SkillSnapshot | undefined,
   assertCurrent: () => void,
   explicitSelections: readonly ExplicitSkillSelection[] = [],
+  workspaceDir?: string,
 ): Promise<SkillResourceDelivery | undefined> {
   if (!snapshot) {
     return undefined;
@@ -65,6 +119,27 @@ export async function prepareSkillResourceDelivery(
   ) {
     return undefined;
   }
+  // Library-only and node-native catalogs need no workspace filesystem access.
+  let sourceReader: SkillResourceSourceReader | undefined;
+  const getSourceReader = (skill?: Skill) => {
+    if (skill?.fileHost === "gateway") {
+      return localSkillResourceReader;
+    }
+    if (!sourceReader) {
+      const sourceWorkspace = snapshot.skillRoots?.agentWorkspaceDir ?? workspaceDir;
+      const access = sourceWorkspace
+        ? getAgentWorkspaceAccess(sourceWorkspace, "loadSkills")
+        : undefined;
+      if (access?.loadSkills && !access.skillResources) {
+        throw new WorkspaceAccessUnavailableError(
+          "Remote workspace skill resources are unavailable",
+        );
+      }
+      sourceReader =
+        (access?.loadSkills ? access.skillResources : undefined) ?? localSkillResourceReader;
+    }
+    return sourceReader;
+  };
   const skills: SkillResourceDelivery["skills"] = [];
   let total = 0;
   const candidates = resolveSkillResourceCandidates(snapshot)!;
@@ -78,24 +153,24 @@ export async function prepareSkillResourceDelivery(
     // Explicit references are host-resolved command paths, including eligible hidden skills.
     // Read only that directory; a resource turn must not repeat global skill discovery.
     const skillDir = path.dirname(selected.path);
-    let rootRealPath: string;
+    const gatewayOwned = snapshot.skills.some((skill) => skill.gatewayFilePath === selected.path);
+    let loaded: Skill | null;
     try {
-      rootRealPath = await fs.realpath(skillDir);
+      loaded = await (
+        gatewayOwned ? localSkillResourceReader : getSourceReader()
+      ).resolveExplicitSkill(selected);
+      if (loaded) {
+        loaded = { ...loaded, fileHost: gatewayOwned ? "gateway" : "workspace" };
+      }
     } catch (error) {
       throw contextualizeSkillResourceError({ name: selected.name, baseDir: skillDir }, error);
     }
     assertCurrent();
-    const loaded = loadSingleSkillDirectory({
-      skillDir,
-      rootRealPath,
-      source: "openclaw-resources",
-      maxBytes: SKILL_LIBRARY_MAX_FILE_BYTES,
-    });
     if (
       !loaded ||
-      loaded.skill.filePath !== selected.path ||
-      !snapshot.skills.some((skill) => skill.name === loaded.skill.name) ||
-      candidates.some((skill) => skill.name === loaded.skill.name)
+      loaded.filePath !== selected.path ||
+      !snapshot.skills.some((skill) => skill.name === loaded.name) ||
+      candidates.some((skill) => skill.name === loaded.name)
     ) {
       throw new Error(
         `Explicit skill no longer matches the prepared catalog: skill=${JSON.stringify(selected.name)} ` +
@@ -103,7 +178,7 @@ export async function prepareSkillResourceDelivery(
           "Refresh skill selection and retry.",
       );
     }
-    candidates.push(loaded.skill);
+    candidates.push(loaded);
   }
   for (const skill of candidates) {
     if (skill.filePath.startsWith("node://")) {
@@ -113,29 +188,26 @@ export async function prepareSkillResourceDelivery(
     const explicitlySelected = explicitSelections.some(
       (selection) => selection.path === skill.filePath,
     );
-    let files: Awaited<ReturnType<typeof readSkillBundleTree>>;
+    let files: SkillLibraryFile[] | null;
     try {
       files = pin
         ? await readSelectedSkillLibraryFiles(pin)
-        : await readSkillBundleTree(skill.baseDir, shouldSyncSkillPath, {
-            symlinks: "follow-within-root",
+        : await getSourceReader(skill).readSkillFiles(skill, {
+            allowMissingRoot: !explicitlySelected,
           });
     } catch (error) {
-      // Only a vanished catalog root is stale discovery state. Nested disappearance, explicit
-      // selection, permissions, integrity failures, and unsafe entries remain fail-closed.
-      if (!pin && !explicitlySelected && isMissingDiscoveredSkillRoot(error)) {
-        assertCurrent();
-        log.warn("Skipping stale discovered skill during worker resource preparation.", {
-          skill: skill.name,
-          root: skill.baseDir,
-          failedPath: error.failedPath,
-          error: error.message,
-        });
-        continue;
-      }
       throw contextualizeSkillResourceError(skill, error);
     }
     assertCurrent();
+    if (files === null) {
+      if (explicitlySelected) {
+        throw contextualizeSkillResourceError(
+          skill,
+          new Error("Explicit skill root is unavailable"),
+        );
+      }
+      continue;
+    }
     let bundle: ReturnType<typeof prepareSkillBundle>;
     try {
       bundle = prepareSkillBundle(files);

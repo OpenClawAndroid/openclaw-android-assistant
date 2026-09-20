@@ -23,9 +23,9 @@ import {
   getSubagentSessionListRunsSnapshotForSessions,
   persistSubagentRunsToDiskOrThrow,
 } from "./subagent-registry-state.js";
+import { upsertSubagentRunRowInDatabase } from "./subagent-registry.store.kernel.js";
 import {
   bindSubagentRunRecord,
-  upsertSubagentRunRowInDatabase,
   readSubagentRun,
   loadSubagentRunsForChildSessionFromSqlite,
   loadSubagentRunsForControllerFromSqlite,

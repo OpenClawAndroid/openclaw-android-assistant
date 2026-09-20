@@ -246,7 +246,11 @@ function coalesceTurn(items: ChatItem[]): ChatItem[] {
       invocation.live = projection.source.message;
     }
     if (projection.source.standalone) {
-      invocation.attachments.push(...projection.source.remaining);
+      // Attachment pixels follow the winning result too; a live omission must
+      // not survive beside its persisted image or return on a late tool event.
+      if (invocation.result?.source === projection.source) {
+        invocation.attachments = projection.source.remaining;
+      }
       projection.source.remaining = [];
     }
     invocations.set(invocationKey, invocation);

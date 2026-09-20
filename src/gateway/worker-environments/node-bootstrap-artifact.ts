@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants as fsConstants, createReadStream, createWriteStream } from "node:fs";
+import { constants as fsConstants, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { finished, pipeline } from "node:stream/promises";
@@ -17,6 +17,7 @@ import {
 } from "../../../scripts/lib/package-lifecycle-marker.mjs";
 import { validateBundledPackageDependencyAlignment } from "../../../scripts/package-source-dependencies.mjs";
 import { racePromiseWithAbortSignal } from "../../infra/abort-signal.js";
+import { sha256File } from "../../infra/directory-durability.js";
 import {
   collectPackageDistInventory,
   PACKAGE_DIST_INVENTORY_RELATIVE_PATH,
@@ -50,6 +51,9 @@ const BOOTSTRAP_LAUNCHER_FILES = [
   "node-sqlite.mjs",
   "node-runtime-update.mjs",
   "node-runtime-recovery.mjs",
+  "cli-root-options.mjs",
+  "gateway-run-argv.mjs",
+  "gateway-shutdown-budget.mjs",
   "node-host-launcher.mjs",
 ];
 const READ_CONCURRENCY = 16;
@@ -544,13 +548,11 @@ async function prepareNodeBootstrapArtifact(
     }
     throw new Error("Node bootstrap archive does not match the verified distribution");
   }
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(tarballPath)) {
-    hash.update(chunk);
-  }
+  await using handle = await fs.open(tarballPath, "r");
+  const { digest: tarballSha256 } = await sha256File(handle);
   return Object.freeze({
     tarballPath,
-    tarballSha256: hash.digest("hex"),
+    tarballSha256,
     tarballBytes,
     openclawVersion: packageJson.version,
     buildId,

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
@@ -36,40 +36,71 @@ it("plans the named missing-load-path row without adding aggregate coverage", ()
   }
 });
 
-it("dispatches missing-load-path fixture stages through the assertion entrypoint", () => {
-  const root = tempDirs.make("openclaw-missing-load-path-dispatch-");
-  const configPath = path.join(root, "openclaw.json");
-  const paths = readUpgradeSurvivorPaths(root, {
-    OPENCLAW_UPGRADE_SURVIVOR_RUNTIME_ROOT: root,
-    OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: "missing-load-path",
-  });
-  const artifactRoot = paths.artifactRoot;
-  const pluginRoot = path.join(root, "custom-plugins", "survivor-unavailable-path");
-  writeFileSync(configPath, JSON.stringify({ plugins: { allow: [], entries: {} } }));
-  const env = {
-    ...process.env,
-    OPENCLAW_CONFIG_PATH: configPath,
-    ...paths.env,
-    OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT: artifactRoot,
-  };
-  const run = (stage: string) =>
-    execFileSync(resolveTestNodeExecPath(), [assertionsPath, "missing-load-path", stage], {
-      env,
-      encoding: "utf8",
+it.each(["source", "compiled"])(
+  "dispatches missing-load-path stages after loading the %s fixture",
+  (loading) => {
+    const root = tempDirs.make("openclaw-missing-load-path-dispatch-");
+    const configPath = path.join(root, "openclaw.json");
+    const paths = readUpgradeSurvivorPaths(root, {
+      OPENCLAW_UPGRADE_SURVIVOR_RUNTIME_ROOT: root,
+      OPENCLAW_UPGRADE_SURVIVOR_SCENARIO: "missing-load-path",
     });
+    const artifactRoot = paths.artifactRoot;
+    const pluginRoot = path.join(root, "custom-plugins", "survivor-unavailable-path");
+    writeFileSync(configPath, JSON.stringify({ plugins: { allow: [], entries: {} } }));
+    const env = {
+      ...process.env,
+      OPENCLAW_CONFIG_PATH: configPath,
+      ...paths.env,
+      OPENCLAW_UPGRADE_SURVIVOR_ARTIFACT_ROOT: artifactRoot,
+    };
+    const run = (stage: string) =>
+      execFileSync(resolveTestNodeExecPath(), [assertionsPath, "missing-load-path", stage], {
+        env,
+        encoding: "utf8",
+      });
 
-  run("seed");
-  expect(existsSync(path.join(pluginRoot, "openclaw.plugin.json"))).toBe(true);
-  const seededConfig = readFileSync(configPath, "utf8");
-  writeFileSync(
-    path.join(artifactRoot, "missing-load-path", "baseline-registration.json"),
-    JSON.stringify({ source: pathToFileURL(path.join(pluginRoot, "index.mjs")).href }),
-  );
+    run("seed");
+    expect(existsSync(path.join(pluginRoot, "openclaw.plugin.json"))).toBe(true);
+    const seededConfig = readFileSync(configPath, "utf8");
+    let entry = path.join(pluginRoot, "index.mjs");
+    if (loading === "compiled") {
+      const compiledRoot = path.join(root, "compiled-plugin");
+      mkdirSync(compiledRoot);
+      const compiledEntry = path.join(compiledRoot, "index.mjs");
+      copyFileSync(entry, compiledEntry);
+      entry = compiledEntry;
+    }
+    execFileSync(
+      resolveTestNodeExecPath(),
+      [
+        "--input-type=module",
+        "-e",
+        `const { default: plugin } = await import(${JSON.stringify(pathToFileURL(entry).href)}); plugin.register();`,
+      ],
+      { env },
+    );
+    if (loading === "compiled") {
+      const receiptPath = path.join(
+        artifactRoot,
+        "missing-load-path",
+        "baseline-registration.json",
+      );
+      const receipt = readFileSync(receiptPath);
+      writeFileSync(receiptPath, JSON.stringify({ registrationToken: "previous-fixture" }));
+      expect(() => run("unavailable")).toThrow(
+        "The published baseline did not load the configured fixture plugin",
+      );
+      expect(existsSync(pluginRoot)).toBe(true);
+      expect(readFileSync(configPath, "utf8")).toBe(seededConfig);
+      writeFileSync(receiptPath, receipt);
+    }
 
-  expect(run("unavailable")).toContain("Removed loaded baseline plugin source before update:");
-  expect(existsSync(pluginRoot)).toBe(false);
-  expect(readFileSync(configPath, "utf8")).toBe(seededConfig);
-});
+    expect(run("unavailable")).toContain("Removed loaded baseline plugin source before update:");
+    expect(existsSync(pluginRoot)).toBe(false);
+    expect(readFileSync(configPath, "utf8")).toBe(seededConfig);
+  },
+);
 
 const convergenceRestartMessage =
   "OpenClaw plugin migration inputs changed during startup convergence; refusing to report the gateway ready. Restart OpenClaw so state migrations run against the final config and plugin inventory.";

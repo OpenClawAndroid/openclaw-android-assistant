@@ -219,7 +219,9 @@ export function renderChatComposer(props: ChatComposerProps) {
         : "steer"
       : undefined;
   const questionPanelProps = resolveComposerQuestionPanel(props, state, requestUpdate);
-  const questionTakeoverActive = Boolean(questionPanelProps && !state.gatewayQuestionCollapsed);
+  const questionTakeoverActive = Boolean(
+    questionPanelProps && !questionPanelProps.model.nonBlocking && !state.questionCollapsed,
+  );
   if (!state.questionTakeoverActive && questionTakeoverActive) {
     // A question can arrive mid-IME composition before compositionend commits the host draft.
     // Commit before unmounting so the detached input cannot leave a stale shadow behind.

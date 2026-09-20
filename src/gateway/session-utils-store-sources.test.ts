@@ -105,11 +105,18 @@ it("bounds fixed-store discovery per operation and refreshes the next source ros
         ]),
       );
     const readdir = vi.spyOn(fs, "readdirSync");
+    const realpathNative = vi.spyOn(fs.realpathSync, "native");
     syncBuiltinESMExports();
     const expectBoundedDiscovery = () => {
       const prepared = prepare();
       expect(prepared.sources).toEqual(expectedSources());
       expect(prepared.sources.main?.[0]).toBe(currentSource);
+      const databasePaths = new Set(databases.map(({ path: databasePath }) => databasePath));
+      const identityReads = realpathNative.mock.calls.flatMap(([pathname]) =>
+        typeof pathname === "string" && databasePaths.has(pathname) ? [pathname] : [],
+      );
+      expect(new Set(identityReads)).toEqual(databasePaths);
+      expect(identityReads.length).toBeLessThanOrEqual(databases.length * 4);
       expect(
         readdir.mock.calls.filter(([pathname]) => pathname === storeDir).length,
       ).toBeLessThanOrEqual(databases.length * 8);
@@ -120,11 +127,13 @@ it("bounds fixed-store discovery per operation and refreshes the next source ros
       entries.added = {};
       databases.push(openStore("added"));
       readdir.mockClear();
+      realpathNative.mockClear();
       const second = expectBoundedDiscovery();
       expect(Object.keys(first.sources)).toEqual(agentIds);
       expect(Object.keys(second.sources)).toEqual([...agentIds, "added"]);
     } finally {
       readdir.mockRestore();
+      realpathNative.mockRestore();
       syncBuiltinESMExports();
     }
   });

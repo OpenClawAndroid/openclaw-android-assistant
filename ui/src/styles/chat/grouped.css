@@ -1307,12 +1307,9 @@ img.chat-avatar {
   .chat-thread
     .chat-group.assistant:not(.chat-group--forwarded)
     .chat-bubble:not(.chat-bubble--tool-shell)
-    :is(
-      .chat-assistant-attachments,
-      .chat-message-images,
-      openclaw-chat-async-question,
-      openclaw-chat-clawhub-card
-    ):not(.chat-assistant-attachments *) {
+    :is(.chat-assistant-attachments, .chat-message-images, openclaw-chat-clawhub-card):not(
+      .chat-assistant-attachments *
+    ) {
     max-width: 90%;
   }
 

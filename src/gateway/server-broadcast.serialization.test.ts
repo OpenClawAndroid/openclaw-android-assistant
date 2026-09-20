@@ -85,26 +85,84 @@ describe("broadcast serialization failures", () => {
   it("keeps recipient session permissions separate at the same sequence and profile", () => {
     const first = makeClient("first");
     const second = makeClient("second");
+    const origin = { label: "Control UI", provider: "webchat", chatType: "direct" };
+    const snapshotToJSON = vi.fn(() => origin);
+    const session = {
+      key: "agent:main:chat",
+      sessionId: "session-chat",
+      kind: "direct",
+      label: "Release planning",
+      updatedAt: 1_800_000_000_000,
+      snapshotAt: 1_800_000_000_001,
+      modelProvider: "openai",
+      model: "gpt-5",
+      totalTokens: 2048,
+      totalTokensFresh: true,
+      origin: { ...origin, toJSON: snapshotToJSON },
+    };
+    const source = { sessionKey: session.key, reason: "update", session };
+    const stateVersion = { presence: 3 };
     for (const peer of [first, second]) {
       peer.client.preparedRecipientProfileId = "same-profile";
     }
     const { broadcast } = createGatewayBroadcaster({
       clients: new GatewayClientRegistry([first.client, second.client]),
       prepareSessionEventProjection: () => (client) => ({
-        sessionKey: "agent:main:chat",
+        ...source,
         session: {
-          key: "agent:main:chat",
+          ...session,
           sharingRole: client === first.client ? "owner" : "viewer",
         },
       }),
     });
-    broadcast("sessions.changed", { sessionKey: "agent:main:chat" });
-    expect(JSON.parse(first.socket.send.mock.calls[0]![0]).payload.session.sharingRole).toBe(
-      "owner",
-    );
-    expect(JSON.parse(second.socket.send.mock.calls[0]![0]).payload.session.sharingRole).toBe(
-      "viewer",
-    );
+
+    broadcast("sessions.changed", source, { stateVersion });
+
+    for (const [peer, sharingRole] of [
+      [first, "owner"],
+      [second, "viewer"],
+    ] as const) {
+      expect(peer.socket.send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({
+          type: "event",
+          event: "sessions.changed",
+          payload: { ...source, session: { ...session, origin, sharingRole } },
+          seq: 1,
+          stateVersion,
+          recipientProfileId: "same-profile",
+        }),
+        expect.any(Function),
+      );
+    }
+    expect(snapshotToJSON).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not serialize suppressed session snapshots or consume their sequences", () => {
+    const peers = [makeClient("first"), makeClient("second")];
+    const snapshotToJSON = vi.fn(() => ({ label: "Private session", provider: "webchat" }));
+    const { broadcast } = createGatewayBroadcaster({
+      clients: new GatewayClientRegistry(peers.map(({ client }) => client)),
+      prepareSessionEventProjection: (event) =>
+        event === "sessions.changed" ? () => undefined : undefined,
+    });
+
+    broadcast("sessions.changed", {
+      sessionKey: "agent:main:hidden",
+      session: {
+        key: "agent:main:hidden",
+        updatedAt: 1_800_000_000_000,
+        origin: { toJSON: snapshotToJSON },
+      },
+    });
+
+    for (const peer of peers) {
+      expect(peer.socket.send).not.toHaveBeenCalled();
+    }
+    broadcast("skills.changed", { reason: "visible" });
+    for (const peer of peers) {
+      expect(peer.socket.frames).toEqual([{ event: "skills.changed", seq: 1 }]);
+    }
+    expect(snapshotToJSON).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -225,13 +283,22 @@ describe("broadcast serialization failures", () => {
     ]);
   });
 
-  it.each(["own accessor", "inherited accessor", "proxy"])(
-    "keeps native source serialization and stateVersion ordering for %s publishers",
-    (publisher) => {
+  it.each(
+    ["session.message", "sessions.changed"].flatMap((event) =>
+      ["own accessor", "inherited accessor", "proxy"].map((publisher) => ({ event, publisher })),
+    ),
+  )(
+    "keeps native $event source serialization and stateVersion ordering for $publisher publishers",
+    ({ event, publisher }) => {
       for (const throwOnRepeat of [false, true]) {
         const peer = makeClient("native-hook");
         const stateVersion = { presence: 1 };
-        const projected = { sessionKey: "agent:main:hook", message: { content: "projected" } };
+        const projected = {
+          sessionKey: "agent:main:hook",
+          ...(event === "session.message"
+            ? { message: { content: "projected" } }
+            : { session: { key: "agent:main:hook", label: "Projected session" } }),
+        };
         const source = { sessionKey: projected.sessionKey };
         let read = false;
         const readToJSON = () => {
@@ -267,12 +334,12 @@ describe("broadcast serialization failures", () => {
           prepareSessionEventProjection: () => () => projected,
         });
 
-        broadcast("session.message", payload, { stateVersion });
+        broadcast(event, payload, { stateVersion });
 
         expect.soft(peer.socket.send).toHaveBeenCalledExactlyOnceWith(
           JSON.stringify({
             type: "event",
-            event: "session.message",
+            event,
             payload: projected,
             seq: 1,
             stateVersion: { presence: 1 },
@@ -474,7 +541,7 @@ describe("broadcast serialization failures", () => {
     }
   });
 
-  it.each(["skills.changed", "session.message"])(
+  it.each(["skills.changed", "session.message", "sessions.changed"])(
     "drops %s without consuming seqs when an unprojected payload cannot serialize",
     (event) => {
       warnSpy.mockClear();

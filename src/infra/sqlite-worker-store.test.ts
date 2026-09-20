@@ -36,6 +36,11 @@ import { SQLITE_WORKER_TRANSFER_FRAME_BYTES } from "./sqlite-worker-transfer.js"
 import * as coordinatorOwner from "./state-database-coordinator.js";
 import { getTrackedWorkerCpuSources } from "./worker-cpu.js";
 
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  availableParallelism: () => 32,
+}));
+
 const stores = new Set<SqliteWorkerStore<FixtureOperations>>();
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(async () => {
@@ -742,7 +747,7 @@ describe("SQLite worker store", () => {
     expect(await read(survivor)).toEqual(["write before close", "after failed admission"]);
   });
 
-  nodeIt("rejects an overloaded admission without retiring healthy workers or writes", async () => {
+  nodeIt("times out a waiting open without retiring healthy workers or writes", async () => {
     const active: SqliteWorkerStore<FixtureOperations>[] = [];
     for (let index = 0; index < 4; index += 1) {
       active.push(await open(databasePath()));
@@ -777,7 +782,19 @@ describe("SQLite worker store", () => {
     try {
       await repliesReady.promise;
       const pendingFile = databasePath();
-      await expectRejectedOpen(pendingFile, undefined, "overloaded");
+      const timeout = vi.spyOn(globalThis, "setTimeout");
+      const opening = expectRejectedOpen(pendingFile, undefined, "overloaded");
+      try {
+        await vi.waitFor(() => {
+          expect(timeout.mock.calls.some(([, ms]) => ms === 10_000)).toBe(true);
+        });
+        const expire = timeout.mock.calls.find(([, ms]) => ms === 10_000)?.[0];
+        expect(expire).toBeDefined();
+        expire?.();
+        await opening;
+      } finally {
+        timeout.mockRestore();
+      }
       releaseReplies();
       const results = await outcomes;
       expect(results.find((result) => result.status === "rejected")).toBeUndefined();
@@ -800,16 +817,27 @@ describe("SQLite worker store", () => {
     }
   });
 
-  it("bounds outstanding requests and accepts work again after the queue drains", async () => {
-    const store = await open(databasePath());
-    // The burst is admitted in one main-thread turn, before worker replies can drain it.
+  it("waits at capacity, preserves FIFO, and drains accepted waiters on client close", async () => {
+    const file = databasePath();
+    const store = await open(file);
+    // One main-thread turn fills admission before worker replies can drain it.
     const accepted = Array.from({ length: 128 }, (_, index) => append(store, String(index)));
-    await expect(append(store, "overflow")).rejects.toMatchObject({ code: "overloaded" });
-    await Promise.all(accepted);
-    expect(await append(store, "after drain")).toMatchObject({ writes: 129 });
-    expect(await read(store)).toEqual([
-      ...Array.from({ length: 128 }, (_, i) => String(i)),
-      "after drain",
+    let settled = false;
+    const waiting = Promise.all([
+      append(store, "first waiter"),
+      append(store, "second waiter"),
+    ]).finally(() => {
+      settled = true;
+    });
+    const outcomes = Promise.allSettled([...accepted, waiting]);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    await store.close();
+    expect((await outcomes).every((result) => result.status === "fulfilled")).toBe(true);
+    expect(await read(await open(file))).toEqual([
+      ...Array.from({ length: 128 }, (_, index) => String(index)),
+      "first waiter",
+      "second waiter",
     ]);
   });
 
@@ -993,12 +1021,13 @@ describe("SQLite worker store", () => {
     const file = databasePath();
     const store = await open(file);
     const lost = store.execute({ type: "commitThenExit", input: { value: "committed" } });
-    const queued = append(store, "never dispatched");
-    const results = await Promise.allSettled([lost, queued]);
-    expect(results).toEqual([
-      { status: "rejected", reason: expect.objectContaining({ code: "outcome-unknown" }) },
-      { status: "rejected", reason: expect.objectContaining({ code: "unavailable" }) },
-    ]);
+    const queued = Array.from({ length: 128 }, () => append(store, "never dispatched"));
+    const [result, ...followers] = await Promise.allSettled([lost, ...queued]);
+    expect(result).toMatchObject({ status: "rejected", reason: { code: "outcome-unknown" } });
+    expect(followers).toHaveLength(128);
+    for (const follower of followers) {
+      expect(follower).toMatchObject({ status: "rejected", reason: { code: "unavailable" } });
+    }
     await expect(store.close()).rejects.toMatchObject({ code: "unavailable" });
     stores.delete(store);
 

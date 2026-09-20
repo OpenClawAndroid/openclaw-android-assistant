@@ -32,7 +32,9 @@ import {
   resolveManagedTaskBackingDetail,
 } from "./task-backing-authority.js";
 import { createRunningTaskRunCoreWithReceiptAsync } from "./task-executor-create.async.js";
+import { completeTaskRunByRunIdCore } from "./task-executor.js";
 import { createManagedTaskFlow, createTaskFlowForTask } from "./task-flow-registry.js";
+import { taskAgentEventMutations } from "./task-registry-agent-events.js";
 import {
   getTaskById,
   listTaskRecordPage,
@@ -90,6 +92,43 @@ function createReadTask(runId: string) {
     notifyPolicy: "silent",
     deliveryStatus: "not_applicable",
   });
+}
+
+async function requestTaskList(ownerKey: string) {
+  const registry = createGatewayMethodRegistry(
+    createCoreGatewayMethodDescriptors(coreGatewayHandlers),
+  );
+  const client: GatewayClient = {
+    connId: "task-read-fixture",
+    connect: {
+      minProtocol: 1,
+      maxProtocol: 1,
+      client: {
+        id: "openclaw-control-ui",
+        version: "test",
+        platform: "test",
+        mode: "webchat",
+      },
+      role: "operator",
+      scopes: ["operator.read"],
+    },
+  };
+  const context = { getRuntimeConfig: () => ({}) } as GatewayRequestContext;
+  const respond = vi.fn();
+  await handleGatewayRequest({
+    req: {
+      type: "req",
+      id: "task-read",
+      method: "tasks.list",
+      params: { limit: 5, sessionKey: ownerKey },
+    },
+    client,
+    context,
+    methodRegistry: registry,
+    isWebchatConnect: () => false,
+    respond,
+  });
+  return respond;
 }
 
 function createReadProgressBatch() {
@@ -414,42 +453,7 @@ describe("task registry read preparation", () => {
         if (scenario === "active progress") {
           createReadProgressBatch();
         }
-        const registry = createGatewayMethodRegistry(
-          createCoreGatewayMethodDescriptors(coreGatewayHandlers),
-        );
-        const client: GatewayClient = {
-          connId: "task-read-fixture",
-          connect: {
-            minProtocol: 1,
-            maxProtocol: 1,
-            client: {
-              id: "openclaw-control-ui",
-              version: "test",
-              platform: "test",
-              mode: "webchat",
-            },
-            role: "operator",
-            scopes: ["operator.read"],
-          },
-        };
-        const context = { getRuntimeConfig: () => ({}) } as GatewayRequestContext;
-        const request = async () => {
-          const respond = vi.fn();
-          await handleGatewayRequest({
-            req: {
-              type: "req",
-              id: "task-read",
-              method: "tasks.list",
-              params: { limit: 5, sessionKey: task.ownerKey },
-            },
-            client,
-            context,
-            methodRegistry: registry,
-            isWebchatConnect: () => false,
-            respond,
-          });
-          return respond;
-        };
+        const request = () => requestTaskList(task.ownerKey);
         emitTool(task.runId!, "warmup");
         await prepareTaskRegistryRead();
         expect((await request()).mock.calls[0]?.[0]).toBe(true);
@@ -507,7 +511,117 @@ describe("task registry read preparation", () => {
     },
   );
 
-  it("joins the accepted coalescing batches without waiting for a later terminal event", async () => {
+  it("returns the terminal task when accepted metadata publication is superseded", async () => {
+    await withReadState(async () => {
+      const entry: SubagentRunRecord = {
+        runId: "metadata-terminal-overlap",
+        childSessionKey: "agent:main:subagent:metadata-terminal-overlap",
+        requesterSessionKey: "agent:main:main",
+        requesterDisplayKey: "main",
+        task: "Finish while task metadata settles",
+        cleanup: "keep",
+        createdAt: Date.now(),
+        generation: 1,
+        execution: { status: "running", startedAt: Date.now() },
+      };
+      subagentRuns.set(entry.runId, entry);
+      const task = createTaskFixture("subagent", {
+        runId: entry.runId,
+        childSessionKey: entry.childSessionKey,
+        requesterSessionKey: entry.requesterSessionKey,
+        task: entry.task,
+        notifyPolicy: "silent",
+        detail: createSubagentTaskBackingDetail(entry.generation!),
+      });
+      const store = getTaskRegistryStore();
+      const mutate = store.runAgentEventMutationAsync.bind(store);
+      const committed = createDeferred<Awaited<ReturnType<typeof mutate>>>();
+      const release = createDeferred();
+      const writes = vi
+        .spyOn(store, "runAgentEventMutationAsync")
+        .mockImplementation(async (...args) => {
+          const receipt = await mutate(...args);
+          committed.resolve(receipt);
+          await release.promise;
+          return receipt;
+        });
+      const captured = createDeferred();
+      const capture = taskAgentEventMutations.captureReadFence.bind(taskAgentEventMutations);
+      const published: string[] = [];
+      const stop = onTaskRegistryChange((event) => {
+        if (event?.kind === "upserted" && event.task.taskId === task.taskId) {
+          published.push(event.task.status);
+        }
+      });
+      let read: ReturnType<typeof requestTaskList> | undefined;
+      try {
+        emitTool(entry.runId, "accepted-before-completion");
+        const receipt = expectDefined(
+          await withTestTimeout(committed.promise, 5_000, "Metadata did not commit"),
+          "ordinary successful metadata receipt",
+        );
+        expect(receipt.task).toMatchObject({
+          taskId: task.taskId,
+          status: "running",
+          toolUseCount: 1,
+          lastToolName: "accepted-before-completion",
+        });
+        vi.spyOn(taskAgentEventMutations, "captureReadFence").mockImplementation((...args) => {
+          const fence = capture(...args);
+          captured.resolve();
+          return fence;
+        });
+        read = requestTaskList(task.ownerKey);
+        await withTestTimeout(
+          captured.promise,
+          5_000,
+          "Gateway did not capture the accepted fence",
+        );
+        expect(
+          completeTaskRunByRunIdCore({
+            runId: entry.runId,
+            runtime: "subagent",
+            sessionKey: entry.childSessionKey,
+            endedAt: Date.now(),
+            terminalSummary: "Authoritative completion",
+          }),
+        ).toEqual([expect.objectContaining({ taskId: task.taskId, status: "succeeded" })]);
+        release.resolve();
+        expect((await read).mock.calls[0]).toMatchObject([
+          true,
+          {
+            tasks: [
+              {
+                id: task.taskId,
+                status: "completed",
+                toolUseCount: 1,
+                lastToolName: "accepted-before-completion",
+              },
+            ],
+          },
+        ]);
+        expect(writes).toHaveBeenCalledOnce();
+        expect(published).toEqual(["succeeded"]);
+        expect(loadTaskRegistryStateFromSqliteReadOnly().tasks.get(task.taskId)).toMatchObject({
+          runId: entry.runId,
+          childSessionKey: entry.childSessionKey,
+          status: "succeeded",
+          terminalSummary: "Authoritative completion",
+          toolUseCount: 1,
+          lastToolName: "accepted-before-completion",
+        });
+      } finally {
+        release.resolve();
+        try {
+          await read;
+        } finally {
+          stop();
+        }
+      }
+    });
+  });
+
+  it.each([1, 8])("prepares %i readers through a fixed event fence", async (readers) => {
     await withReadState(async () => {
       const task = createReadTask("finite-read-fence");
       const firstEntered = createDeferred();
@@ -539,7 +653,9 @@ describe("task registry read preparation", () => {
         emitTool(task.runId!, "first");
         await firstEntered.promise;
         emitTool(task.runId!, "before-read");
-        const prepared = prepareTaskRegistryRead();
+        const prepared = Promise.all(
+          Array.from({ length: readers }, () => prepareTaskRegistryRead()),
+        );
         for (let index = 0; index < 20; index += 1) {
           emitTool(task.runId!, `coalesced-${index}`);
         }
@@ -550,15 +666,18 @@ describe("task registry read preparation", () => {
         });
         releaseFirst.resolve();
         await terminalEntered.promise;
-        const read = expectDefined(
-          await withTestTimeout(prepared, 5_000, "Read joined a later batch"),
-          "prepared task read",
-        );
-        expect(read.getTaskById(task.taskId)).toMatchObject({
-          status: "running",
-          toolUseCount: 22,
-          lastToolName: "coalesced-19",
-        });
+        for (const preparedRead of await withTestTimeout(
+          prepared,
+          5_000,
+          "Read joined a later batch",
+        )) {
+          const read = expectDefined(preparedRead, "prepared task read");
+          expect(read.getTaskById(task.taskId)).toMatchObject({
+            status: "running",
+            toolUseCount: 22,
+            lastToolName: "coalesced-19",
+          });
+        }
         expect(published).toContain("coalesced-19");
         expect(calls).toBe(3);
       } finally {

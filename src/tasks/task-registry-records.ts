@@ -427,6 +427,16 @@ export function applyTaskRecordPatch(
   if (becomesTerminal && patch.endedAt === undefined) {
     updated.endedAt = patch.lastEventAt ?? now ?? Date.now();
   }
+  // Terminal freshness cannot regress behind an active snapshot; execution end
+  // and nonterminal backdating retain their original meanings.
+  if (
+    isTerminalTaskStatus(updated.status) &&
+    typeof current.lastEventAt === "number" &&
+    typeof updated.lastEventAt === "number" &&
+    updated.lastEventAt < current.lastEventAt
+  ) {
+    updated.lastEventAt = current.lastEventAt;
+  }
   const next = normalizeTaskTimestamps(updated);
   if (Object.hasOwn(patch, "error") && patch.error === undefined) {
     delete next.error;

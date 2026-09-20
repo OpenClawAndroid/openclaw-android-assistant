@@ -1,11 +1,13 @@
 /* @vitest-environment jsdom */
 import type { EnvironmentSummary, SystemInfoResult } from "@openclaw/gateway-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { NodeListNode } from "../../../../src/shared/node-list-types.js";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { DesktopClient } from "../../components/desktop/desktop-client.ts";
 import { createConnectionHandle } from "../../components/desktop/desktop-panel.test-support.ts";
 import { DESKTOP_PANEL_TOGGLE_EVENT } from "../../components/panel-toggle-contract.ts";
+import type { SparklineSample } from "../../components/sparkline-tile.ts";
 import { setupSidebarTest } from "../../test-helpers/app-sidebar-setup.ts";
 import {
   createContext,
@@ -57,6 +59,19 @@ const systemInfo: SystemInfoResult = {
 
 function harness(
   inventory: () => Promise<EnvironmentSummary[]> = async () => [host, worker, offline],
+  nodes: () => NodeListNode[] = () => [
+    {
+      nodeId: "offline",
+      connected: false,
+      paired: true,
+      hostStats: {
+        cpuCount: 2,
+        memoryTotalBytes: 4096,
+        memoryFreeBytes: 2048,
+        updatedAtMs: Date.now(),
+      },
+    },
+  ],
 ) {
   const request = vi.fn(async (method: string) => {
     if (method === "environments.list") {
@@ -66,20 +81,7 @@ function harness(
       return systemInfo;
     }
     if (method === "node.list") {
-      return {
-        nodes: [
-          {
-            nodeId: "offline",
-            connected: false,
-            hostStats: {
-              cpuCount: 2,
-              memoryTotalBytes: 4096,
-              memoryFreeBytes: 2048,
-              updatedAtMs: Date.now(),
-            },
-          },
-        ],
-      };
+      return { nodes: nodes() };
     }
     if (method === "desktop.observe") {
       return {
@@ -208,6 +210,143 @@ describe("Systems workspace", () => {
     await choose("status:all");
     expect(nodeNames()).toEqual(["Alpha laptop", "Delta laptop", "Beta laptop", "Zulu laptop"]);
     expect(names()).toContain("Preparing worker");
+  });
+
+  it("keeps disk histories attached to mount paths through reordering, removal, and return", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const { controller, request } = harness();
+    const { page } = await mount(controller);
+    const root = { path: "/", totalBytes: 1024 ** 4, availableBytes: 100 * 1024 ** 3 };
+    const archive = {
+      path: "/Volumes/Archive",
+      totalBytes: 2 * 1024 ** 4,
+      availableBytes: 800 * 1024 ** 3,
+    };
+    const publish = async (disks: NonNullable<SystemInfoResult["disks"]>) => {
+      clock.mockReturnValue(Date.now() + 15_000);
+      request.mockResolvedValueOnce({
+        ...systemInfo,
+        diskTotalBytes: root.totalBytes,
+        diskAvailableBytes: root.availableBytes,
+        disks,
+      });
+      await controller.refreshTelemetry();
+      await page.updateComplete;
+    };
+    type DiskTile = HTMLElement & { samples: readonly SparklineSample[] };
+    const disk = (path: string) =>
+      page.querySelector<DiskTile>(`.systems-vital--disk[title="${path}"]`);
+    await publish([root, archive]);
+    await vi.waitFor(() => expect(disk(archive.path)?.textContent).toContain("800 GB"));
+    expect(page.querySelectorAll(".systems-vital--disk")).toHaveLength(2);
+    const rootTile = disk(root.path);
+    const archiveTile = disk(archive.path);
+    expect(rootTile?.querySelector(".sparkline-tile__chart")).toBeNull();
+
+    await publish([
+      { ...archive, availableBytes: 750 * 1024 ** 3 },
+      { ...root, availableBytes: 90 * 1024 ** 3 },
+    ]);
+    await vi.waitFor(() => expect(disk(archive.path)?.textContent).toContain("750 GB"));
+    expect(disk(root.path)).toBe(rootTile);
+    expect(disk(archive.path)).toBe(archiveTile);
+    expect(rootTile?.samples.map((sample) => sample.value / 1024 ** 3)).toEqual([100, 90]);
+    expect(archiveTile?.samples.map((sample) => sample.value / 1024 ** 3)).toEqual([800, 750]);
+
+    await publish([root]);
+    expect(disk(archive.path)).toBeNull();
+    await publish([root, archive]);
+    await vi.waitFor(() => expect(disk(archive.path)?.textContent).toContain("800 GB"));
+    expect(disk(archive.path)?.samples).toHaveLength(1);
+    expect(disk(archive.path)?.querySelector(".sparkline-tile__chart")).toBeNull();
+    await publish([]);
+    expect(page.querySelectorAll(".systems-vital--disk")).toHaveLength(0);
+  });
+
+  it("adds fresh Gateway readings and marks a failed poll as last-known without adding a point", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const { controller, request } = harness();
+    const { page } = await mount(controller);
+    clock.mockReturnValue(now + 15_000);
+    request.mockResolvedValueOnce({ ...systemInfo, loadAverage: [2, 1, 0.5] });
+    await controller.refreshTelemetry();
+    await vi.waitFor(() =>
+      expect(page.querySelector(".sparkline-tile__value")?.textContent?.trim()).toBe("2.00"),
+    );
+    const points = () =>
+      page.querySelector(".sparkline-tile__chart polyline")?.getAttribute("points")?.split(" ");
+    expect(points()).toHaveLength(2);
+    expect(page.querySelector('.systems-metrics[data-stale="false"]')).not.toBeNull();
+    clock.mockReturnValue(now + 20_000);
+    request.mockRejectedValueOnce(new Error("Telemetry unavailable"));
+    await controller.refreshTelemetry();
+    await page.updateComplete;
+    expect(points()).toHaveLength(2);
+    expect(page.querySelector('.systems-metrics[data-stale="true"]')).not.toBeNull();
+    expect(page.querySelector(".systems-sample-time")?.textContent).toContain("Last reported");
+  });
+
+  it("graphs genuine node reports, preserves per-machine history, and leaves gaps for missing metrics", async () => {
+    const node = { ...offline, status: "available" as const };
+    let stats: NonNullable<NodeListNode["hostStats"]> = {
+      cpuCount: 8,
+      loadAverage: [2, 1, 1],
+      memoryTotalBytes: 16 * 1024 ** 3,
+      memoryFreeBytes: 8 * 1024 ** 3,
+      diskTotalBytes: 1024 ** 4,
+      diskAvailableBytes: 256 * 1024 ** 3,
+      updatedAtMs: Date.now() - 60_000,
+    };
+    const { controller, gateway } = harness(
+      async () => [host, node],
+      () => [{ nodeId: "offline", connected: true, paired: true, hostStats: stats }],
+    );
+    const { page } = await mount(controller);
+    controller.select(node.id);
+    const readings = () =>
+      [...page.querySelectorAll(".sparkline-tile__value")].map((tile) => tile.textContent?.trim());
+    await vi.waitFor(() => expect(readings()).toEqual(["2.00", "8.0 GB", "256 GB"]));
+    expect(page.querySelector('.systems-metrics[data-stale="false"]')).not.toBeNull();
+    expect(page.querySelectorAll(".sparkline-tile__chart")).toHaveLength(0);
+
+    stats = { ...stats, loadAverage: [4, 2, 1], updatedAtMs: stats.updatedAtMs + 60_000 };
+    await controller.refreshTelemetry();
+    await vi.waitFor(() => expect(readings()[0]).toBe("4.00"));
+    const chartPoints = () =>
+      page.querySelector(".sparkline-tile__chart polyline")?.getAttribute("points")?.split(" ");
+    expect(chartPoints()).toHaveLength(2);
+    await controller.refreshTelemetry();
+    await page.updateComplete;
+    expect(chartPoints()).toHaveLength(2);
+    controller.select(host.id);
+    await vi.waitFor(() => expect(readings()[0]).toBe("0.50"));
+    controller.select(node.id);
+    await vi.waitFor(() => expect(readings()[0]).toBe("4.00"));
+    expect(chartPoints()).toHaveLength(2);
+
+    stats = {
+      ...stats,
+      loadAverage: undefined,
+      diskAvailableBytes: undefined,
+      diskTotalBytes: undefined,
+      updatedAtMs: stats.updatedAtMs + 60_000,
+    };
+    await controller.refreshTelemetry();
+    await vi.waitFor(() => expect(readings()).toEqual(["–", "8.0 GB", "–"]));
+    expect(page.querySelectorAll(".sparkline-tile__chart")).toHaveLength(1);
+    stats = { ...stats, loadAverage: [3, 2, 1], updatedAtMs: stats.updatedAtMs + 60_000 };
+    await controller.refreshTelemetry();
+    await vi.waitFor(() => expect(readings()[0]).toBe("3.00"));
+    expect(
+      page.querySelector("openclaw-sparkline")?.querySelector(".sparkline-tile__chart"),
+    ).toBeNull();
+
+    gateway.publish({ phase: "offline" });
+    await vi.waitFor(() => expect(page.querySelectorAll(".sparkline-tile__chart")).toHaveLength(0));
+    expect(readings()[0]).toBe("3.00");
+    expect(page.querySelector('.systems-metrics[data-stale="true"]')).not.toBeNull();
   });
 
   it("shares inventory, keeps a single view-only connection through presentation changes, and retains a removed selection", async () => {

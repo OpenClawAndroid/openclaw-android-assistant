@@ -2575,6 +2575,10 @@ describe("scripts/test-projects changed-target routing", () => {
       "test/vitest/vitest.unit-fast.config.ts",
       "src/agents/embedded-agent-runner/run/model-setup.selected-model.test.ts",
     ],
+    [
+      "test/vitest/vitest.unit-fast-isolated.config.ts",
+      "src/state/openclaw-agent-execution-cleanup.test.ts",
+    ],
   ])("preserves whole-owner watch coverage for %s with %s", (config, file) => {
     const [plan] = buildVitestRunPlans(["--watch", config, file]);
     expect(plan).toMatchObject({
@@ -2724,6 +2728,7 @@ describe("scripts/test-projects changed-target routing", () => {
         "src/agents/embedded-agent-runner/run/model-setup.ownership.test.ts",
         "src/agents/embedded-agent-runner/run/model-setup.selected-model.test.ts",
         "src/agents/embedded-agent-runner/run/runtime-preparation.thinking.test.ts",
+        "src/agents/embedded-agent-runner/run/run-attempt-dispatch.owner.test.ts",
       ],
     },
     {
@@ -2787,6 +2792,7 @@ describe("scripts/test-projects changed-target routing", () => {
           "src/agents/embedded-agent-runner/run/model-setup.ownership.test.ts",
           "src/agents/embedded-agent-runner/run/model-setup.selected-model.test.ts",
           "src/agents/embedded-agent-runner/run/runtime-preparation.thinking.test.ts",
+          "src/agents/embedded-agent-runner/run/run-attempt-dispatch.owner.test.ts",
         ],
         watchMode: false,
       },
@@ -4903,16 +4909,13 @@ describe("scripts/test-projects changed-target routing", () => {
   });
 
   it("routes forced stateful unit-fast tests to the isolated lane", () => {
-    const plans = buildVitestRunPlans(
-      ["src/system-agent/assistant.configured.test.ts"],
-      process.cwd(),
-    );
-
+    const file = "src/system-agent/assistant.configured.test.ts";
+    const plans = buildVitestRunPlans([file], process.cwd());
     expect(plans).toEqual([
       {
         config: "test/vitest/vitest.unit-fast-isolated.config.ts",
         forwardedArgs: [],
-        includePatterns: ["src/system-agent/assistant.configured.test.ts"],
+        includePatterns: [file],
         watchMode: false,
       },
     ]);

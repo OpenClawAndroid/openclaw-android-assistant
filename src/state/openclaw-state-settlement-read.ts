@@ -89,7 +89,7 @@ export async function withOpenClawStateSettlementRead<T>(
         transport = undefined;
       }
       authority.assertCurrent();
-      const readTransport = createOpenClawStateReadTransport(selected.command, () => {});
+      const readTransport = createOpenClawStateReadTransport(selected.command);
       transport = readTransport;
       let result: OpenClawStateReadOutcome | undefined;
       const errors: unknown[] = [];
@@ -114,10 +114,6 @@ export async function withOpenClawStateSettlementRead<T>(
         transport = undefined;
       } catch (error) {
         errors.push(error);
-      }
-      const taskFailure = await readTransport.readFailure();
-      if (taskFailure && !errors.includes(taskFailure.error)) {
-        errors.unshift(taskFailure.error);
       }
       throwSqliteLifecycleErrors(errors, "Shared-state settlement read and cleanup failed");
       authority.assertCurrent();

@@ -107,7 +107,7 @@ describe("runCliProcessChild", () => {
         stdout: JSON.stringify({
           output: "out",
           maglevDisabled: !process.versions.bun && !enableMaglev,
-          concurrentSparkplugDisabled: !process.versions.bun && !enableMaglev,
+          concurrentSparkplugDisabled: !process.versions.bun,
         }),
         stderr: "err",
       });

@@ -110,6 +110,15 @@ describePosix("native PR main refresh boundaries", () => {
       expect(checkouts.length).toBeGreaterThan(0);
       expect(checkouts.every((e) => e.args?.at(-1) === f.head)).toBe(true);
       expect(f.events().filter((e) => e.kind === "main-fetch")).toHaveLength(1);
+      expect(
+        f
+          .events()
+          .some(
+            (event) =>
+              event.kind === "gh" &&
+              event.args?.some((arg) => /\/(?:files|check-runs|status)\?/.test(arg)),
+          ),
+      ).toBe(false);
     },
   );
 
@@ -1168,29 +1177,22 @@ fi`,
     expect(f.events().some((e) => e.kind === "main-fetch")).toBe(false);
   });
 
-  it("stops native merge on viewer quota failure before fetch or dispatch and releases its lock", () => {
+  it("stops native merge on writer quota failure before fetch or dispatch and releases its lock", () => {
     const f = fixture();
-    f.configure({ viewerRateLimited: true });
+    f.configure({ writerRateLimited: true });
     const result = f.run("merge-run");
     expect(result.status, result.stdout + result.stderr).toBe(1);
-    expect(result.stderr).toContain("GitHub API request failed (resource=graphql)");
-    expect(result.stderr).toContain("original response: HTTP 200");
-    expect(result.stderr).toContain("resource=graphql; remaining=0; limit=unknown; reset=unknown");
+    expect(result.stderr).toContain("GitHub API request failed (resource=core)");
+    expect(result.stderr).toContain("original response: HTTP 403");
+    expect(result.stderr).toContain("resource=core; remaining=0; limit=unknown; reset=unknown");
     expect(result.stderr).not.toContain("Supplemental quota probe");
     expect(f.events().some((e) => e.kind === "main-fetch")).toBe(false);
     const ghCalls = f.events().filter((e) => e.kind === "gh");
     const apiCalls = ghCalls.filter((e) => e.args?.[0] === "api").map((e) => e.args);
-    expect(apiCalls.at(-1)).toEqual([
-      "api",
-      "graphql",
-      "-f",
-      "query=query { viewer { login } }",
-      "--include",
-    ]);
+    expect(apiCalls.at(-1)).toEqual(["api", "user", "--include"]);
     expect(apiCalls.filter((args) => args?.includes("rate_limit"))).toHaveLength(0);
-    expect(
-      apiCalls.filter((args) => args?.includes("query=query { viewer { login } }")),
-    ).toHaveLength(1);
+    expect(apiCalls.filter((args) => args?.includes("user"))).toHaveLength(1);
+    expect(apiCalls.some((args) => args?.includes("graphql"))).toBe(false);
     expect(ghCalls.some((e) => e.args?.includes("merge"))).toBe(false);
     expect(ghCalls.some((e) => e.args?.[0] === "workflow")).toBe(false);
     expect(f.git(f.origin, "rev-parse", "refs/heads/main")).toBe(f.main);

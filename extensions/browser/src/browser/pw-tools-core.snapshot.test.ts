@@ -6,6 +6,8 @@ const getPageForTargetId = vi.fn();
 const ensurePageState = vi.fn(() => ({}));
 const storeRoleRefsForTarget = vi.fn();
 const withPageScopedCdpClient = vi.fn();
+const withCdpSnapshotRoot = vi.fn();
+const snapshotRoleViaCdpSession = vi.fn();
 const markBackendDomRefsOnPage = vi.fn();
 const readMainFrameDocumentIdentityForPage = vi.fn();
 const formatAriaSnapshot = vi.fn();
@@ -36,7 +38,10 @@ vi.mock("./pw-session.page-cdp.js", () => ({
   markBackendDomRefsOnPage,
   readMainFrameDocumentIdentityForPage,
   withPageScopedCdpClient,
+  withCdpSnapshotRoot,
 }));
+
+vi.mock("./cdp-role-snapshot.js", () => ({ snapshotRoleViaCdpSession }));
 
 vi.mock("./cdp.js", () => ({
   formatAriaSnapshot,
@@ -69,13 +74,32 @@ function makeAriaSnapshotPage(ariaSnapshot: ReturnType<typeof vi.fn>) {
   };
 }
 
+function makeNativeSnapshotLocator() {
+  const capture = {
+    snapshot: '- button "Save" [ref=e1]',
+    refs: { e1: { role: "button", name: "Save", backendDOMNodeId: 42 } },
+    stats: { lines: 1, chars: 29, refs: 1, interactive: 1 },
+  };
+  snapshotRoleViaCdpSession.mockResolvedValue(capture);
+  withPageScopedCdpClient.mockImplementation(async ({ fn }) => await fn(vi.fn()));
+  withCdpSnapshotRoot.mockImplementation(async ({ run }) => await run(42));
+  markBackendDomRefsOnPage.mockResolvedValue(new Set(["e1"]));
+  return {
+    count: vi.fn(async () => 1),
+    elementHandle: vi.fn(async () => ({ dispose: vi.fn(async () => {}) })),
+    capture,
+  };
+}
+
+const mod = await import("./pw-tools-core.snapshot.js");
+
 describe("pw-tools-core aria snapshot storage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("reuses the resolved page when storing aria refs", async () => {
-    const page = { id: "page-1" };
+    const page = makeAriaSnapshotPage(vi.fn());
     const rawNodes = [{ backendDOMNodeId: 42 }];
     const formattedNodes = [{ ref: "ax1", role: "button", name: "OK", backendDOMNodeId: 42 }];
 
@@ -84,7 +108,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     formatAriaSnapshot.mockReturnValue(formattedNodes);
     markBackendDomRefsOnPage.mockResolvedValue(new Set(["ax1"]));
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     const result = await mod.snapshotAriaViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -113,31 +136,52 @@ describe("pw-tools-core aria snapshot storage", () => {
     });
   });
 
-  it("races snapshotAriaViaPlaywright against an explicit timeoutMs", async () => {
-    vi.useFakeTimers();
-    try {
-      const page = { id: "page-1" };
+  it.each([750, undefined])(
+    "bounds a stalled ARIA snapshot with timeoutMs=%s",
+    async (timeoutMs) => {
+      const actual = await vi.importActual<typeof import("./pw-session.page-cdp.js")>(
+        "./pw-session.page-cdp.js",
+      );
+      const tree = createDeferred<{ nodes: [] }>();
+      const detach = vi.fn(async () => {});
+      const page = {
+        ...makeAriaSnapshotPage(vi.fn()),
+        context: () => ({
+          newCDPSession: async () => ({
+            send: async (method: string) =>
+              method === "Accessibility.getFullAXTree" ? await tree.promise : {},
+            detach,
+          }),
+        }),
+      };
       getPageForTargetId.mockResolvedValue(page);
-      withPageScopedCdpClient.mockImplementation(() => new Promise(() => {}));
+      withPageScopedCdpClient.mockImplementation(actual.withPageScopedCdpClient);
+      vi.useFakeTimers();
+      try {
+        const promise = mod.snapshotAriaViaPlaywright({
+          cdpUrl: "http://127.0.0.1:9222",
+          targetId: "tab-1",
+          timeoutMs,
+        });
+        void promise.catch(() => {});
 
-      const mod = await import("./pw-tools-core.snapshot.js");
-      const promise = mod.snapshotAriaViaPlaywright({
-        cdpUrl: "http://127.0.0.1:9222",
-        targetId: "tab-1",
-        timeoutMs: 750,
-      });
-      void promise.catch(() => {});
+        await vi.advanceTimersByTimeAsync(timeoutMs ?? 5_000);
 
-      await vi.advanceTimersByTimeAsync(750);
-
-      await expect(promise).rejects.toThrow(/Aria snapshot via Playwright timed out/);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+        await expect(Promise.race([promise, Promise.resolve("still pending")])).rejects.toThrow(
+          /Page CDP operation timed out/,
+        );
+        expect(detach).toHaveBeenCalledOnce();
+        tree.resolve({ nodes: [] });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(storeRoleRefsForTarget).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("uses the default aria node limit for non-finite limits", async () => {
-    const page = { id: "page-1" };
+    const page = makeAriaSnapshotPage(vi.fn());
     const rawNodes = [{ nodeId: "1" }];
     const formattedNodes = [{ ref: "ax1", role: "document", name: "", depth: 0 }];
 
@@ -145,7 +189,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     withPageScopedCdpClient.mockResolvedValue({ nodes: rawNodes });
     formatAriaSnapshot.mockReturnValue(formattedNodes);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     const result = await mod.snapshotAriaViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -156,12 +199,44 @@ describe("pw-tools-core aria snapshot storage", () => {
     expect(formatAriaSnapshot).toHaveBeenCalledWith(rawNodes, 500);
   });
 
+  it.each(["capture", "markers"])(
+    "rejects ARIA refs when the document changes during %s",
+    async (stage) => {
+      const handlers = new Map<string, (frame: unknown) => void>();
+      const frame = {};
+      const page = {
+        mainFrame: () => frame,
+        on: vi.fn((event: string, listener: (frame: unknown) => void) => {
+          handlers.set(event, listener);
+        }),
+        off: vi.fn(),
+      };
+      getPageForTargetId.mockResolvedValue(page);
+      withPageScopedCdpClient.mockImplementationOnce(async () => {
+        if (stage === "capture") {
+          handlers.get("framenavigated")?.(frame);
+        }
+        return { nodes: [] };
+      });
+      formatAriaSnapshot.mockReturnValue([{ ref: "ax1", role: "button", name: "Old", depth: 0 }]);
+      markBackendDomRefsOnPage.mockImplementation(async () => {
+        if (stage === "markers") {
+          handlers.get("framenavigated")?.(frame);
+        }
+        return new Set();
+      });
+      await expect(
+        mod.snapshotAriaViaPlaywright({ cdpUrl: "http://127.0.0.1:9222", targetId: "tab-1" }),
+      ).rejects.toThrow("Frame changed");
+      expect(storeRoleRefsForTarget).not.toHaveBeenCalled();
+    },
+  );
+
   it("forwards an explicit timeoutMs into the role-aria Playwright ariaSnapshot call", async () => {
     const ariaSnapshotMock = vi.fn().mockResolvedValue("");
     const page = makeAriaSnapshotPage(ariaSnapshotMock);
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     await mod.snapshotRoleViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -177,7 +252,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     const page = makeAriaSnapshotPage(ariaSnapshotMock);
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     await mod.snapshotRoleViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -205,7 +279,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     };
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     await expect(
       mod.snapshotRoleViaPlaywright({
         cdpUrl: "http://127.0.0.1:9222",
@@ -234,7 +307,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     };
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     const result = await mod.snapshotRoleViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -249,38 +321,7 @@ describe("pw-tools-core aria snapshot storage", () => {
     expect(page.evaluate).not.toHaveBeenCalled();
   });
 
-  it("keeps URLs for valid snapshots whose depth filter removes every ref", async () => {
-    const locator = {
-      count: vi.fn(async () => 1),
-      ariaSnapshot: vi.fn(async () => '- main:\n  - link "Docs"'),
-    };
-    const page = {
-      locator: vi.fn(() => locator),
-      mainFrame: vi.fn(() => ({ id: "main-frame" })),
-      on: vi.fn(),
-      off: vi.fn(),
-      evaluate: vi.fn(async () => [{ text: "Docs", url: "https://example.test/docs" }]),
-    };
-    getPageForTargetId.mockResolvedValue(page);
-
-    const mod = await import("./pw-tools-core.snapshot.js");
-    const result = await mod.snapshotRoleViaPlaywright({
-      cdpUrl: "http://127.0.0.1:9222",
-      targetId: "tab-1",
-      selector: "main",
-      options: { maxDepth: 0 },
-      urls: true,
-    });
-
-    expect(result.refs).toEqual({});
-    expect(result.snapshot).toContain("- main:");
-    expect(result.snapshot).toContain("https://example.test/docs");
-    expect(locator.count).toHaveBeenCalledOnce();
-    expect(page.evaluate).toHaveBeenCalledOnce();
-  });
-
   it("times out a stalled selector probe without publishing late refs", async () => {
-    const mod = await import("./pw-tools-core.snapshot.js");
     const pendingCount = createDeferred<number>();
     const ariaSnapshot = vi.fn(async () => '- button "Late"');
     const page = {
@@ -310,12 +351,11 @@ describe("pw-tools-core aria snapshot storage", () => {
   });
 
   it("shares the capture timeout between selector lookup and snapshot", async () => {
-    const mod = await import("./pw-tools-core.snapshot.js");
     const pendingCount = createDeferred<number>();
-    const ariaSnapshot = vi.fn(async () => '- button "Present"');
+    const locator = makeNativeSnapshotLocator();
     getPageForTargetId.mockResolvedValue({
-      ...makeAriaSnapshotPage(ariaSnapshot),
-      locator: () => ({ count: () => pendingCount.promise, ariaSnapshot }),
+      ...makeAriaSnapshotPage(vi.fn()),
+      locator: () => ({ ...locator, count: () => pendingCount.promise }),
     });
     vi.useFakeTimers();
     try {
@@ -328,15 +368,119 @@ describe("pw-tools-core aria snapshot storage", () => {
       await vi.advanceTimersByTimeAsync(500);
       pendingCount.resolve(1);
       await promise;
-      expect(ariaSnapshot).toHaveBeenCalledWith({ timeout: 250 });
+      expect(locator.elementHandle).toHaveBeenCalledWith({ timeout: 250 });
+      expect(withPageScopedCdpClient).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: 250 }),
+      );
     } finally {
       vi.useRealTimers();
     }
   });
 
+  it("returns a native capture timeout without waiting for stalled handle disposal", async () => {
+    const locator = makeNativeSnapshotLocator();
+    const disposed = createDeferred<void>();
+    const dispose = vi.fn(() => disposed.promise);
+    locator.elementHandle.mockResolvedValueOnce({ dispose });
+    getPageForTargetId.mockResolvedValue({
+      ...makeAriaSnapshotPage(vi.fn()),
+      locator: () => locator,
+    });
+    withPageScopedCdpClient.mockRejectedValueOnce(new Error("Page CDP operation timed out"));
+    vi.useFakeTimers();
+    let failure: unknown;
+    const operation = mod
+      .snapshotRoleViaPlaywright({
+        cdpUrl: "http://127.0.0.1:9222",
+        selector: "#present",
+        timeoutMs: 500,
+      })
+      .catch((error: unknown) => {
+        failure = error;
+      });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(failure).toBeInstanceOf(Error);
+      expect(String(failure)).toContain("timed out");
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(storeRoleRefsForTarget).not.toHaveBeenCalled();
+    } finally {
+      disposed.resolve();
+      await operation;
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a timed-out capture handle alive until late marker cleanup settles", async () => {
+    const actual = await vi.importActual<typeof import("./pw-session.page-cdp.js")>(
+      "./pw-session.page-cdp.js",
+    );
+    const locator = makeNativeSnapshotLocator();
+    const injected = createDeferred<void>();
+    let markerInstalled = false;
+    let handleDisposed = false;
+    const root = {
+      dispose: vi.fn(async () => {
+        handleDisposed = true;
+      }),
+      evaluate: vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          markerInstalled = true;
+          await injected.promise;
+        })
+        .mockImplementation(async () => {
+          if (handleDisposed) {
+            throw new Error("Handle already disposed");
+          }
+          markerInstalled = false;
+        }),
+    };
+    locator.elementHandle.mockResolvedValueOnce(root);
+    getPageForTargetId.mockResolvedValue({
+      ...makeAriaSnapshotPage(vi.fn()),
+      locator: () => locator,
+      context: () => ({
+        newCDPSession: async () => ({
+          send: async () => {
+            throw new Error("Session detached");
+          },
+          detach: async () => {},
+        }),
+      }),
+    });
+    withPageScopedCdpClient.mockImplementation(actual.withPageScopedCdpClient);
+    withCdpSnapshotRoot.mockImplementation(actual.withCdpSnapshotRoot);
+    vi.useFakeTimers();
+    let failure: unknown;
+    const operation = mod
+      .snapshotRoleViaPlaywright({
+        cdpUrl: "http://127.0.0.1:9222",
+        selector: "#present",
+        timeoutMs: 500,
+      })
+      .catch((error: unknown) => {
+        failure = error;
+      });
+    try {
+      await vi.advanceTimersByTimeAsync(500);
+      expect(failure).toBeInstanceOf(Error);
+      injected.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(markerInstalled).toBe(false);
+      expect(root.dispose).toHaveBeenCalledOnce();
+      expect(storeRoleRefsForTarget).not.toHaveBeenCalled();
+    } finally {
+      injected.resolve();
+      await operation;
+      await vi.advanceTimersByTimeAsync(0);
+      vi.useRealTimers();
+    }
+  });
+
   it("stores frame-scoped refs with the exact captured frame", async () => {
-    const ariaSnapshot = vi.fn(async () => '- button "Save"');
-    const frame = { id: "frame-1", locator: vi.fn(() => ({ ariaSnapshot })) };
+    const locator = makeNativeSnapshotLocator();
+    const frame = { id: "frame-1", locator: vi.fn(() => locator) };
     const page = {
       locator: vi.fn(() => ({
         elementHandle: vi.fn(async () => ({
@@ -349,7 +493,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     };
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     await mod.snapshotRoleViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -366,19 +509,32 @@ describe("pw-tools-core aria snapshot storage", () => {
     expect(page.off).toHaveBeenCalledWith("framenavigated", expect.any(Function));
   });
 
-  it.each(["framenavigated", "framedetached"] as const)(
-    "rejects frame-scoped refs when that frame emits %s during capture",
-    async (event) => {
+  it.each([
+    { event: "framenavigated", stage: "capture" },
+    { event: "framedetached", stage: "capture" },
+    { event: "framenavigated", stage: "markers" },
+    { event: "framedetached", stage: "markers" },
+  ] as const)(
+    "rejects frame-scoped refs when that frame emits $event during $stage",
+    async ({ event, stage }) => {
       const handlers = new Map<string, (frame: unknown) => void>();
+      const locator = makeNativeSnapshotLocator();
       const frame = {
         id: "frame-1",
-        locator: vi.fn(() => ({
-          ariaSnapshot: vi.fn(async () => {
-            handlers.get(event)?.(frame);
-            return '- button "Save"';
-          }),
-        })),
+        locator: vi.fn(() => locator),
       };
+      snapshotRoleViaCdpSession.mockImplementationOnce(async () => {
+        if (stage === "capture") {
+          handlers.get(event)?.(frame);
+        }
+        return locator.capture;
+      });
+      if (stage === "markers") {
+        markBackendDomRefsOnPage.mockImplementationOnce(async () => {
+          handlers.get(event)?.(frame);
+          return new Set(["e1"]);
+        });
+      }
       const page = {
         locator: vi.fn(() => ({
           elementHandle: vi.fn(async () => ({
@@ -393,7 +549,6 @@ describe("pw-tools-core aria snapshot storage", () => {
       };
       getPageForTargetId.mockResolvedValue(page);
 
-      const mod = await import("./pw-tools-core.snapshot.js");
       await expect(
         mod.snapshotRoleViaPlaywright({
           cdpUrl: "http://127.0.0.1:9222",
@@ -413,7 +568,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     const page = makeAriaSnapshotPage(ariaSnapshotMock);
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     await mod.snapshotAiViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -431,7 +585,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     const page = makeAriaSnapshotPage(ariaSnapshotMock);
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     const result = await mod.snapshotAiViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -459,7 +612,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     const page = makeAriaSnapshotPage(ariaSnapshotMock);
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     const result = await mod.snapshotRoleViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -475,12 +627,23 @@ describe("pw-tools-core aria snapshot storage", () => {
     );
   });
 
+  it("still rejects malformed AI names beyond the output budget", async () => {
+    const ariaSnapshot = vi.fn(
+      async () => '- button "Visible" [ref=e1]\n' + String.raw`- button "bad\uZZZZ" [ref=e2]`,
+    );
+    getPageForTargetId.mockResolvedValue(makeAriaSnapshotPage(ariaSnapshot));
+
+    await expect(
+      mod.snapshotAiViaPlaywright({ cdpUrl: "http://127.0.0.1:9222", maxChars: 1 }),
+    ).rejects.toBeInstanceOf(SyntaxError);
+    expect(storeRoleRefsForTarget).not.toHaveBeenCalled();
+  });
+
   it("uses the default navigation timeout for non-finite timeouts", async () => {
     const page = { url: vi.fn(() => "http://127.0.0.1:31337/after") };
     getPageForTargetId.mockResolvedValue(page);
     gotoPageWithNavigationGuard.mockResolvedValue(null);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     const result = await mod.navigateViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -499,7 +662,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     const page = { setViewportSize: vi.fn(async () => {}) };
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     await mod.resizeViewportViaPlaywright({
       cdpUrl: "http://127.0.0.1:9222",
       targetId: "tab-1",
@@ -514,7 +676,6 @@ describe("pw-tools-core aria snapshot storage", () => {
     const page = { setViewportSize: vi.fn(async () => {}) };
     getPageForTargetId.mockResolvedValue(page);
 
-    const mod = await import("./pw-tools-core.snapshot.js");
     await expect(
       mod.resizeViewportViaPlaywright({
         cdpUrl: "http://127.0.0.1:9222",
@@ -528,8 +689,7 @@ describe("pw-tools-core aria snapshot storage", () => {
   });
 
   it("stores role fallback metadata when backend markers are unavailable", async () => {
-    const page = { id: "page-1" };
-    const mod = await import("./pw-tools-core.snapshot.js");
+    const page = makeAriaSnapshotPage(vi.fn());
 
     getPageForTargetId.mockResolvedValue(page);
     markBackendDomRefsOnPage.mockResolvedValue(new Set());
@@ -558,8 +718,7 @@ describe("pw-tools-core aria snapshot storage", () => {
   });
 
   it("publishes finalized CDP refs without recomputing duplicate indexes", async () => {
-    const page = { id: "page-1" };
-    const mod = await import("./pw-tools-core.snapshot.js");
+    const page = makeAriaSnapshotPage(vi.fn());
 
     getPageForTargetId.mockResolvedValue(page);
     markBackendDomRefsOnPage.mockResolvedValue(new Set(["e2"]));
@@ -588,8 +747,7 @@ describe("pw-tools-core aria snapshot storage", () => {
   });
 
   it("does not publish CDP refs after the document changes", async () => {
-    const page = { id: "page-1" };
-    const mod = await import("./pw-tools-core.snapshot.js");
+    const page = makeAriaSnapshotPage(vi.fn());
 
     getPageForTargetId.mockResolvedValue(page);
     markBackendDomRefsOnPage.mockResolvedValue(new Set(["e1"]));

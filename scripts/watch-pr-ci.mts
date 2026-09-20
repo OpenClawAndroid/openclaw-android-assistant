@@ -4,7 +4,7 @@ import { parseArgs as parseNodeArgs } from "node:util";
 import { z } from "zod";
 import { isDirectRunUrl } from "./lib/direct-run.mjs";
 import { execGhJson, workflowRunsApiArgs } from "./lib/plain-gh.mjs";
-import { readPrMetadata } from "./pr-lib/github.mjs";
+import { createPrMetadataReader } from "./pr-lib/github.mjs";
 
 const USAGE =
   "Usage: node scripts/watch-pr-ci.mjs <pr-number> <head-sha> [--repo owner/repo] [--after run-id] [--attach-timeout 900] [--timeout 3600] [--interval 120] [--completion rollup|ci-run]";
@@ -20,6 +20,7 @@ const validArray = <T,>(schema: z.ZodType<T>) =>
   );
 const optionalString = optional(z.string());
 const optionalNumber = optional(z.number());
+const RollupCountSchema = z.object({ state: z.string(), count: z.number().int().nonnegative() });
 const RollupCheckSchema = z.object({
   kind: z.enum(["CheckRun", "StatusContext"]),
   databaseId: optionalNumber,
@@ -46,6 +47,8 @@ const RollupPayloadSchema = z.object({
   contexts: optional(
     z.object({
       totalCount: optionalNumber,
+      checkRunCountsByState: optional(z.array(RollupCountSchema)),
+      statusContextCountsByState: optional(z.array(RollupCountSchema)),
       nodes: optional(validArray(RollupCheckSchema)),
       pageInfo: optional(
         z.object({
@@ -144,6 +147,7 @@ const FAILURE_CONCLUSIONS = new Set([
   "TIMED_OUT",
 ]);
 const ROLLUP_QUERY = `query($owner:String!,$name:String!,$pr:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$pr){state mergeable headRefOid statusCheckRollup{state contexts(first:100,after:$cursor){totalCount pageInfo{hasNextPage endCursor} nodes{kind:__typename ... on CheckRun{name status conclusion databaseId checkSuite{databaseId workflowRun{databaseId event workflow{databaseId}}}} ... on StatusContext{context state}}}}}}}`;
+const SUMMARY_QUERY = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pr){state mergeable headRefOid statusCheckRollup{state contexts(first:1){checkRunCountsByState{state count} statusContextCountsByState{state count}}}}}}`;
 const MAX_EVIDENCE_READS_PER_POLL = 32;
 const GH_READ_OPTIONS = {
   stdio: ["ignore", "pipe", "pipe"],
@@ -405,13 +409,15 @@ function ghReadOptions(deadline?: number) {
   return { ...GH_READ_OPTIONS, timeout: Math.min(GH_READ_OPTIONS.timeout, remaining) };
 }
 
-function readPr(pr: number, repo: string, deadline?: number) {
+function readPr(
+  pr: number,
+  readMetadata: ReturnType<typeof createPrMetadataReader>,
+  deadline?: number,
+) {
   // Repository resolution and metadata share one read budget, including diagnostics.
   const readDeadline = Date.now() + ghReadOptions(deadline).timeout;
   return RollupPageSchema.parse(
-    readPrMetadata(pr, repo, ["state", "mergeable", "headRefOid"], () =>
-      ghReadOptions(readDeadline),
-    ),
+    readMetadata(pr, ["state", "mergeable", "headRefOid"], () => ghReadOptions(readDeadline)),
   );
 }
 export const buildFindRunArgs = (repo: string, sha: string) =>
@@ -659,31 +665,40 @@ export function collectRollupContexts(
   };
 }
 
-function readRollup(pr: number, repo: string, deadline?: number) {
+function readRollup(pr: number, repo: string, deadline: number, details = true) {
   const [owner, name] = repo.split("/");
-  return (
-    collectRollupContexts((cursor) => {
-      const queryArgs = [
-        "api",
-        "graphql",
-        "-f",
-        `query=${ROLLUP_QUERY}`,
-        "-f",
-        `owner=${owner}`,
-        "-f",
-        `name=${name}`,
-        "-F",
-        `pr=${pr}`,
-      ];
-      if (cursor !== null) {
-        queryArgs.push("-f", `cursor=${cursor}`);
-      }
-      const response = RollupResponseSchema.safeParse(
-        execGhJson(queryArgs, ghReadOptions(deadline)),
-      );
-      return response.success ? response.data.data.repository?.pullRequest : undefined;
-    }) ?? {}
-  );
+  const fetchPage = (cursor: string | null) => {
+    const queryArgs = [
+      "api",
+      "graphql",
+      "-f",
+      `query=${details ? ROLLUP_QUERY : SUMMARY_QUERY}`,
+      "-f",
+      `owner=${owner}`,
+      "-f",
+      `name=${name}`,
+      "-F",
+      `pr=${pr}`,
+    ];
+    if (cursor !== null) {
+      queryArgs.push("-f", `cursor=${cursor}`);
+    }
+    const response = RollupResponseSchema.safeParse(execGhJson(queryArgs, ghReadOptions(deadline)));
+    return response.success ? response.data.data.repository?.pullRequest : undefined;
+  };
+  return (details ? collectRollupContexts(fetchPage) : fetchPage(null)) ?? {};
+}
+
+function githubPendingCount(rollup: RollupPayload | null | undefined) {
+  const { checkRunCountsByState, statusContextCountsByState } = rollup?.contexts ?? {};
+  if (!checkRunCountsByState || !statusContextCountsByState) {
+    return "unknown";
+  }
+  return [...checkRunCountsByState, ...statusContextCountsByState]
+    .filter(({ state }) =>
+      ["PENDING", "EXPECTED", "QUEUED", "WAITING", "REQUESTED", "IN_PROGRESS"].includes(state),
+    )
+    .reduce((total, { count }) => total + count, 0);
 }
 
 function readPrRollup(
@@ -833,13 +848,14 @@ function precheck(pr: RollupPage, sha: string, midWait = false) {
 
 async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
+  const readMetadata = createPrMetadataReader(args.repo);
   const attachDeadline = Date.now() + args.attachTimeout * 1000;
   const attachment = await pollUntilDeadline({
     deadline: attachDeadline,
     interval: args.interval,
     poll: () => {
       try {
-        const blocked = precheck(readPr(args.pr, args.repo), args.headSha);
+        const blocked = precheck(readPr(args.pr, readMetadata), args.headSha);
         if (blocked !== null) {
           return { exitCode: blocked };
         }
@@ -883,14 +899,19 @@ async function main(argv = process.argv.slice(2)) {
 
   const watchDeadline = Date.now() + args.timeout * 1000;
   let lastState = "NONE";
-  let lastPending = 0;
+  let lastPending: number | "unknown" = 0;
+  let pendingLabel = "pending";
   const watchResult = await pollUntilDeadline({
     deadline: watchDeadline,
     interval: args.interval,
     poll: () => {
       try {
         if (args.completion === "ci-run") {
-          const blocked = precheck(readPr(args.pr, args.repo, watchDeadline), args.headSha, true);
+          const blocked = precheck(
+            readPr(args.pr, readMetadata, watchDeadline),
+            args.headSha,
+            true,
+          );
           if (blocked !== null) {
             return blocked;
           }
@@ -907,6 +928,43 @@ async function main(argv = process.argv.slice(2)) {
           }
           return undefined;
         }
+        const summary = readRollup(args.pr, args.repo, watchDeadline, false);
+        const blocked = precheck(summary, args.headSha, true);
+        if (blocked !== null) {
+          return blocked;
+        }
+        lastState = summary.statusCheckRollup?.state ?? "NONE";
+        if (!["FAILURE", "ERROR"].includes(lastState)) {
+          const run = readRun(args.repo, runId, watchDeadline);
+          if (run.status === "completed" && run.conclusion !== "success") {
+            return emit(`FAILING checks=CI workflow (${run.conclusion ?? "unknown"})`, 15);
+          }
+          if (
+            lastState !== "PENDING" ||
+            run.status !== "completed" ||
+            run.conclusion !== "success"
+          ) {
+            pendingLabel = "github_pending";
+            lastPending = githubPendingCount(summary.statusCheckRollup);
+            console.log(
+              `STATUS rollup=${lastState === "SUCCESS" ? "green" : "pending"} github_rollup=${lastState} github_pending=${lastPending}`,
+            );
+            if (lastState === "SUCCESS" && run.status === "completed") {
+              // The run read can span a push or newly published checks on the same head.
+              const current = readRollup(args.pr, args.repo, watchDeadline, false);
+              const moved = precheck(current, args.headSha, true);
+              if (moved !== null) {
+                return moved;
+              }
+              lastState = current.statusCheckRollup?.state ?? "NONE";
+              lastPending = githubPendingCount(current.statusCheckRollup);
+              if (lastState === "SUCCESS") {
+                return emit("GREEN", 0);
+              }
+            }
+            return undefined;
+          }
+        }
         const reads = { remaining: MAX_EVIDENCE_READS_PER_POLL };
         let observed = readPrRollup(args, attachment, watchDeadline, reads);
         if ("exitCode" in observed) {
@@ -915,6 +973,7 @@ async function main(argv = process.argv.slice(2)) {
         let { pr, result } = observed;
         lastState = pr.statusCheckRollup?.state ?? "NONE";
         lastPending = result.pendingCount;
+        pendingLabel = "pending";
         let run =
           result.verdict === "FAILING" ? undefined : readRun(args.repo, runId, watchDeadline);
         if (
@@ -959,6 +1018,10 @@ async function main(argv = process.argv.slice(2)) {
           run?.status === "completed" &&
           run.conclusion === "success"
         ) {
+          const moved = precheck(readPr(args.pr, readMetadata, watchDeadline), args.headSha, true);
+          if (moved !== null) {
+            return moved;
+          }
           return emit("GREEN", 0);
         }
       } catch (error) {
@@ -972,7 +1035,7 @@ async function main(argv = process.argv.slice(2)) {
   }
   return emit(
     args.completion === "rollup"
-      ? `TIMEOUT github_rollup=${lastState} pending=${lastPending}`
+      ? `TIMEOUT github_rollup=${lastState} ${pendingLabel}=${lastPending}`
       : "TIMEOUT completion=ci-run",
     16,
   );

@@ -280,6 +280,9 @@ describe.runIf("__vitest_browser__" in globalThis)("Inbox panel layout", () => {
       expect(
         attention.getBoundingClientRect().left - nativeChrome.getBoundingClientRect().right,
       ).toBe(4);
+      expect(paint()).toEqual({ border: "0px", background: "rgba(0, 0, 0, 0)" });
+      expect(getComputedStyle(inbox).boxShadow).toBe("none");
+      expect(getComputedStyle(inbox).backdropFilter).toBe("none");
       attention.classList.remove("sidebar-attention--floating");
       expect(paint()).toEqual({ border: "0px", background: "rgba(0, 0, 0, 0)" });
       expect(getComputedStyle(inbox).boxShadow).toBe("none");

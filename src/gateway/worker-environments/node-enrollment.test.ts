@@ -130,6 +130,9 @@ describe("worker node enrollment", () => {
         path.join(packageRoot, "node-runtime-recovery.mjs"),
         "export const recovery = true;",
       ),
+      fs.writeFile(path.join(packageRoot, "cli-root-options.mjs"), "export {};"),
+      fs.writeFile(path.join(packageRoot, "gateway-run-argv.mjs"), "export {};"),
+      fs.writeFile(path.join(packageRoot, "gateway-shutdown-budget.mjs"), "export {};"),
       fs.writeFile(path.join(packageRoot, "dist/entry.js"), "export const ready = true;"),
       fs.writeFile(
         path.join(packageRoot, "dist/build-info.json"),

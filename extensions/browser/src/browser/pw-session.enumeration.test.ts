@@ -516,11 +516,9 @@ describe("pw-session page enumeration", () => {
     expect(inventoryRead).toHaveBeenCalledTimes(requireCompleteTargetList ? 1 : 0);
     expect(detach).toHaveBeenCalledTimes(requireCompleteTargetList ? 1 : 0);
     expect(connectOverCdpSpy).toHaveBeenCalledOnce();
-    expect(fixture.browserClose).toHaveBeenCalledTimes(testCase.waitsForPublication ? 1 : 0);
+    expect(fixture.browserClose).not.toHaveBeenCalled();
     expect(fixture.contextEvents.listenerCount("page")).toBe(1);
-    expect(fixture.browserEvents.listenerCount("disconnected")).toBe(
-      testCase.waitsForPublication ? 0 : 1,
-    );
+    expect(fixture.browserEvents.listenerCount("disconnected")).toBe(1);
     if (blockedPage) {
       expect(fixture.newCDPSession).not.toHaveBeenCalledWith(blockedPage);
     }
@@ -569,13 +567,64 @@ describe("pw-session page enumeration", () => {
     fixture.contextEvents.emit("page", fixture.pages[0]);
     expect(fixture.newCDPSession).not.toHaveBeenCalled();
     expect(fixture.contextEvents.listenerCount("page")).toBe(1);
-    expect(fixture.browserEvents.listenerCount("disconnected")).toBe(stop === "abort" ? 0 : 1);
+    expect(fixture.browserEvents.listenerCount("disconnected")).toBe(1);
     expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
     expect(connectOverCdpSpy).toHaveBeenCalledTimes(stop === "abort" ? 1 : 2);
     expect(successor.browserClose).not.toHaveBeenCalled();
   });
 
-  it("aborts enumeration without a timeout and retires its connection", async () => {
+  it.each(["attach", "read"] as const)(
+    "releases only its own native inventory session when cancelled during %s",
+    async (phase) => {
+      const cdpUrl = "http://127.0.0.1:9222";
+      const fixture = makePageEnumerationBrowser([
+        { targetId: "A", title: "A", url: "https://a.example/" },
+      ]);
+      const gate = createDeferred<void>();
+      const started = createDeferred<void>();
+      const detach = vi.fn(async () => {});
+      const send = vi.fn(async () => {
+        if (phase === "read") {
+          started.resolve();
+          await gate.promise;
+        }
+        return { targetInfos: [{ targetId: "A", type: "page" }] };
+      });
+      Object.assign(fixture.browser, {
+        newBrowserCDPSession: async () => {
+          if (phase === "attach") {
+            started.resolve();
+            await gate.promise;
+          }
+          return { send, detach };
+        },
+      });
+      connectOverCdpSpy.mockResolvedValue(fixture.browser);
+      getChromeWebSocketUrlSpy.mockResolvedValue(null);
+      const controller = new AbortController();
+      const listing = listPagesViaPlaywright({
+        cdpUrl,
+        requireCompleteTargetList: true,
+        signal: controller.signal,
+      });
+      const rejected = expect(listing).rejects.toThrow("cancel native inventory");
+      await started.promise;
+      controller.abort(new Error("cancel native inventory"));
+      await rejected;
+      gate.resolve();
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      expect(detach).toHaveBeenCalledOnce();
+      if (phase === "attach") {
+        expect(send).not.toHaveBeenCalled();
+      }
+      expect(fixture.browserClose).not.toHaveBeenCalled();
+      await expect(listPagesViaPlaywright({ cdpUrl })).resolves.toMatchObject([{ targetId: "A" }]);
+    },
+  );
+
+  it("aborts enumeration without a timeout while preserving the shared connection", async () => {
     const fixture = makePageEnumerationBrowser([
       {
         targetId: "T1",
@@ -595,7 +644,7 @@ describe("pw-session page enumeration", () => {
     controller.abort(new Error("cancelled enumeration"));
 
     await expect(listing).rejects.toThrow("cancelled enumeration");
-    await vi.waitFor(() => expect(fixture.browserClose).toHaveBeenCalledOnce());
+    expect(fixture.browserClose).not.toHaveBeenCalled();
   });
 
   it.each([

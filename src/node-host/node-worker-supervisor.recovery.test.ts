@@ -376,17 +376,17 @@ describe("node worker supervisor recovery", () => {
 
           process.kill(anchor.pid, "SIGCONT");
           await waitForIdentityDeath(anchor);
+          // Anchor exit can precede group extinction; recovery publishes capacity after both.
+          await racePromiseWithAbortSignal(capacityReleased.promise, testSignal);
           expect(inspectOwnedNodeWorkerTree(anchor)).toBe("dead");
           const terminalState = operation === "cancel-running" ? "cancelled" : "interrupted";
-          await vi.waitFor(() => {
-            expect(store.get(input.launchId)).toMatchObject({
-              state: terminalState,
-              workerLineageSettled: true,
-            });
-            expect(capacitySnapshots.at(-1)).toEqual({
-              total: totalCapacity,
-              available: totalCapacity,
-            });
+          expect(store.get(input.launchId)).toMatchObject({
+            state: terminalState,
+            workerLineageSettled: true,
+          });
+          expect(capacitySnapshots.at(-1)).toEqual({
+            total: totalCapacity,
+            available: totalCapacity,
           });
           expect(await reconcile()).toMatchObject(
             completed ? { ...completed, workerLineageSettled: true } : { state: terminalState },

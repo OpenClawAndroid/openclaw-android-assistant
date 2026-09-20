@@ -40,6 +40,7 @@ import {
   captureConversationDeliveryTarget,
   markDurableDeliveryQueued,
 } from "./delivery-completion.js";
+import { holdEnqueueReply } from "./delivery-queue-enqueue.worker.test-support.js";
 import { OUTBOUND_DELIVERY_QUEUE_NAME } from "./delivery-queue-media-staging.js";
 import { drainPendingDeliveriesCore } from "./delivery-queue-recovery.js";
 import {
@@ -474,6 +475,10 @@ describe("conversation completion through the real delivery queue", () => {
         throw error;
       }
     });
+    const enqueueReply = holdEnqueueReply();
+    const enqueueCommitted = enqueueReply.held.then(() => {
+      enqueueReply.release();
+    });
     let settled = false;
     const delivery = runGatewayConversationSend(
       {
@@ -504,6 +509,8 @@ describe("conversation completion through the real delivery queue", () => {
       }
       const { queueId } = custody;
       await custody.writer.entered;
+      // Join the real committed enqueue before checking custody behind the held writer.
+      await Promise.race([enqueueCommitted, outcome]);
       await vi.waitFor(() =>
         expect(
           readQueuedEntries(originalRoot).length > 0 ||
@@ -569,10 +576,12 @@ describe("conversation completion through the real delivery queue", () => {
       expect(readQueuedEntries(replacementRoot)).toEqual([]);
     } finally {
       cleanupStarted = true;
+      enqueueReply.release();
       try {
         await Promise.all([custodyWriter?.release(), settlementWriter?.release()]);
       } finally {
         await outcome;
+        enqueueReply.restore();
       }
     }
   });

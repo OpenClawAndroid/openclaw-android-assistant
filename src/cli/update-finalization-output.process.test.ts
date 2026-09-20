@@ -1,14 +1,15 @@
 import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.js";
+import { resolveRuntimeWorkerArgv, resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { prepareUpdateFailureReport } from "../infra/update-failure-report-prepare.js";
 import { listUpdateRuns } from "../infra/update-run-ledger.js";
 import { isPidAlive } from "../shared/pid-alive.js";
 import { resolveTestNodeExecPath } from "../test-utils/node-process.js";
+import { updateFinalizationOutputEntrypoint } from "./cli-entrypoint.test-support.js";
 import {
   formatCliProcessFailure,
   runCliProcessChild,
@@ -17,11 +18,9 @@ import {
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const testNodeExecPath = resolveTestNodeExecPath();
-// Keep source transforms reusable across fresh children; each case still owns its state.
+// Children share a fixture-owned temporary root; each case still owns its state.
 const childTempDir = useAutoCleanupTempDirTracker(afterAll).make("openclaw-update-child-tmp-");
-const fixture = fileURLToPath(
-  new URL("./update-finalization-output.test-support.ts", import.meta.url),
-);
+const fixture = resolveRuntimeWorkerUrl(updateFinalizationOutputEntrypoint);
 const doctorDiagnostics = [
   "OpenClaw doctor",
   "Doctor panel diagnostic",
@@ -128,21 +127,20 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
               interact: async (
                 child: import("node:child_process").ChildProcessWithoutNullStreams,
               ) => {
-                child.stdin.end();
-                await waitForCliProcessStderrMarker(child, "fixture configSnapshot entered");
                 try {
+                  await waitForCliProcessStderrMarker(child, "fixture configSnapshot recorded");
                   observedPhaseStart = readRun();
                 } catch (error) {
                   throw new Error("Could not read the phase-start ledger", { cause: error });
+                } finally {
+                  child.stdin.end();
                 }
               },
             }
           : {}),
         nodeArgs: [
           ...(traceExit ? ["--trace-exit"] : []),
-          "--import",
-          "tsx",
-          fixture,
+          ...resolveRuntimeWorkerArgv(fixture, testNodeExecPath),
           JSON.stringify(runtimeProcessEntrypoints),
           scenario,
           ...args,

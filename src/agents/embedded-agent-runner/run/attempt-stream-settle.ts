@@ -1,11 +1,12 @@
-/**
- * Prepares transport before streaming and settles the completed stream afterward.
- * It may assume session runtime ownership and provider inputs are established.
- */
 import {
   isAnthropicServerToolClearingEnabled,
   resolveCompactionReplayEligibility,
 } from "@openclaw/ai/transports";
+/**
+ * Prepares transport before streaming and settles the completed stream afterward.
+ * It may assume session runtime ownership and provider inputs are established.
+ */
+import type { ModelCompatConfig } from "../../../config/types.models.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import { createCodexNativeWebSearchWrapper } from "../../../llm/providers/stream-wrappers/openai.js";
 import type { AssistantMessage } from "../../../llm/types.js";
@@ -286,6 +287,7 @@ export async function settleEmbeddedAttemptStream(input: {
     withSessionManagerWrite(sessionManager, () => {
       const { timedOutDuringCompaction } = input.readLifecycleState();
       compactionOccurredThisAttempt = subscription.getCompactionCount() > 0;
+      const cacheTtlCompat: ModelCompatConfig | undefined = attempt.model.compat;
       appendAttemptCacheTtlIfNeeded({
         sessionManager,
         timedOutDuringCompaction,
@@ -294,6 +296,10 @@ export async function settleEmbeddedAttemptStream(input: {
         provider: attempt.provider,
         modelId: attempt.modelId,
         modelApi: attempt.model.api,
+        modelRoute: {
+          baseUrl: attempt.model.baseUrl,
+          supportsPromptCacheKey: cacheTtlCompat?.supportsPromptCacheKey,
+        },
         isCacheTtlEligibleProvider,
         toolResultPromptProjectionState: input.toolResultPromptProjectionState,
       });
@@ -496,6 +502,7 @@ export async function prepareEmbeddedAttemptTransport(input: {
             ...provider,
             context,
             workspaceDir: input.workspaceDir,
+            agentWorkspaceDir: attempt.workspaceDir,
             workspaceOnly: input.workspaceOnly,
             localRoots: input.workspaceOnly
               ? undefined

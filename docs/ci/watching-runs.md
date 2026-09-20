@@ -23,10 +23,12 @@ binary. `OPENCLAW_GH_BIN` is an explicit operator-owned override for supporting
 callers; choose it only when its authentication and protections are appropriate.
 PATH-based read helpers, including this watcher, ignore that override.
 Authoritative REST reads request revalidation with `Cache-Control: max-age=0`
-and supply concrete repository paths. Writer identity comes from the authenticated
-GraphQL viewer, not a relay's REST caller profile.
+and supply concrete repository paths. The watcher resolves its repository once,
+then revalidates mutable PR state on each read. Writer identity uses authenticated
+REST `GET /user --include`; included headers preserve the native writer route
+instead of accepting a relay's caller profile.
 
-Before entering a PR worktree, `scripts/pr` checks that viewer with one request.
+Before entering a PR worktree, `scripts/pr` checks that writer with one request.
 Rate-limit failures stop the operation before fetch or merge side effects and
 report only safe metadata from that same response: HTTP status, quota resource,
 remaining quota, limit, UTC reset time, and retry delay when available.
@@ -35,9 +37,9 @@ when that budget is exhausted. A future primary reset is not the unblock time fo
 a secondary throttle with quota remaining. Without a usable retry delay or an
 exhausted budget's reset, wait at least 60 seconds. A zero remaining balance alone
 does not attribute an HTTP 200 failure to rate limiting: malformed or missing
-viewer data and unrelated errors still fail, with exhaustion reported separately.
+identity data and unrelated errors still fail, with exhaustion reported separately.
 An unknown reset is reported as unknown; a separate pooled REST quota is not
-evidence about the failed viewer request. Refreshing credentials does not restore
+evidence about the failed identity request. Refreshing credentials does not restore
 quota. Only missing or rejected authentication suggests manually configuring or
 refreshing the intended active credential; forbidden, server, transport, and
 malformed responses remain blocking failures without login advice. The preflight
@@ -71,6 +73,15 @@ still waits for the attached CI run to succeed. Terminal `GREEN` exits 0,
 `FAILING` exits 15, and `TIMEOUT` exits 16. Rollup timeouts include the last raw
 aggregate and pending count; `ci-run` timeouts identify that completion mode
 because it does not inspect the rollup.
+
+Ordinary active CI polls fetch the aggregate and global counts without loading
+check nodes or older-run metadata. `github_pending` reports those raw pending
+counts, including superseded checks and `Auto response`; unavailable counts show
+`unknown` and never establish completion. Failure analysis and pending checks
+after CI succeeds still collect complete details, reporting the effective
+`pending` and `superseded` counts. Before returning `GREEN`, the watcher rechecks
+the PR lifecycle and head; a summary success also requires the aggregate to remain
+successful after observing the attached run.
 
 An HTTP 407 proxy-authentication refusal exits immediately with
 `PROXY-AUTH-FAILED` and exit code 2. Retrying the same command cannot renew its

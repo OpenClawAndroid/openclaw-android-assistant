@@ -259,7 +259,7 @@ describe("renderChatComposer controls", () => {
     },
   );
 
-  it("keeps composing enabled and explains queued delivery while offline", () => {
+  it("keeps composing enabled and explains the conversation outbox while offline", () => {
     const { container } = renderComposer({
       offline: true,
       queuedOutboxCount: 3,
@@ -268,7 +268,13 @@ describe("renderChatComposer controls", () => {
 
     expect(container.querySelector(".agent-chat__input--offline")).not.toBeNull();
     expect(container.querySelector(".agent-chat__composer-status-band")?.textContent?.trim()).toBe(
-      "Offline — 3 queued; messages send when the connection returns.",
+      "3 in this conversation’s outbox.",
+    );
+    expect(container.querySelector(".agent-chat__composer-status")?.getAttribute("data-tone")).toBe(
+      "info",
+    );
+    expect(container.querySelector(".agent-chat__composer-status-band")?.getAttribute("role")).toBe(
+      "status",
     );
     expect(container.querySelector<HTMLTextAreaElement>("textarea")?.disabled).toBe(false);
     expect(button(container, t("chat.runControls.sendMessage")).disabled).toBe(false);
@@ -276,7 +282,9 @@ describe("renderChatComposer controls", () => {
     const empty = renderComposer({ offline: true, queuedOutboxCount: 0 });
     expect(
       empty.container.querySelector(".agent-chat__composer-status-band")?.textContent?.trim(),
-    ).toBe("Offline — messages will be queued and sent when the connection returns.");
+    ).toBe(
+      "You can keep writing. Send when you’re ready to add a message to this conversation’s outbox.",
+    );
 
     const online = renderComposer({ queuedOutboxCount: 3 });
     expect(online.container.querySelector(".agent-chat__composer-status-band")).toBeNull();
@@ -331,12 +339,17 @@ describe("renderChatComposer controls", () => {
       canSend: false,
       disabledReason: reason,
       draft: "a draft that hides the placeholder",
+      offline: true,
+      queuedOutboxCount: 3,
     });
 
     // The placeholder carries the reason only for an empty composer; the
     // dedicated reason row must keep the explanation visible alongside a draft.
     expect(container.querySelector(".agent-chat__composer-status-band")?.textContent).toContain(
       reason,
+    );
+    expect(container.querySelector(".agent-chat__composer-status-band")?.textContent).not.toContain(
+      "outbox",
     );
     expect(container.querySelector<HTMLTextAreaElement>("textarea")?.disabled).toBe(true);
   });

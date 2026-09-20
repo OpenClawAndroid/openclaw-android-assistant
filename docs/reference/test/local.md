@@ -64,6 +64,12 @@ reconcile dependencies before the remote wrapper starts.
 Run the test toolchain on Node 24.16+ or Node 26.1+, matching the packaged
 runtime floor. Older Node bindings can truncate SQLite TEXT values at embedded NUL characters.
 
+Test processes and their CLI fixtures keep Sparkplug baseline compilation enabled
+but run it synchronously. This avoids a Node 24 shutdown deadlock where a
+background compiler waits for main-thread garbage collection while `process.exit`
+joins that compiler. The shared Node argument policy owns this test-only
+mitigation; production CLI exit behavior, assertions, and deadlines are unchanged.
+
 The script erasability gate uses Node's strip-only parser, including when package
 checks run under Bun. It selects an installed Node runtime and skips Bun's `node` shim.
 

@@ -11,10 +11,10 @@ import { recoverRestartAbortedMainSessions } from "../agents/main-session-recove
 import { maybeWakeRequesterAfterAllChildrenSettled } from "../agents/subagents/announce/subagent-announce.requester-settle-wake.js";
 import { settleRequesterCompletionBatch } from "../agents/subagents/completion/subagent-completion-admission.store.js";
 import { subagentRuns } from "../agents/subagents/registry/subagent-registry-memory.js";
+import { upsertSubagentRunRowInDatabase } from "../agents/subagents/registry/subagent-registry.store.kernel.js";
 import {
   bindSubagentRunRecord,
   loadSubagentRegistryFromSqlite,
-  upsertSubagentRunRowInDatabase,
 } from "../agents/subagents/registry/subagent-registry.store.sqlite.js";
 import type { SubagentRunRecord } from "../agents/subagents/registry/subagent-registry.types.js";
 import { getRuntimeConfig } from "../config/config.js";

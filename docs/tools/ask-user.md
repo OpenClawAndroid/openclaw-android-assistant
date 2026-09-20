@@ -71,6 +71,22 @@ the time remaining, dismisses expired prompts, and restores pending questions
 for the selected session after reconnecting or switching sessions. Local mode
 keeps questions in the running process; they do not survive exiting the TUI.
 
+## Async questions
+
+Codex async questions use the same panel above the Control UI composer. They open
+without taking keyboard focus and leave the message box available while the agent
+continues working. Collapse the panel to keep a compact unanswered-question count
+and the current question visible. New messages, completed turns, and collapsed
+work history do not dismiss the question or reopen a minimized panel.
+The question dock also stays available when a plugin replaces the composer.
+
+Use the panel's request arrows to switch between pending requests without losing
+answer drafts. A new blocking question takes priority; async questions remain
+available through the same navigation. Submitting an async answer sends an ordinary
+chat message, using the existing outbox and retry controls. Skipping removes that
+request from the dock without sending an answer. The transcript retains a summary.
+Minimizing alone neither answers nor skips a question.
+
 ## Timeout and no answer
 
 The default timeout is 900 seconds. `timeoutSeconds` is clamped to the range

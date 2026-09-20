@@ -263,57 +263,57 @@ describe("fetchBrowserJson loopback auth", () => {
       calls: [],
     },
     {
-      name: "uses configured password before the bridge registry",
+      name: "uses registered bridge token ahead of configured password",
       auth: { password: "fixture-config-password" },
-      bridge: { token: "fixture-unused-bridge-token" },
-      authorization: null,
-      password: "fixture-config-password",
-      calls: ["config", "resolve"],
-    },
-    {
-      name: "uses configured token before the bridge registry",
-      auth: { token: "fixture-config-token" },
-      bridge: { password: "fixture-unused-bridge-password" },
-      authorization: "Bearer fixture-config-token",
-      password: null,
-      calls: ["config", "resolve"],
-    },
-    {
-      name: "uses a bridge token after empty configured auth",
       bridge: { token: "fixture-bridge-token" },
       authorization: "Bearer fixture-bridge-token",
       password: null,
-      calls: ["config", "resolve", "registry"],
+      calls: ["registry"],
     },
     {
-      name: "uses a bridge password after empty configured auth",
+      name: "uses registered bridge password ahead of configured token",
+      auth: { token: "fixture-config-token" },
       bridge: { password: "fixture-bridge-password" },
       authorization: null,
       password: "fixture-bridge-password",
-      calls: ["config", "resolve", "registry"],
+      calls: ["registry"],
     },
     {
-      name: "uses the bridge registry after config lookup fails",
+      name: "uses a registered bridge token",
+      bridge: { token: "fixture-bridge-token" },
+      authorization: "Bearer fixture-bridge-token",
+      password: null,
+      calls: ["registry"],
+    },
+    {
+      name: "uses a registered bridge password",
+      bridge: { password: "fixture-bridge-password" },
+      authorization: null,
+      password: "fixture-bridge-password",
+      calls: ["registry"],
+    },
+    {
+      name: "uses the bridge registry without reading unavailable config",
       configThrows: true,
       bridge: { token: "fixture-bridge-token" },
       authorization: "Bearer fixture-bridge-token",
       password: null,
-      calls: ["config", "registry"],
+      calls: ["registry"],
     },
     {
-      name: "uses the bridge registry after auth resolution fails",
+      name: "uses the bridge registry without resolving unavailable config auth",
       resolverThrows: true,
       bridge: { password: "fixture-bridge-password" },
       authorization: null,
       password: "fixture-bridge-password",
-      calls: ["config", "resolve", "registry"],
+      calls: ["registry"],
     },
     {
       name: "keeps the unauthenticated request when registry lookup fails",
       registryThrows: true,
       authorization: null,
       password: null,
-      calls: ["config", "resolve", "registry"],
+      calls: ["registry", "config", "resolve"],
     },
   ];
 
@@ -767,6 +767,42 @@ describe("fetchBrowserJson loopback auth", () => {
         omits: ["Do NOT retry the browser tool"],
       },
     );
+  });
+
+  it.each(["http", "dispatcher"] as const)(
+    "uses operation metadata rather than timeout wording over %s",
+    async (transport) => {
+      const body = {
+        error: "locator.fill: Timeout 700ms exceeded: element is not editable",
+        code: "ACT_OPERATION_FAILED",
+      };
+      if (transport === "http") {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async () => new Response(JSON.stringify(body), { status: 500 })),
+        );
+      } else {
+        mocks.dispatch.mockResolvedValueOnce({ status: 500, body });
+      }
+      await expectThrownBrowserFetchError(
+        () => fetchBrowserJson(transport === "http" ? "http://127.0.0.1:18888/act" : "/act"),
+        {
+          contains: [body.error],
+          omits: ["Retry the browser tool", "browser is currently unavailable", "Restart"],
+        },
+      );
+    },
+  );
+
+  it("keeps authentication failure advice even with operation metadata", async () => {
+    mocks.dispatch.mockResolvedValueOnce({
+      status: 401,
+      body: { error: "Unauthorized", code: "ACT_OPERATION_FAILED" },
+    });
+    await expectThrownBrowserFetchError(() => fetchBrowserJson("/act"), {
+      contains: ["Unauthorized", "Do NOT retry the browser tool"],
+      omits: ["Retry the browser tool once"],
+    });
   });
 
   it.each([408, 504])("uses HTTP %i to classify generic payloads as transient", async (status) => {

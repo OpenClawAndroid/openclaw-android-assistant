@@ -470,18 +470,13 @@ describe("AppSidebar viewer presence", () => {
     );
     sidebar.connected = true;
 
-    gatewayHarness.publishEvent("presence", {
-      presence: [
-        {
-          instanceId: "self-instance",
-          user: {
-            id: "00-self",
-            email: "test@example.com",
-            name: "Self User",
-            avatarUrl: "/api/users/00-self/avatar?v=7",
-          },
-        },
-      ],
+    gatewayHarness.publish({
+      selfUser: {
+        id: "00-self",
+        email: "test@example.com",
+        name: "Self User",
+        avatarUrl: "/api/users/00-self/avatar?v=7",
+      },
     });
 
     await vi.waitFor(() => {
@@ -619,6 +614,7 @@ describe("AppSidebar viewer presence", () => {
       createSessions("main", ["agent:main:main"]),
     );
 
+    gatewayHarness.publish({ selfUser: user ?? null });
     gatewayHarness.publishEvent("presence", {
       presence: [
         { instanceId: "anonymous-self", user, watchedSessions: ["agent:main:main"] },

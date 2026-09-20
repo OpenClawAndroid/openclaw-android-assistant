@@ -43,12 +43,13 @@ export function prepareGatewaySessionStoreReadSources(params: {
         ...listConfiguredSessionStoreAgentIds(params.cfg),
         ...registered.map((entry) => entry.agentId),
       ]);
+      const isSameDatabasePath = createOpenClawAgentDatabasePathMatcher();
       const resolveExistingTargets = createExistingAgentSessionStoreTargetResolver(params.cfg, {
         env: params.env,
         registeredDatabases: registered,
+        isSameDatabasePath,
       });
       const sources = new Map<string, readonly SessionEntryReadSource[]>();
-      const isSameDatabasePath = createOpenClawAgentDatabasePathMatcher();
       const bindCurrentSource = (source: SessionEntryReadSource): SessionEntryReadSource =>
         source.agentId === params.currentSource.agentId &&
         isSameDatabasePath(source.path, params.currentSource.path)

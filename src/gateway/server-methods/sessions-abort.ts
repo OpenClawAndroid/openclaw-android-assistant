@@ -16,6 +16,7 @@ import {
   resolveActiveEmbeddedRunOwnerByRunId,
   type ActiveEmbeddedRunOwner,
 } from "../../agents/embedded-agent-runner/runs.js";
+import { captureYieldedMainSessionContinuation } from "../../agents/main-session-recovery/main-session-restart-recovery-target.js";
 import { clearSessionQueues } from "../../auto-reply/reply/queue/cleanup.js";
 import {
   isConfiguredSessionStoreAgentId,
@@ -334,11 +335,14 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
       canonicalKey === "global" && requestedGlobalAgentId ? "global" : resolvedAbortSessionKey;
     const abortAgentId = requestedGlobalAgentId ?? activeRunAgentId;
     const lifecycleGeneration = getAgentEventLifecycleGeneration();
+    const lifecycleRevision = sessionEntry?.lifecycleRevision;
     const assertAbortCurrent = () => {
       sessionMutationAuthorization?.assertCurrent();
       assertAgentRunLifecycleGenerationCurrent(lifecycleGeneration);
     };
-    const persistEmbeddedAbort = (owner: ActiveEmbeddedRunOwner) =>
+    const persistSessionAbort = (
+      owner: Pick<ActiveEmbeddedRunOwner, "runId" | "sessionId" | "startedAtMs">,
+    ) =>
       persistGatewaySessionLifecycleEvent({
         sessionKey: canonicalKey,
         agentId: targetAgentId,
@@ -346,7 +350,7 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
         expectedWriter: {
           runId: owner.runId,
           sessionId: owner.sessionId,
-          lifecycleRevision: sessionEntry?.lifecycleRevision,
+          lifecycleRevision,
         },
         event: {
           runId: owner.runId,
@@ -379,7 +383,7 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
         },
       });
       if (aborted) {
-        await persistEmbeddedAbort(embeddedRun);
+        await persistSessionAbort(embeddedRun);
       }
       const error = descendantAbortError(descendants, "Parent run");
       if (error) {
@@ -410,6 +414,8 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
     let abortedRunId: string | null = null;
     let aborted = false;
     let chatAbortSucceeded = false;
+    let failedResponse: Parameters<typeof respond> | undefined;
+    let descendantsCancelled = false;
     let responseMeta: Record<string, unknown> | undefined;
     const persistedSessionId = sessionEntry?.sessionId;
     const sessionEmbeddedRun = persistedSessionId
@@ -418,6 +424,27 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
     const embeddedController = sessionEmbeddedRun
       ? preAbortRuns.get(sessionEmbeddedRun.runId)
       : undefined;
+    const yieldedRunId = normalizeOptionalString(sessionEntry?.lifecycleRunId);
+    const yieldedParent =
+      !requestedRunId &&
+      !sessionEmbeddedRun &&
+      yieldedRunId &&
+      !preAbortRuns.has(yieldedRunId) &&
+      loadedSession &&
+      sessionEntry &&
+      captureYieldedMainSessionContinuation({
+        cfg,
+        agentId: targetAgentId,
+        sessionKey: canonicalKey,
+        storePath: loadedSession.storePath,
+        entry: sessionEntry,
+      })
+        ? {
+            runId: yieldedRunId,
+            sessionId: sessionEntry.sessionId,
+            startedAtMs: sessionEntry.startedAt,
+          }
+        : undefined;
     let embeddedAbortPersistence: Promise<void> | undefined;
     let mcpRetirement: Promise<boolean> | undefined;
     let pendingMcpController: ChatAbortControllerEntry | undefined;
@@ -464,7 +491,7 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
                   : abortEmbeddedAgentRun(persistedSessionId)
                 : false;
             if (embeddedAborted && sessionEmbeddedRun) {
-              embeddedAbortPersistence = persistEmbeddedAbort(sessionEmbeddedRun);
+              embeddedAbortPersistence = persistSessionAbort(sessionEmbeddedRun);
               // Descendant cleanup can yield before the acknowledgement joins this write.
               void embeddedAbortPersistence.catch(() => {});
             }
@@ -528,7 +555,7 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
         },
         respond: (ok, payload, error, meta) => {
           if (!ok) {
-            respond(ok, payload, error, meta);
+            failedResponse = [ok, payload, error, meta];
             return;
           }
           chatAbortSucceeded = true;
@@ -580,10 +607,21 @@ export const sessionAbortHandlers: GatewayRequestHandlers = {
       {
         ...(onAuthorizedAfterQueuedAbort ? { onAuthorizedAfterQueuedAbort } : {}),
         ...(!requestedRunId ? { cascadeDescendants: true as const } : {}),
+        onDescendantsCancelled: () => {
+          descendantsCancelled = true;
+        },
       },
     );
     await settleAbortPersistence(abortedRunIds);
+    if (descendantsCancelled && yieldedParent) {
+      // Child cancellation consumes the wake; the captured parent still needs
+      // its terminal write before either response, even if a sibling failed to stop.
+      await persistSessionAbort(yieldedParent);
+    }
     if (!chatAbortSucceeded) {
+      if (failedResponse) {
+        respond(...failedResponse);
+      }
       return;
     }
     respond(

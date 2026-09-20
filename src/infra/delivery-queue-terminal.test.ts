@@ -13,13 +13,13 @@ import {
   pruneExpiredDeliveryQueueTombstones,
   terminalizePendingDeliveryQueueEntry,
   updateDeliveryQueueEntry,
-  upsertDeliveryQueueEntry,
 } from "./delivery-queue-sqlite.js";
 import {
   completeDeliveryQueueEntryInDatabase,
   prepareDeliveryQueueTerminalEntry,
   terminalizePendingDeliveryQueueEntryInDatabase,
 } from "./delivery-queue-sqlite.kernel.js";
+import { seedDeliveryQueueEntry } from "./delivery-queue-sqlite.test-support.js";
 import type { DeliveryQueueCompletionRetention } from "./delivery-queue-sqlite.types.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import { resolvePreferredOpenClawTmpDir } from "./tmp-openclaw-dir.js";
@@ -40,7 +40,7 @@ describe("delivery queue pending terminal transition", () => {
   } as const;
   const enqueueRetained = (ownerQueue: string, id: string, enqueuedAt: number) => {
     const entry = { id, enqueuedAt, retryCount: 0, retainOnFailure: true as const };
-    upsertDeliveryQueueEntry({
+    seedDeliveryQueueEntry({
       queueName: ownerQueue,
       entry,
       stateDir,
@@ -83,7 +83,7 @@ describe("delivery queue pending terminal transition", () => {
         completionRetention: boundedRetention,
         payloads: [{ text: "private" }],
       };
-      upsertDeliveryQueueEntry({ queueName, entry, stateDir });
+      seedDeliveryQueueEntry({ queueName, entry, stateDir });
       expect(terminalizePendingDeliveryQueueEntry({ queueName, id, entry, stateDir })).toEqual({
         status: "terminalized",
         retained: true,
@@ -130,7 +130,7 @@ describe("delivery queue pending terminal transition", () => {
         completionRetention: DeliveryQueueCompletionRetention,
       ) => {
         const entry = { id, enqueuedAt: Date.now(), retryCount: 0, completionRetention };
-        upsertDeliveryQueueEntry({ queueName: ownerQueue, entry, stateDir });
+        seedDeliveryQueueEntry({ queueName: ownerQueue, entry, stateDir });
         const database = openOpenClawStateDatabase({
           env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
         });
@@ -166,7 +166,7 @@ describe("delivery queue pending terminal transition", () => {
       vi.setSystemTime(3_200);
       fail(queueName, permanentId, "permanent");
       vi.setSystemTime(4_000);
-      upsertDeliveryQueueEntry({
+      seedDeliveryQueueEntry({
         queueName,
         entry: {
           id: triggerId,
@@ -240,7 +240,9 @@ describe("delivery queue pending terminal transition", () => {
   });
 
   it("keeps health reads immutable and expires tombstones during maintenance", async () => {
-    const retention = { idPrefix: "health:", maxAgeMs: 1_000, maxEntries: 1 } as const;
+    const now = Date.now();
+    const hour = 60 * 60_000;
+    const retention = { idPrefix: "health:", maxAgeMs: hour, maxEntries: 1 } as const;
     const { db } = openOpenClawStateDatabase({
       env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
     });
@@ -274,9 +276,9 @@ describe("delivery queue pending terminal transition", () => {
         failedAt,
       );
     };
-    insertRetained("health:expired", 1_000, retention);
-    insertRetained("health:over-cap", 9_000, retention);
-    insertRetained("health:newest", 9_500, retention);
+    insertRetained("health:expired", now - 2 * hour, retention);
+    insertRetained("health:over-cap", now - hour / 2, retention);
+    insertRetained("health:newest", now - hour / 4, retention);
     insertRetained("health:permanent", 1_000, "permanent");
     insertFailed.run(
       queueName,
@@ -287,40 +289,34 @@ describe("delivery queue pending terminal transition", () => {
       1_000,
       1_000,
     );
-    upsertDeliveryQueueEntry({
+    seedDeliveryQueueEntry({
       queueName,
       entry: {
         id: "health:ordinary-completed",
-        enqueuedAt: 10_000 - 31 * 24 * 60 * 60_000,
+        enqueuedAt: now - 31 * 24 * 60 * 60_000,
         retryCount: 0,
       },
       status: "completed",
       stateDir,
     });
 
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(10_000);
-      expect(await countFailedDeliveryQueueEntries(stateDir)).toEqual([
-        { queueName, count: 5, oldestFailedAt: 1_000 },
-      ]);
-      expect(
-        db
-          .prepare("SELECT id FROM delivery_queue_entries WHERE queue_name = ? ORDER BY id")
-          .all(queueName),
-      ).toEqual([
-        { id: "health:expired" },
-        { id: "health:malformed" },
-        { id: "health:newest" },
-        { id: "health:ordinary-completed" },
-        { id: "health:over-cap" },
-        { id: "health:permanent" },
-      ]);
+    expect(await countFailedDeliveryQueueEntries(stateDir)).toEqual([
+      { queueName, count: 5, oldestFailedAt: 1_000 },
+    ]);
+    expect(
+      db
+        .prepare("SELECT id FROM delivery_queue_entries WHERE queue_name = ? ORDER BY id")
+        .all(queueName),
+    ).toEqual([
+      { id: "health:expired" },
+      { id: "health:malformed" },
+      { id: "health:newest" },
+      { id: "health:ordinary-completed" },
+      { id: "health:over-cap" },
+      { id: "health:permanent" },
+    ]);
 
-      pruneExpiredDeliveryQueueTombstones(stateDir);
-    } finally {
-      vi.useRealTimers();
-    }
+    await pruneExpiredDeliveryQueueTombstones(stateDir);
     expect(
       db
         .prepare("SELECT id FROM delivery_queue_entries WHERE queue_name = ? ORDER BY id")
@@ -478,7 +474,7 @@ describe("delivery queue pending terminal transition", () => {
         lastError: "raw provider error",
         payloads: [{ text: "private payload", mediaUrl: "/private/media" }],
       };
-      upsertDeliveryQueueEntry({ queueName: ownerQueue, entry, stateDir });
+      seedDeliveryQueueEntry({ queueName: ownerQueue, entry, stateDir });
       vi.useFakeTimers();
       try {
         vi.setSystemTime(50_000);
@@ -540,7 +536,7 @@ describe("delivery queue pending terminal transition", () => {
 
   it("does not terminalize a replacement pending owner", () => {
     const entry = { id: "terminal-race", enqueuedAt: 1_000, retryCount: 0 };
-    upsertDeliveryQueueEntry({ queueName, entry, stateDir });
+    seedDeliveryQueueEntry({ queueName, entry, stateDir });
     updateDeliveryQueueEntry(queueName, entry.id, stateDir, (current) => ({
       ...current,
       retryCount: 1,

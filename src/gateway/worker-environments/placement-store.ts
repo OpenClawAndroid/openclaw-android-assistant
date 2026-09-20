@@ -610,16 +610,18 @@ export function createWorkerSessionPlacementStore(
       return current;
     },
 
-    listForReconcile(): WorkerSessionPlacementRecord[] {
+    listForReconcile(sessionKey?: string): WorkerSessionPlacementRecord[] {
       const db = read();
+      let select = query(db)
+        .selectFrom("worker_session_placements")
+        .selectAll()
+        .where("state", "not in", ["local", "reclaimed"]);
+      if (sessionKey !== undefined) {
+        select = select.where("session_key", "=", sessionKey);
+      }
       return executeSqliteQuerySync(
         db,
-        query(db)
-          .selectFrom("worker_session_placements")
-          .selectAll()
-          .where("state", "not in", ["local", "reclaimed"])
-          .orderBy("updated_at_ms")
-          .orderBy("session_id"),
+        select.orderBy("updated_at_ms").orderBy("session_id"),
       ).rows.map((row) => withWorkspaceResultConflict(fromRow(row))!);
     },
 

@@ -1,5 +1,6 @@
 import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
 import type { ControlUiLinkReaderDocument } from "openclaw/plugin-sdk/control-ui-link-reader";
+import { truncateUtf16Safe } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   ControlUiGitHubError,
   fetchGitHubApi,
@@ -48,7 +49,7 @@ async function fetchDetailPage(url: string, fetchImpl: typeof fetch): Promise<Js
 
 function markdownBody(value: unknown, maxChars: number): { body: string; bodyTruncated: boolean } {
   const body = typeof value === "string" ? value : "";
-  return { body: body.slice(0, maxChars), bodyTruncated: body.length > maxChars };
+  return { body: truncateUtf16Safe(body, maxChars), bodyTruncated: body.length > maxChars };
 }
 
 function requiredCount(value: Record<string, unknown>, key: string): number {
@@ -179,7 +180,10 @@ function parseFiles(value: unknown): GitHubFile[] {
       throw new ControlUiGitHubError(502, "GitHub file was not an object");
     }
     const rawPatch = typeof file.patch === "string" ? file.patch : undefined;
-    const patch = rawPatch?.slice(0, Math.min(PATCH_MAX_CHARS, remainingPatchChars));
+    const patch =
+      rawPatch === undefined
+        ? undefined
+        : truncateUtf16Safe(rawPatch, Math.min(PATCH_MAX_CHARS, remainingPatchChars));
     remainingPatchChars -= patch?.length ?? 0;
     return {
       path: requiredString(file, "filename"),

@@ -1,9 +1,6 @@
 // Executes Chrome MCP navigation, snapshot, screenshot, and page actions.
 import fs from "node:fs/promises";
-import {
-  addTimerTimeoutGraceMs,
-  resolveNonNegativeIntegerOption,
-} from "openclaw/plugin-sdk/number-runtime";
+import { addTimerTimeoutGraceMs } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { withTempDownloadPath } from "openclaw/plugin-sdk/temp-path";
 import { resolveBrowserNavigationTimeoutMs } from "./act-policy.js";
@@ -13,13 +10,7 @@ import {
   type ChromeMcpProfileOptions,
   type ChromeMcpTargetOperation,
 } from "./chrome-mcp-contracts.js";
-import {
-  extractJsonMessage,
-  extractSnapshot,
-  extractStructuredPages,
-  extractToolErrorMessage,
-  formatChromeMcpToolErrorMessage,
-} from "./chrome-mcp-result.js";
+import { extractJsonMessage, extractSnapshot } from "./chrome-mcp-result.js";
 import {
   callTargetTool,
   callTool,
@@ -70,7 +61,7 @@ export async function closeChromeMcpTab(
       ...options,
     },
     async (target) => {
-      const result = await callTool(
+      await callTool(
         profileName,
         target.profileOptions,
         "close_page",
@@ -78,16 +69,6 @@ export async function closeChromeMcpTab(
         options,
         target.lease,
       );
-      if (extractStructuredPages(result).some((page) => page.id === target.pageId)) {
-        throw new Error(
-          formatChromeMcpToolErrorMessage({
-            profileName,
-            options: target.profileOptions,
-            toolName: "close_page",
-            message: extractToolErrorMessage(result, "close_page"),
-          }),
-        );
-      }
       // Retire inside the same operation lock so queued work cannot dispatch
       // against a closed page id. A later list gets a new opaque handle even if
       // Chrome reuses that numeric id.
@@ -250,59 +231,37 @@ export async function clickChromeMcpElement(
   }));
 }
 
-/** Dispatch mouse events at page coordinates through an in-page script. */
+/** Click viewport coordinates through Chrome MCP's native pointer input. */
 export async function clickChromeMcpCoords(
   params: ChromeMcpTargetOperation & {
     x: number;
     y: number;
     doubleClick?: boolean;
-    button?: "left" | "right" | "middle";
-    delayMs?: number;
   },
 ): Promise<void> {
-  const button = params.button ?? "left";
-  const buttonCode = button === "middle" ? 1 : button === "right" ? 2 : 0;
-  const pressedButtons = button === "middle" ? 4 : button === "right" ? 2 : 1;
-  const x = JSON.stringify(params.x);
-  const y = JSON.stringify(params.y);
-  const delayMs = JSON.stringify(resolveNonNegativeIntegerOption(params.delayMs, 0));
-  const doubleClick = params.doubleClick ? "true" : "false";
+  await callTargetTool(params, "click_at", {
+    x: params.x,
+    y: params.y,
+    ...(params.doubleClick ? { dblClick: true } : {}),
+  });
+}
+
+/** Select an HTML option by value; MCP fill selects by visible label instead. */
+export async function selectChromeMcpOption(
+  params: ChromeMcpTargetOperation & { uid: string; value: string },
+): Promise<void> {
   await evaluateChromeMcpScript({
     ...params,
-    fn: `async () => {
-      const x = ${x};
-      const y = ${y};
-      const delayMs = ${delayMs};
-      const doubleClick = ${doubleClick};
-      const target = document.elementFromPoint(x, y) ?? document.body ?? document.documentElement ?? document;
-      const base = {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: x,
-        clientY: y,
-        screenX: window.screenX + x,
-        screenY: window.screenY + y,
-        button: ${buttonCode},
-      };
-      const pressedButtons = ${pressedButtons};
-      const dispatch = (type, buttons, detail) => {
-        target.dispatchEvent(new MouseEvent(type, { ...base, buttons, detail }));
-      };
-      dispatch("mousemove", 0, 0);
-      dispatch("mousedown", pressedButtons, 1);
-      if (delayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-      dispatch("mouseup", 0, 1);
-      dispatch("click", 0, 1);
-      if (doubleClick) {
-        dispatch("mousedown", pressedButtons, 2);
-        dispatch("mouseup", 0, 2);
-        dispatch("click", 0, 2);
-        dispatch("dblclick", 0, 2);
-      }
-      return true;
+    args: [params.uid],
+    fn: `(el) => {
+      if (!(el instanceof HTMLSelectElement)) throw new Error("Element is not a select");
+      if (el.matches(":disabled")) throw new Error("Select element is disabled");
+      const option = Array.from(el.options).find((entry) => entry.value === ${JSON.stringify(params.value)});
+      if (!option) throw new Error("No option has the requested value");
+      el.value = option.value;
+      el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return el.value;
     }`,
   });
 }
@@ -395,5 +354,3 @@ export async function evaluateChromeMcpScript(
   }));
   return extractJsonMessage(result);
 }
-
-/** Replace Chrome MCP session creation for focused tests. */

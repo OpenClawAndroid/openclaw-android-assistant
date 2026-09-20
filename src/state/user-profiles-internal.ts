@@ -6,6 +6,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
+import { USER_PROFILE_AVATAR_MIME_TYPES } from "../shared/avatar-limits.js";
 import { tableHasColumn } from "./openclaw-state-db-schema-helpers.js";
 import {
   openOpenClawStateDatabase,
@@ -16,11 +17,7 @@ import {
   hasEnsuredUserProfileRoleSchema,
   UserProfileNotFoundError,
 } from "./user-profiles-schema.js";
-import {
-  USER_PROFILE_AVATAR_MIME_TYPES,
-  type UserProfileAvatarMime,
-  type UserProfilesDatabase,
-} from "./user-profiles.types.js";
+import type { UserProfileAvatarMime, UserProfilesDatabase } from "./user-profiles.types.js";
 
 export type UserProfileRow = UserProfilesDatabase["user_profiles"];
 export type UserProfileMetadataRow = Omit<UserProfileRow, "avatar">;

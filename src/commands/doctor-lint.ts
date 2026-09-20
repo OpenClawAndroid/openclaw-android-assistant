@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolveAgentWorkspaceDir, tryResolveDefaultAgentId } from "../agents/agent-scope.js";
+import { formatCliJsonFailure } from "../cli/failure-output.js";
 import {
   createConfigIO,
   readConfigFileSnapshot,
@@ -346,11 +347,12 @@ async function executeDoctorLint(
   };
   const result = await runDoctorLintChecks(ctx, runOpts);
   const visible = result.findings.filter((finding) => healthFindingMeetsSeverity(finding, sevMin));
-  const warnings = isUpdateDoctorLintPass(stateView.sourceEnv)
-    ? result.findings.filter(
-        (finding) => finding.severity === "warning" && !healthFindingMeetsSeverity(finding, sevMin),
-      )
-    : [];
+  const warnings = result.findings.filter(
+    (finding) =>
+      !healthFindingMeetsSeverity(finding, sevMin) &&
+      (finding.errorCode === "OPENCLAW_STATE_LEASE_ABORTED" ||
+        (isUpdateDoctorLintPass(stateView.sourceEnv) && finding.severity === "warning")),
+  );
   const exitCode = exitCodeFromFindings(result.findings, sevMin);
   return {
     exitCode,
@@ -368,7 +370,7 @@ async function executeDoctorLint(
         });
         return;
       }
-      const displayed = [...visible, ...(stateView.cleanupWarnings ?? [])];
+      const displayed = [...visible, ...warnings, ...(stateView.cleanupWarnings ?? [])];
       process.stdout.write(
         `doctor --lint: ran ${result.checksRun} check(s), ${displayed.length} finding(s)\n`,
       );
@@ -582,24 +584,48 @@ function withCoreLintContext(
   };
 }
 
-function writeJsonResult(result: {
+function formatJsonResult(result: {
   ok: boolean;
   checksRun: number;
   checksSkipped: number;
   findings: readonly HealthFinding[];
   warnings?: readonly HealthFinding[];
-}): void {
-  process.stdout.write(
-    JSON.stringify({
-      schemaVersion: DOCTOR_LINT_JSON_SCHEMA_VERSION,
-      ok: result.ok,
-      checksRun: result.checksRun,
-      checksSkipped: result.checksSkipped,
-      findings: result.findings.map(toJsonFinding),
-      // Shipped updater gates require findings to be empty on success.
-      ...(result.warnings?.length ? { warnings: result.warnings.map(toJsonFinding) } : {}),
-    }) + "\n",
-  );
+}) {
+  return {
+    schemaVersion: DOCTOR_LINT_JSON_SCHEMA_VERSION,
+    ok: result.ok,
+    checksRun: result.checksRun,
+    checksSkipped: result.checksSkipped,
+    findings: result.findings.map(toJsonFinding),
+    // Shipped updater gates require findings to be empty on success.
+    ...(result.warnings?.length ? { warnings: result.warnings.map(toJsonFinding) } : {}),
+  };
+}
+
+function writeJsonResult(result: Parameters<typeof formatJsonResult>[0]): void {
+  process.stdout.write(JSON.stringify(formatJsonResult(result)) + "\n");
+}
+
+/** Shipped updaters parse failed lint output too; retain its readiness envelope. */
+export function formatDoctorLintFailure(error: unknown) {
+  const failure = formatCliJsonFailure(error);
+  return {
+    ...failure,
+    ...formatJsonResult({
+      ok: false,
+      checksRun: 0,
+      checksSkipped: 0,
+      findings: [
+        {
+          checkId: "core/doctor/lint-inspection",
+          severity: "error",
+          source: "doctor",
+          message: failure.error.message,
+          fixHint: "Resolve this inspection error, then rerun `openclaw doctor --lint`.",
+        },
+      ],
+    }),
+  };
 }
 
 function toJsonFinding(f: HealthFinding): Record<string, unknown> {

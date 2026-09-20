@@ -59,6 +59,9 @@ needs you to enable it. If its local helper is missing, **Repair Mac connection*
 repairs automatic pairing without treating the extension as absent. **Check
 again** refreshes this status without installing anything. Installation status
 does not prove a live connection; open the extension to check that separately.
+Older Mac app versions keep their setup action when automatic status checks are
+unavailable. Update the Mac app to detect an existing installation without
+running setup.
 
 On Linux and in other supported Chromium browsers, add
 [OpenClaw from the Chrome Web Store](https://chromewebstore.google.com/detail/openclaw/kcdjddhmeafeomebliikmbpblkmkfoig)

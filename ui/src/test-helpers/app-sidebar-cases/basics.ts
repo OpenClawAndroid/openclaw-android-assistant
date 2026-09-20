@@ -395,14 +395,16 @@ describe("AppSidebar agent chip", () => {
     ).not.toContain("Online");
 
     sidebar.connected = false;
-    sidebar.offline = true;
+    sidebar.connectionStatus = "reconnecting";
     await sidebar.updateComplete;
     const card = sidebar.querySelector<HTMLButtonElement>(".sidebar-identity-card");
     expect(card?.querySelector(".sidebar-identity-card__name")?.textContent?.trim()).toBe("Owner");
     expect(card?.querySelector(".sidebar-identity-card__subtitle")).toBeNull();
-    const connectionStatus = sidebar.querySelector(".sidebar-footer-bar__status");
-    expect(connectionStatus?.getAttribute("aria-live")).toBe("polite");
-    expect(connectionStatus?.textContent).toContain("Offline");
+    const connectionStatus = sidebar.querySelector(".gateway-status");
+    expect(
+      sidebar.querySelector('.sidebar-footer-bar > [role="status"]')?.getAttribute("aria-live"),
+    ).toBe("polite");
+    expect(connectionStatus?.textContent).not.toContain("Offline");
     expect(connectionStatus?.textContent).toContain("Reconnecting…");
     expect(sidebar.querySelector(".sidebar-agent-card__subtitle-row")).toBeNull();
 
@@ -413,10 +415,10 @@ describe("AppSidebar agent chip", () => {
     menu?.dispatchEvent(new CustomEvent("wa-select", { detail: { item: retry }, bubbles: true }));
     expect(onRetryConnect).toHaveBeenCalledOnce();
 
-    sidebar.offline = false;
+    sidebar.connectionStatus = null;
     await sidebar.updateComplete;
     expect(sidebar.querySelector(".sidebar-identity-card__subtitle")).toBeNull();
-    expect(sidebar.querySelector(".sidebar-footer-bar__status")).toBeNull();
+    expect(sidebar.querySelector(".gateway-status")).toBeNull();
   });
 
   it("shows the Home ring without an agent subtitle during an active run", async () => {

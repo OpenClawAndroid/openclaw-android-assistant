@@ -94,6 +94,12 @@ the child, create another transcript store, or change cancellation and recovery.
 
 ## Tool and media results
 
+`inferToolMetaFromArgs` from `openclaw/plugin-sdk/agent-harness-runtime` returns
+compact, lossy display metadata. Array values deeper than 64 levels are omitted;
+shallower siblings still contribute to the preview. The helper can return
+`undefined`. Keep the original arguments for validation and execution: display
+metadata is neither an argument replacement nor a general-purpose traversal limit.
+
 Core constructs the OpenClaw tool list and passes it into the prepared
 attempt. When a harness executes a dynamic tool call, return the tool result
 back through the harness result shape instead of sending channel media

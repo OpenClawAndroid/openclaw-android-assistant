@@ -24,6 +24,7 @@ import {
   createOpenClawTestState,
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
+import { quoteCliArg } from "../quote-cli-arg.js";
 import type { UpdateCommandOptions } from "./shared.js";
 import { executeMutableUpdate } from "./update-command-execution.js";
 import { withUpdateCommandExecutor } from "./update-command-executor.js";
@@ -143,7 +144,16 @@ beforeEach(async () => {
       JSON.stringify({ buildId: root === rootA ? "build-A" : "build-B" }),
     );
   }
-  await fs.copyFile(process.execPath, state.path("selected-B-node"));
+  // The selected runner must execute with its original dynamic-library search paths.
+  if (process.platform === "win32") {
+    await fs.copyFile(process.execPath, state.path("selected-B-node"));
+  } else {
+    await fs.writeFile(
+      state.path("selected-B-node"),
+      `#!/bin/sh\nexec ${quoteCliArg(process.execPath)} "$@"\n`,
+      { mode: 0o755 },
+    );
+  }
   const coordinator = state.path("coordinator");
   await fs.mkdir(coordinator);
   vi.spyOn(temporaryRoot, "resolvePreferredOpenClawTmpDir").mockReturnValue(coordinator);

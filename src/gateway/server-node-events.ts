@@ -1257,14 +1257,13 @@ export const handleNodeEvent = async (
           reason: cleared ? "cleared" : "already_clear",
         };
       }
-      if (opts?.presenceAllowed !== true) {
+      if (obj.source !== "app" && opts?.presenceAllowed !== true) {
         return { ok: true, event: evt.event, handled: false, reason: "permission_required" };
       }
       const updated = ctx.updateNodePresenceActivity?.({
         nodeId,
-        connId: opts.connId,
-        idleSeconds: obj.idleSeconds,
-        ...(obj.saturated === true ? { saturated: true } : {}),
+        connId: opts?.connId,
+        ...obj,
       });
       if (!updated) {
         return { ok: true, event: evt.event, handled: false, reason: "stale_connection" };

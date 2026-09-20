@@ -197,6 +197,12 @@ export async function validateUpdateCandidateCanary(params: {
       }
     });
     let exited = false;
+    let processExited = false;
+    let killed = false;
+    child.once("exit", (_code, signal) => {
+      processExited = true;
+      killed = Boolean(signal);
+    });
     const result = new Promise<number | null>((resolve) => {
       child.once("error", (error) => {
         captureStderr(error.message);
@@ -221,6 +227,8 @@ export async function validateUpdateCandidateCanary(params: {
       result,
       closed,
       hasExited: () => exited,
+      processExited: () => processExited,
+      wasKilled: () => killed,
       stdout: () => stdout,
       firstStderrLine: () => cliReason ?? firstStderrLine,
       outputExceeded: () => outputExceeded,
@@ -229,7 +237,7 @@ export async function validateUpdateCandidateCanary(params: {
   const stopCanary = async (running: ReturnType<typeof launch>, name: string, deadline: number) => {
     const cleanupStarted = Date.now();
     if (await terminateCanary(running.child, running.closed, deadline)) {
-      return;
+      return true;
     }
     const step: UpdateStepResult = {
       name: `${name} cleanup`,
@@ -245,6 +253,7 @@ export async function validateUpdateCandidateCanary(params: {
     };
     steps.push(step);
     params.onStep?.(step);
+    return false;
   };
   try {
     const entry = await resolveGatewayInstallEntrypoint(params.root);
@@ -389,14 +398,28 @@ export async function validateUpdateCandidateCanary(params: {
       const pluginFailures: UpdateFailureFact[] = [];
       const pluginObservations: string[] = [];
       let timedOut = false;
+      let lintCompletion: { processExited: boolean; elapsedSeconds: number } | undefined;
+      let stopped = false;
       try {
         const outcome = await waitBounded(running.result, remaining(), params.signal);
         // Freeze the winning outcome before teardown can make a killed child
         // emit a successful close event.
         code = outcome.status === "completed" ? outcome.value : 1;
         timedOut = outcome.status === "deadline";
+        if (timedOut && phase === "lint" && !running.outputExceeded()) {
+          try {
+            // Only this child's complete report proves completion before teardown.
+            parseUpdateDoctorLintReport(running.stdout());
+            lintCompletion = {
+              processExited: running.processExited(),
+              elapsedSeconds: Math.round((Date.now() - stepStartedAt) / 100) / 10,
+            };
+          } catch {
+            // Missing or partial JSON cannot establish that the checks finished.
+          }
+        }
       } finally {
-        await stopCanary(running, command.name, deadline);
+        stopped = await stopCanary(running, command.name, deadline);
         if (doctorResultPath) {
           doctorReceipt = await consumeUpdatePostInstallDoctorResult(
             doctorResultPath,
@@ -513,12 +536,15 @@ export async function validateUpdateCandidateCanary(params: {
         cwd: params.root,
         durationMs: Date.now() - stepStartedAt,
         exitCode: code,
+        ...(timedOut ? { termination: "timeout" as const } : {}),
         ...(doctorAdvisory ? { advisory: doctorAdvisory } : {}),
         ...(code === 0 && pluginObservations.length > 0
           ? { stdoutTail: pluginObservations.join("\n") }
           : {}),
       };
-      const failureMessage = `Update ${phase === "lint" ? "health check" : phase} failed`;
+      const failureMessage = lintCompletion
+        ? `Update health check completed, then ${lintCompletion.processExited ? "output pipes stayed open" : "failed to exit"} (${stopped && running.wasKilled() ? "killed" : "termination requested"} at ${lintCompletion.elapsedSeconds} s)`
+        : `Update ${phase === "lint" ? "health check" : phase} failed`;
       if (code !== 0 && !doctorAdvisory) {
         let findings =
           doctorReceipt?.status === "error" ? doctorReceipt.failureFacts : pluginFailures;
@@ -542,7 +568,11 @@ export async function validateUpdateCandidateCanary(params: {
                     phase === "doctor" || phase === "lint"
                       ? "doctor-failed"
                       : `candidate-${phase}-failed`,
-                  message: running.firstStderrLine() ?? failureMessage,
+                  message: lintCompletion
+                    ? failureMessage
+                    : timedOut
+                      ? `${failureMessage} (deadline exceeded)`
+                      : (running.firstStderrLine() ?? failureMessage),
                 },
                 env,
               ),
@@ -553,7 +583,9 @@ export async function validateUpdateCandidateCanary(params: {
       }
       steps.push(step);
       if (code !== 0 && !doctorAdvisory) {
-        throw new Error(`${failureMessage}${timedOut ? " (deadline exceeded)" : ""}`);
+        throw new Error(
+          `${failureMessage}${timedOut && !lintCompletion ? " (deadline exceeded)" : ""}`,
+        );
       }
       params.onStep?.(step);
     }
@@ -646,9 +678,11 @@ export async function validateUpdateCandidateCanary(params: {
       ),
     ];
     // Keep the aggregate log, but do not replay a complete fact as generated timing metadata.
-    const repeatsFact = failed.failureFacts.some(
-      (fact) => failureLine === `${displayPhase}: ${fact.message} (${durationMs}ms)`,
-    );
+    const repeatsFact =
+      failed.termination !== "timeout" &&
+      failed.failureFacts.some(
+        (fact) => failureLine === `${displayPhase}: ${fact.message} (${durationMs}ms)`,
+      );
     failed.stderrTail = stepLogTail.slice(0, repeatsFact ? -1 : undefined).join("\n");
     params.onStep?.(failed);
     return {

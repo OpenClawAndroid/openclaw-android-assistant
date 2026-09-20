@@ -8,7 +8,12 @@ import {
   writeSessionSqliteMigrationManifest,
 } from "../../commands/doctor-session-sqlite-migration-run.js";
 import { buildStatusUpdateRows } from "../../commands/status-update-restart.js";
+import * as configModule from "../../config/config.js";
 import { recordDeferredPluginMigrations } from "../../infra/deferred-plugin-migrations.js";
+import {
+  completeGatewayBootLifecycle,
+  recordGatewayBootStart,
+} from "../../infra/gateway-boot-lifecycle.js";
 import * as runtimeGuard from "../../infra/runtime-guard.js";
 import { createRetainedUpdateRecovery } from "../../infra/update-retained-recovery.test-support.js";
 import { readUpdateRunDriver } from "../../infra/update-run-driver.js";
@@ -91,6 +96,54 @@ beforeEach(() => {
   const stateDir = tempDirs.make("openclaw-update-status-");
   vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
   vi.stubEnv("OPENCLAW_CONFIG_PATH", path.join(stateDir, "openclaw.json"));
+});
+
+describe("update status installation replacement history", () => {
+  it.each([true, false])(
+    "reports the recorded replacement while the Gateway is unavailable (JSON: %s)",
+    async (json) => {
+      const reason =
+        "gateway.installation_replaced: on-disk 2026.9.5 differs from running 2026.9.4";
+      const completedAtMs = Date.UTC(2026, 8, 19, 12);
+      const bootId = recordGatewayBootStart(process.env, completedAtMs - 1_000);
+      completeGatewayBootLifecycle(
+        bootId,
+        { outcome: "planned_restart", reason },
+        process.env,
+        completedAtMs,
+      );
+
+      await updateStatusCommand({ json });
+
+      if (json) {
+        expect(runtime.writeJson.mock.lastCall?.[0]).toMatchObject({
+          lastGatewayInstallationReplacement: { reason, completedAtMs },
+        });
+      } else {
+        const output = runtime.log.mock.calls.flat().join("\n");
+        expect(output).toContain("Previous Gateway installation replacement");
+        expect(output).toContain(new Date(completedAtMs).toISOString());
+        expect(output).toContain(reason);
+      }
+    },
+  );
+
+  it("does not attribute local replacement history to a remote Gateway", async () => {
+    const bootId = recordGatewayBootStart();
+    completeGatewayBootLifecycle(bootId, {
+      outcome: "planned_restart",
+      reason: "gateway.installation_replaced: local install changed",
+    });
+    vi.spyOn(configModule, "readSourceConfigBestEffort").mockResolvedValue({
+      gateway: { mode: "remote" },
+    });
+
+    await updateStatusCommand({ json: true });
+
+    expect(runtime.writeJson.mock.lastCall?.[0]).not.toHaveProperty(
+      "lastGatewayInstallationReplacement",
+    );
+  });
 });
 
 describe("update status service definition facts", () => {

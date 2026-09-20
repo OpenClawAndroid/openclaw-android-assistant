@@ -496,6 +496,20 @@ The canonical table definitions, constraints, and indexes are in
 for schema versions, migration and downgrade rules, and the review checkpoint for
 material storage changes. Do not use a copied SQL sketch as the schema contract.
 
+Ordinary disk data mutations borrow the canonical per-agent SQLite worker connection.
+The Boards backend runs the existing synchronous transaction kernels and checks
+current caller authority at transaction entry and commit. Committed changes
+invalidate the host's exact session projection before the mutation returns;
+cleanup failures do not turn a completed write into a retryable failure.
+Existing-session preflight, source-handle acquisition, schema/bootstrap/migration,
+protected reads, and cold
+`hasBoard` projection remain with their existing native owners. Protected read turns
+join the same per-agent FIFO before checking the current widget and starting
+consumption. They release the queue before awaiting external consumer work, so
+queued revocation cannot be overtaken by a later protected publication. Incognito writes
+continue on their process-held connection. The worker never owns a second agent
+database actor, and this cut does not change board schemas or protocol payloads.
+
 Board existence = any rows for the `sessionKey`. Deleting a session deletes its
 board rows. `/new`/`/reset` does not touch them.
 

@@ -3,6 +3,9 @@ import { performance } from "node:perf_hooks";
 import { isDeepStrictEqual } from "node:util";
 import { isMainThread, threadId } from "node:worker_threads";
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
+import { redactIdentifier } from "@openclaw/normalization-core/node-crypto";
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
+import { formatErrorMessageWithCode } from "../../infra/errors.js";
 import { captureStateDatabaseCoordinatorRuntime } from "../../infra/state-database-coordinator.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
@@ -286,6 +289,12 @@ class SqliteReclamationWorker {
       ...params,
       databaseOptions: params.plan.databaseOptions,
       kind: params.plan.kind,
+      sessionId:
+        params.plan.kind === "entry"
+          ? params.plan.preparedTargetSnapshot[0]?.entry.sessionId
+          : params.plan.kind === "historical-generation" || params.plan.kind === "history-eviction"
+            ? params.plan.sessionId
+            : undefined,
       request: (operationId, coordination) => ({
         type: "reclaim",
         operationId,
@@ -325,6 +334,7 @@ class SqliteReclamationWorker {
     params: MutationRunParams<Result> & {
       databaseOptions: DatabaseOptions;
       kind: string;
+      sessionId?: string;
       request: (
         operationId: number,
         coordination: SqliteMutationWorkerCoordination,
@@ -374,25 +384,53 @@ class SqliteReclamationWorker {
             ]),
         }),
     );
-    const observeCompletion = (outcome: "resolved" | "rejected") => {
+    const observeCompletion = (outcome: "resolved" | "rejected", failure?: unknown) => {
       const elapsedMs = Math.round(performance.now() - startedAt);
-      if (elapsedMs >= SLOW_RECLAMATION_WORKER_MS) {
-        log.warn("slow SQLite reclamation Worker operation", {
-          pid: process.pid,
-          threadId,
-          isMainThread,
-          reclamationKind: params.diagnostics?.kind ?? params.kind,
-          workerThreadId: this.workerThreadId,
-          elapsedMs,
-          outcome,
-          exitCode,
-        });
+      if (outcome === "rejected" || elapsedMs >= SLOW_RECLAMATION_WORKER_MS) {
+        const failureText = (value: unknown) => {
+          const text = formatErrorMessageWithCode(value);
+          return truncateUtf16Safe(
+            params.sessionId
+              ? text.replaceAll(params.sessionId, redactIdentifier(params.sessionId))
+              : text,
+            2_048,
+          );
+        };
+        log.warn(
+          elapsedMs >= SLOW_RECLAMATION_WORKER_MS
+            ? "slow SQLite reclamation Worker operation"
+            : "SQLite reclamation Worker failed",
+          {
+            pid: process.pid,
+            threadId,
+            isMainThread,
+            reclamationKind: params.diagnostics?.kind ?? params.kind,
+            workerThreadId: this.workerThreadId,
+            elapsedMs,
+            outcome,
+            exitCode,
+            ...(outcome === "rejected"
+              ? {
+                  ...(params.sessionId
+                    ? { sessionIdHash: redactIdentifier(params.sessionId) }
+                    : {}),
+                  error: failureText(failure),
+                  errorFrame: failureText(
+                    toStringifiedError(failure)
+                      .stack?.split("\n")
+                      .find((line) => line.trimStart().startsWith("at "))
+                      ?.trim() ?? "",
+                  ),
+                }
+              : {}),
+          },
+        );
       }
     };
     void operation
       .then(
         () => observeCompletion("resolved"),
-        () => observeCompletion("rejected"),
+        (error: unknown) => observeCompletion("rejected", error),
       )
       .catch(() => {});
     return operation.finally(() => {

@@ -23,7 +23,11 @@ mkdir -p "$SCRATCH/home" "$SCRATCH/package"
 # Lifecycle hooks must never see operator config, credentials, or state;
 # installer main discovers launchd by UID even with a new HOME.
 # Use the build's pinned pnpm packer, not the host npm's expanding file globs.
+# Forward only its existing phase budgets; the packager owns defaults/validation.
 TARBALL="$(env -i HOME="$SCRATCH/home" PATH="$PATH" TMPDIR="$SCRATCH" \
+  OPENCLAW_DOCKER_PACKAGE_INVENTORY_TIMEOUT_MS="${OPENCLAW_DOCKER_PACKAGE_INVENTORY_TIMEOUT_MS:-}" \
+  OPENCLAW_DOCKER_PACKAGE_PACK_TIMEOUT_MS="${OPENCLAW_DOCKER_PACKAGE_PACK_TIMEOUT_MS:-}" \
+  OPENCLAW_DOCKER_PACKAGE_TARBALL_CHECK_TIMEOUT_MS="${OPENCLAW_DOCKER_PACKAGE_TARBALL_CHECK_TIMEOUT_MS:-}" \
   node "$ROOT_DIR/scripts/package-openclaw-for-docker.mjs" \
   --skip-build --pnpm-pack --allow-unreleased-changelog --output-dir "$SCRATCH/package" \
   --output-name openclaw.tgz)"

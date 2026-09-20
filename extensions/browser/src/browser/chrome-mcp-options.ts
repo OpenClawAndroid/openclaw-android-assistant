@@ -84,6 +84,7 @@ export function normalizeChromeMcpOptions(
     browserUrl,
     args: [
       ...(command === DEFAULT_CHROME_MCP_COMMAND ? DEFAULT_CHROME_MCP_PACKAGE_ARGS : []),
+      ...(command === DEFAULT_CHROME_MCP_COMMAND ? ["--experimentalVision"] : []),
       ...connectionArgs,
       ...defaultFeatureArgs,
       // Stable custom launchers may still need the opt-in flag; pinned 1.8 enables it by default.

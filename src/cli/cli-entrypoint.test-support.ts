@@ -25,6 +25,12 @@ export const stateDirGatewayFixtureEntrypoint = {
   distWorkerPath: "cli/state-dir-gateway-check.server-fixture.test-support.js",
 } as const;
 
+export const updateFinalizationOutputEntrypoint = {
+  currentModuleUrl: import.meta.url,
+  sourceWorkerName: "update-finalization-output.test-support",
+  distWorkerPath: "legacy-finalizer/src/cli/update-finalization-output.test-support.js",
+} as const;
+
 // Direct-stop children use the invocation's prepared graph before readiness starts.
 export const gatewayDirectStopEntrypoints = {
   modelAcquisitionFixture: {

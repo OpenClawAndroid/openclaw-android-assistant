@@ -1,11 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { note } from "../../../packages/terminal-core/src/note.js";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { noteStaleUpdateRuns } from "../../commands/doctor-update-run.js";
 import { collectNestedErrorCandidates } from "../../infra/error-graph-internal.js";
 import * as updateCheck from "../../infra/update-check.js";
 import { UpdateDoctorError } from "../../infra/update-doctor-result.js";
-import { createUpdateRun, listUpdateRuns } from "../../infra/update-run-ledger.js";
+import {
+  createUpdateRun,
+  finishUpdateRun,
+  getUpdateRun,
+  listUpdateRuns,
+} from "../../infra/update-run-ledger.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import {
   resolveCommandProcessSignal,
@@ -16,6 +23,7 @@ import { createDeferredCore } from "../../shared/deferred.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { VERSION } from "../../version.js";
 import { withOwnedManagedUpdateEnv } from "./update-command-service-env.js";
+import { updateRepairCommand } from "./update-repair-command.js";
 
 const mocks = vi.hoisted(() => ({
   events: [] as string[],
@@ -30,6 +38,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const dirs = useAutoCleanupTempDirTracker(afterEach);
+
+vi.mock("../../../packages/terminal-core/src/note.js", () => ({ note: vi.fn() }));
 
 const validConfigSnapshot = {
   path: "/tmp/openclaw.json",
@@ -273,6 +283,68 @@ describe("update plugin lifecycle lease boundaries", () => {
     vi.spyOn(defaultRuntime, "log").mockImplementation(() => undefined);
     vi.spyOn(defaultRuntime, "writeJson").mockImplementation(() => undefined);
   });
+
+  it.each([false, true])(
+    "acknowledges aged abandoned history only after successful repair (failed=%s)",
+    async (failed) => {
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now");
+      const abandoned = [3, 2].map((hours) => {
+        clock.mockReturnValue(now - hours * 3_600_000);
+        const run = createUpdateRun({ trigger: "cli", before: { version: "2026.9.5" } });
+        return finishUpdateRun(run.runId, { status: "failed", reason: "abandoned" });
+      });
+      clock.mockReturnValue(now - 3_600_000);
+      const newer = createUpdateRun({ trigger: "cli" });
+      finishUpdateRun(newer.runId, { status: "succeeded" });
+      clock.mockRestore();
+
+      await noteStaleUpdateRuns({ migrateState: false });
+      for (const run of abandoned) {
+        expect(note).toHaveBeenCalledWith(
+          expect.stringContaining(`Update ${run.runId} remains abandoned:`),
+          "Update history",
+        );
+      }
+      vi.mocked(note).mockClear();
+      if (failed) {
+        vi.mocked(runUpdateFinalizationDoctorInFreshProcess).mockRejectedValueOnce(
+          new Error("Doctor failed"),
+        );
+      }
+
+      const repair = updateRepairCommand({
+        json: true,
+        yes: true,
+        timeout: "5",
+        deferCompletionCache: true,
+      });
+      if (failed) {
+        await expect(repair).rejects.toThrow("Doctor failed");
+      } else {
+        await repair;
+      }
+      for (const run of abandoned) {
+        const current = getUpdateRun(run.runId)!;
+        expect(current).toMatchObject({
+          status: "failed",
+          reason: "abandoned",
+          finishedAtMs: run.finishedAtMs,
+        });
+        expect(
+          current.steps.some(
+            (step) => step.step === "reconcile:acknowledged" && step.status === "completed",
+          ),
+        ).toBe(!failed);
+      }
+      await noteStaleUpdateRuns({ migrateState: false });
+      expect(
+        vi
+          .mocked(note)
+          .mock.calls.filter(([message]) => String(message).includes("remains abandoned:")),
+      ).toHaveLength(failed ? 2 : 0);
+    },
+  );
 
   it.each([false, true])(
     "reports the admitted Doctor failure (interactive=%s)",

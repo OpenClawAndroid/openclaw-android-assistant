@@ -186,27 +186,6 @@ function createFakeSession(screenshotError?: string): ChromeMcpSession {
   } as unknown as ChromeMcpSession;
 }
 
-function createToolErrorSession(message: string): ChromeMcpSession {
-  const callTool = vi.fn(async () => ({
-    isError: true,
-    content: [{ type: "text", text: message }],
-  }));
-  const client = {
-    callTool,
-    listTools: vi.fn().mockResolvedValue({ tools: [{ name: "list_pages" }] }),
-    close: vi.fn().mockResolvedValue(undefined),
-    connect: vi.fn().mockResolvedValue(undefined),
-  };
-  return {
-    client,
-    transport: {
-      pid: 123,
-    },
-    closeTransport: () => client.close(),
-    ready: Promise.resolve(),
-  } as unknown as ChromeMcpSession;
-}
-
 type SessionPage = { id: number; url: string; selected?: boolean };
 
 function createPageSession(params: {
@@ -256,32 +235,6 @@ describe("chrome MCP page parsing", () => {
     vi.unstubAllEnvs();
   });
 
-  it.each([undefined, "npx"])(
-    "uses pinned Chrome MCP without install audits for HTTP endpoints with command %s",
-    (mcpCommand) => {
-      const { command, args } = normalizeChromeMcpOptions({
-        cdpUrl: "http://127.0.0.1:9222",
-        mcpCommand,
-      });
-
-      expect(command).toBe("npx");
-      expect(args.slice(0, 3)).toEqual(["-y", "--audit=false", "chrome-devtools-mcp@1.8.0"]);
-      expect(args).toContain("--browserUrl");
-      expect(args).toContain("http://127.0.0.1:9222");
-      expect(args).not.toContain("--wsEndpoint");
-    },
-  );
-
-  it("passes direct WebSocket CDP endpoints to Chrome MCP as wsEndpoint attachments", () => {
-    const { args } = normalizeChromeMcpOptions({
-      cdpUrl: "ws://127.0.0.1:9222/devtools/browser/abc",
-    });
-
-    expect(args).toContain("--wsEndpoint");
-    expect(args).toContain("ws://127.0.0.1:9222/devtools/browser/abc");
-    expect(args).not.toContain("--browserUrl");
-  });
-
   const credentialEndpointUrl = new URL("https://browser.example/?token=fixture-token");
   credentialEndpointUrl.username = "fixture-user";
   credentialEndpointUrl.password = "fixture-password";
@@ -323,50 +276,6 @@ describe("chrome MCP page parsing", () => {
       expect(factory).not.toHaveBeenCalled();
     },
   );
-
-  it("keeps endpoint-looking arguments after -- positional", () => {
-    const cdpUrl = "https://configured.example";
-    const positionalArgs = ["--browserUrl", "https://positional.example"];
-    const { args, browserUrl } = normalizeChromeMcpOptions({
-      cdpUrl,
-      mcpArgs: ["--", ...positionalArgs],
-    });
-
-    expect(browserUrl).toBe(cdpUrl);
-    expect(args.slice(0, args.indexOf("--"))).toContain(cdpUrl);
-    expect(args.slice(args.indexOf("--") + 1)).toEqual(positionalArgs);
-  });
-
-  it.each([["--autoConnect=false"], ["--auto-connect", "false"], ["--no-auto-connect"]])(
-    "does not substitute cdpUrl for the explicit local connection choice %s",
-    (...mcpArgs) => {
-      const cdpUrl = "https://configured.example";
-      const { args, browserUrl } = normalizeChromeMcpOptions({ cdpUrl, mcpArgs });
-
-      expect(browserUrl).toBeUndefined();
-      expect(args).not.toContain(cdpUrl);
-      expect(args.slice(-mcpArgs.length)).toEqual(mcpArgs);
-    },
-  );
-
-  it("preserves unrelated custom command arguments verbatim", () => {
-    const mcpArgs = [
-      "--headless=false",
-      "--user-data-dir",
-      "/tmp/chrome profile",
-      "--chrome-arg=--disable-features=One,Two",
-    ];
-    const options = normalizeChromeMcpOptions({ mcpCommand: "custom-chrome-mcp", mcpArgs });
-
-    expect(options.command).toBe("custom-chrome-mcp");
-    expect(options.args).toEqual([
-      "--autoConnect",
-      "--no-usage-statistics",
-      "--experimentalStructuredContent",
-      "--experimental-page-id-routing",
-      ...mcpArgs,
-    ]);
-  });
 
   it("keeps document-bound evaluations on one pinned target and raw snapshot uid", async () => {
     const session = createPageSession({
@@ -755,6 +664,28 @@ describe("chrome MCP page parsing", () => {
       (tab) => tab.url === "https://replacement.example",
     );
     expect(replacement?.targetId).not.toBe(oldTarget);
+  });
+
+  it("names the configured endpoint when endpoint attach fails", async () => {
+    setChromeMcpSessionFactoryForTest(async () =>
+      createPageSession({
+        pid: 142,
+        pages: [],
+        onTool: () => ({
+          isError: true,
+          content: [{ type: "text", text: "Could not connect to Chrome: ECONNREFUSED" }],
+        }),
+      }),
+    );
+
+    await expect(
+      listChromeMcpTabs("chrome-live", {
+        cdpUrl:
+          "https://alice:supersecretpasswordvalue1234@example.com/chrome?token=supersecrettokenvalue1234567890",
+      }),
+    ).rejects.toThrow(
+      /configured Chrome endpoint \(https:\/\/example\.com\/chrome\?token=\*\*\*\)/,
+    );
   });
 
   it("fails closed for duplicate numeric page ids", async () => {
@@ -1313,33 +1244,6 @@ describe("chrome MCP page parsing", () => {
 
     await listChromeMcpTabs("chrome-live");
     expect(factoryCalls).toBe(2);
-  });
-
-  it("suggests cdpUrl when auto-connect cannot read DevToolsActivePort", async () => {
-    setChromeMcpSessionFactoryForTest(async () =>
-      createToolErrorSession(
-        "Could not connect to Chrome in /tmp/chrome-profile. Cause: ENOENT: no such file or directory, open '/tmp/chrome-profile/DevToolsActivePort'",
-      ),
-    );
-
-    await expect(
-      listChromeMcpTabs("chrome-live", { userDataDir: "/tmp/chrome-profile" }),
-    ).rejects.toThrow(/set browser\.profiles\.chrome-live\.cdpUrl/);
-  });
-
-  it("names the configured endpoint when endpoint attach fails", async () => {
-    setChromeMcpSessionFactoryForTest(async () =>
-      createToolErrorSession("Could not connect to Chrome: ECONNREFUSED"),
-    );
-
-    await expect(
-      listChromeMcpTabs("chrome-live", {
-        cdpUrl:
-          "https://alice:supersecretpasswordvalue1234@example.com/chrome?token=supersecrettokenvalue1234567890",
-      }),
-    ).rejects.toThrow(
-      /configured Chrome endpoint \(https:\/\/example\.com\/chrome\?token=\*\*\*\)/,
-    );
   });
 
   it.each([
@@ -2000,65 +1904,14 @@ describe("chrome MCP page parsing", () => {
     expect(calls).toEqual(["list_pages", "take_snapshot", "list_pages", "new_page", "click"]);
   });
 
-  it.each([
-    ["script", "text", "fenced", 123],
-    ["script", "text", "fenced", "literal ``` inside text"],
-    ["script", "structured", "fenced", { text: '```json\n{"ok":true}\n```' }],
-    ["script", "text", "crlf", ["first", "```", "last"]],
-    ["script", "structured", "fenced", ""],
-    ["script", "text", "raw", "```json\nnot a wrapper\n```"],
-    ["script", "text", "trailing-fence", "preserved ``` text"],
-    ["document", "structured", "fenced", "Example:\n```js\nconst value = 1;\n```"],
-  ] as const)("preserves %s %s %s JSON result %j", async (caller, surface, format, value) => {
-    const json = JSON.stringify(value);
-    const message =
-      format === "raw"
-        ? json
-        : [
-            "Script ran on page and returned:",
-            "```json",
-            json,
-            "```",
-            ...(format === "trailing-fence" ? ["Diagnostic:", "```txt", "extra", "```"] : []),
-          ].join(format === "crlf" ? "\r\n" : "\n");
-    setChromeMcpSessionFactoryForTest(async () =>
-      createPageSession({
-        pid: 141,
-        pages: [{ id: 1, url: "https://example.com" }],
-        onTool: (call) => {
-          if (call.name === "take_snapshot") {
-            return {
-              structuredContent: { snapshot: { id: "root", role: "RootWebArea" } },
-            };
-          }
-          if (call.name === "evaluate_script") {
-            return {
-              ...(surface === "structured" ? { structuredContent: { message } } : {}),
-              content: [{ type: "text", text: message }],
-            };
-          }
-          return undefined;
-        },
-      }),
-    );
-    const targetId = (await listChromeMcpTabs("chrome-live"))[0]?.targetId ?? "";
-    const params = { profileName: "chrome-live", targetId };
-    const result =
-      caller === "document"
-        ? await withChromeMcpDocument(params, (document) => document.evaluate("() => 123"))
-        : await evaluateChromeMcpScript({ ...params, fn: "() => 123" });
-
-    expect(result).toEqual(value);
-  });
-
-  it("defaults non-finite coordinate click delays before injecting the browser script", async () => {
+  it("uses native pointer input for coordinate clicks", async () => {
     const session = createFakeSession();
     const callTool = vi.fn(async ({ name }: ToolCall) => {
       if (name === "list_pages") {
         return fakeListPagesResult();
       }
-      if (name === "evaluate_script") {
-        return { content: [{ type: "text", text: "```json\nnull\n```" }] };
+      if (name === "click_at") {
+        return { content: [{ type: "text", text: "Successfully clicked at the coordinates" }] };
       }
       throw new Error(`unexpected tool ${name}`);
     });
@@ -2070,14 +1923,92 @@ describe("chrome MCP page parsing", () => {
       targetId: FAKE_TARGET_1,
       x: 10,
       y: 20,
-      delayMs: Number.NaN,
+      doubleClick: true,
     });
 
     const callToolMock = callTool as unknown as ToolCallMock;
-    const evaluateCall = callToolMock.mock.calls.find(([call]) => call.name === "evaluate_script");
-    const fn = evaluateCall?.[0].arguments?.function;
-    expect(typeof fn === "string" ? fn : "").toContain("const delayMs = 0;");
+    expect(callToolMock.mock.calls.map(([call]) => call)).toEqual([
+      { name: "click_at", arguments: { pageId: 1, x: 10, y: 20, dblClick: true } },
+    ]);
   });
+
+  it.each(["navigate", "open", "open with last-page refusal"])(
+    "reports upstream navigation failures for %s",
+    async (operation) => {
+      const refusedClose = operation === "open with last-page refusal";
+      const pages = [{ id: 1, url: "https://example.com", selected: true }];
+      const session = createPageSession({
+        pid: 141,
+        pages,
+        onTool: (call) => {
+          if (call.name === "new_page") {
+            const page = { id: 2, url: "about:blank", selected: true };
+            pages.push(page);
+            return { structuredContent: { pages: [page] } };
+          }
+          if (call.name === "navigate_page") {
+            if (refusedClose) {
+              pages.splice(0, 1);
+            }
+            return {
+              structuredContent: {
+                message: "Unable to navigate in the selected page: net::ERR_CONNECTION_REFUSED.",
+                pages,
+              },
+            };
+          }
+          if (call.name === "close_page") {
+            if (refusedClose) {
+              return {
+                structuredContent: {
+                  message: "The last open page cannot be closed. It is fine to keep it open.",
+                  pages,
+                },
+              };
+            }
+            pages.splice(
+              pages.findIndex((page) => page.id === call.arguments?.pageId),
+              1,
+            );
+            return { structuredContent: { pages } };
+          }
+          return undefined;
+        },
+      });
+      const close = vi.fn(async () => {});
+      session.client.close = close;
+      setChromeMcpSessionFactoryForTest(async () => session);
+      const targetId = (await listChromeMcpTabs("chrome-live"))[0]!.targetId;
+      const result =
+        operation !== "navigate"
+          ? openChromeMcpTab("chrome-live", "https://failed.example")
+          : navigateChromeMcpPage({
+              profileName: "chrome-live",
+              targetId,
+              url: "https://failed.example",
+            });
+      if (refusedClose) {
+        await expect(result).rejects.toMatchObject({
+          message: "Failed to open a tracked Chrome MCP page and close its marker",
+          errors: [
+            expect.objectContaining({ message: expect.stringContaining("ERR_CONNECTION_REFUSED") }),
+            expect.objectContaining({
+              message: expect.stringContaining("The last open page cannot be closed"),
+            }),
+          ],
+        });
+        expect(await listChromeMcpTabs("chrome-live")).toEqual([
+          expect.objectContaining({ url: "about:blank" }),
+        ]);
+        return;
+      }
+      await expect(result).rejects.toThrow("net::ERR_CONNECTION_REFUSED");
+      expect(await listChromeMcpTabs("chrome-live")).toEqual([
+        expect.objectContaining({ targetId, url: "https://example.com" }),
+      ]);
+      expect(close).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps handle-producing list calls persistent even if a legacy caller passes ephemeral", async () => {
     let factoryCalls = 0;

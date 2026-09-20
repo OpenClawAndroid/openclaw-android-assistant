@@ -662,15 +662,15 @@ describe("configured transcript source provenance", () => {
     vi.mocked(providerRegistry.getTranscriptSourceProvider).mockImplementation((id) =>
       id === room.providerId ? f.provider : undefined,
     );
+    const captureStarts = vi.spyOn(transcriptCapture, "startTranscripts");
     const service = createTranscriptsAutoStartService(f.ctx);
     try {
       service.start();
-      await vi.waitFor(async () =>
-        expect((await f.read()).configuredSources).toMatchObject([
-          { state: "armed" },
-          { startDiagnostic: "retrying" },
-        ]),
-      );
+      await Promise.allSettled(captureStarts.mock.results.map(({ value }) => value));
+      expect((await f.read()).configuredSources).toMatchObject([
+        { state: "armed" },
+        { startDiagnostic: "retrying" },
+      ]);
       const request = start.mock.calls[0]![0];
       await request.onUtterance({ text: "Saved before the duplicate retry", final: true });
       await request.onStatus!({ active: false });
@@ -684,8 +684,10 @@ describe("configured transcript source provenance", () => {
         id === delayedId ? delayedProvider : f.provider,
       );
       await vi.advanceTimersByTimeAsync(5_000);
-      await vi.waitFor(async () =>
-        expect((await f.read()).configuredSources[1]?.startDiagnostic).not.toBe("starting"),
+      await vi.waitFor(() =>
+        expect(readConfiguredTranscriptStarts(f.ctx.config.transcripts)?.get(1)?.diagnostic).toBe(
+          "id-conflict",
+        ),
       );
       expect.soft((await f.read()).configuredSources[1]).toMatchObject({
         state: "not-active",
@@ -707,17 +709,17 @@ describe("configured transcript source provenance", () => {
   it("fences late diagnostics and teardown against a replacement service and a manual capture", async () => {
     const f = fixture({ transcripts: { autoStart: [{ ...room, sessionId: "pending" }] } });
     const gate = createDeferred();
-    let pending: TranscriptStartRequest | undefined;
+    const entered = createDeferred<TranscriptStartRequest>();
     f.provider.start = async (request) => {
       if (request.session.sessionId === "pending") {
-        pending = request;
+        entered.resolve(request);
         await gate.promise;
       }
       return { ok: true, session: request.session };
     };
     const old = createTranscriptsAutoStartService(f.ctx);
     old.start();
-    await vi.waitFor(() => expect(pending).toBeDefined());
+    const pending = await entered.promise;
     const stopping = old.stop();
     await f.start({ ...room, sessionId: "manual" });
     const config = { transcripts: { autoStart: [{ ...room, sessionId: "manual" }] } };
@@ -736,8 +738,8 @@ describe("configured transcript source provenance", () => {
       expect(
         (await readTranscriptLibraryStatus(f.store, config)).configuredSources[0]?.startDiagnostic,
       ).toBe("id-conflict");
-      await pending!.onUtterance({ text: "stale pending note" });
-      await expect(f.store.readUtterancesForSession(pending!.session)).resolves.toEqual([]);
+      await pending.onUtterance({ text: "stale pending note" });
+      await expect(f.store.readUtterancesForSession(pending.session)).resolves.toEqual([]);
       expect((await f.read()).active.map((s) => s.sessionId)).toEqual(["manual"]);
       await replacement.stop();
       expect((await f.read()).active.map((s) => s.sessionId)).toEqual(["manual"]);
@@ -781,11 +783,13 @@ describe("configured transcript source provenance", () => {
       },
     };
     const f = fixture(config);
+    const captureStarts = vi.spyOn(transcriptCapture, "startTranscripts");
     const service = createTranscriptsAutoStartService(f.ctx);
     service.start();
     try {
-      await vi.waitFor(async () => expect((await f.read()).active).toHaveLength(1));
+      await Promise.allSettled(captureStarts.mock.results.map(({ value }) => value));
       const result = await f.read();
+      expect(result.active).toHaveLength(1);
       const capture = result.active[0]!;
       expect(capture.source).toMatchObject({ accountId: "default", providerId: "voice-alias" });
       expect(result.configuredSources[0]).toMatchObject({

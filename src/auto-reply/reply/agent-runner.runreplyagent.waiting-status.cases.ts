@@ -49,7 +49,7 @@ export async function mockAcceptedWaitingStatusRun(
       requesterAgentId: params.agentId,
       requesterTurnRunId: params.runId,
     };
-    registerSubagentRun(createSubagentRunParams({ ...spawn, ...requester, queued: true }));
+    await registerSubagentRun(createSubagentRunParams({ ...spawn, ...requester, queued: true }));
     const runResult = typeof result === "function" ? await result(params) : result;
     if (runResult.meta.yielded) {
       expect(markRequesterTurnYielded(requester)).toBe(1);

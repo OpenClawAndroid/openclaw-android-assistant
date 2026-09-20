@@ -1,8 +1,5 @@
 // Settles exact outbound custody before releasing its queue-owned media.
-import {
-  openOpenClawStateDatabase,
-  runOpenClawStateWriteTransaction,
-} from "../../state/openclaw-state-db.js";
+import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.js";
 import {
   captureDeliveryQueueStateContext,
   resolveDeliveryQueueStateEnv,
@@ -11,10 +8,10 @@ import {
 import { prepareDeliveryQueueTerminalEntry } from "../delivery-queue-sqlite.kernel.js";
 import { executeDeliveryQueueOperation } from "../delivery-queue-worker-store.js";
 import {
-  failPendingDeliveryInDatabase,
+  type failPendingDeliveryInDatabase,
   retireUnsentDeliveryInDatabase,
 } from "./delivery-queue-ack.kernel.js";
-import { collectEntrySpoolPaths, releaseSpoolArtifacts } from "./delivery-queue-media-spool.js";
+import { releaseSpoolArtifacts } from "./delivery-queue-media-spool.js";
 import {
   cancelDeliveryQueueMediaRetention,
   OUTBOUND_DELIVERY_QUEUE_NAME,
@@ -23,7 +20,6 @@ import type {
   AckDeliveryOptions,
   FailPendingDeliveryResult,
 } from "./delivery-queue-settlement.types.js";
-import { acceptedPreparedOutboundEntries } from "./prepared-batch.js";
 
 /** Retires an unsent live claim while its adapter preparation still owns resources. */
 export function retireUnsentDelivery(
@@ -84,30 +80,26 @@ export async function failPendingDelivery(
   requestedStateDir?: string,
   context?: DeliveryQueueStateContext,
 ): Promise<FailPendingDeliveryResult> {
-  const stateDir = context?.stateDir ?? requestedStateDir;
   const terminal = { queueName: OUTBOUND_DELIVERY_QUEUE_NAME, id: params.id, entry: params.entry };
   const prepared =
     params.expectedPlatformSendAttemptId === undefined
       ? prepareDeliveryQueueTerminalEntry(terminal)
       : undefined;
-  const env = resolveDeliveryQueueStateEnv(stateDir, context);
-  const database = openOpenClawStateDatabase({ env });
-  const result =
-    params.expectedPlatformSendAttemptId !== undefined
-      ? runOpenClawStateWriteTransaction(
-          (writer) => failPendingDeliveryInDatabase(writer, params, prepared),
-          { database, env },
-          { operationLabel: `mutate owned ${OUTBOUND_DELIVERY_QUEUE_NAME} delivery platform send` },
-        )
-      : failPendingDeliveryInDatabase(database, params, prepared);
-  if (result.status === "failed" && params.retainSpoolArtifacts !== true) {
-    await releaseSpoolArtifacts(
-      collectEntrySpoolPaths(
-        acceptedPreparedOutboundEntries(params.entry.preparedBatch).map((entry) => entry.payload),
-        stateDir,
-      ),
+  const captured = context ?? captureDeliveryQueueStateContext(requestedStateDir);
+  const stateDir = captured.stateDir;
+  const { result, spoolPaths } = await executeDeliveryQueueOperation(captured, stateDir, {
+    type: "deliveryQueue.failPending",
+    input: {
+      id: params.id,
+      entryJson: prepared?.expectedJson ?? JSON.stringify(params.entry),
+      expectedPlatformSendAttemptId: params.expectedPlatformSendAttemptId,
+      retainSpoolArtifacts: params.retainSpoolArtifacts,
       stateDir,
-    );
+      prepared: prepared ? structuredClone(prepared) : undefined,
+    },
+  });
+  if (result.status === "failed") {
+    await releaseSpoolArtifacts(spoolPaths, stateDir);
   }
   return result;
 }

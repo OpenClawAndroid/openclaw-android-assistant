@@ -93,6 +93,42 @@ describe("agent registration commit publication", () => {
     ]);
   });
 
+  it("invalidates lazy registry snapshots across worker registration settlement", async () => {
+    const fixture = createFixture();
+    const prepared = registryListing.prepareOpenClawAgentDatabaseRegistrySnapshotRead({
+      env: fixture.env,
+    });
+    const before = await prepared.read();
+    expect(before.result).toEqual({ status: "available", entries: [] });
+    const registration = registryListing.captureOpenClawAgentDatabaseRegistration({
+      agentId: fixture.target.agentId,
+      agentPath: fixture.target.path,
+      admission: fixture.admission,
+    });
+
+    registration.begin();
+    expect(before.assertCurrent).toThrow("registry changed");
+    const during = await prepared.read();
+    expect(during.result).toEqual({ status: "available", entries: [] });
+    registerOpenClawAgentDatabase(fixture.target, (receipt) =>
+      registration.recordCommitted(receipt),
+    );
+    expect(during.assertCurrent).toThrow("registry changed");
+    const committed = await prepared.read();
+    committed.assertCurrent();
+    registration.finish();
+
+    expect(committed.assertCurrent).toThrow("registry changed");
+    const after = await prepared.read();
+    after.assertCurrent();
+    expect(after.result).toEqual({
+      status: "available",
+      entries: [
+        expect.objectContaining({ agentId: fixture.target.agentId, path: fixture.target.path }),
+      ],
+    });
+  });
+
   it("discards the registration witness and topology publication on outer rollback", () => {
     const fixture = createFixture();
     const { trace } = observeStores(fixture.shared);

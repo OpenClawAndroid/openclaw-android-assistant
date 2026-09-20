@@ -55,6 +55,7 @@ export type PreparedManualRun =
       runId?: string;
       terminalTracker?: ManualRunTerminalTracker;
       owningCronLaneTaskMarker?: CommandLaneTaskMarker;
+      commitGuard?: () => void;
       reservationAt: number;
       scheduleOwnershipAtMs: number;
       reservationIdentity: object;
@@ -316,8 +317,8 @@ export async function inspectManualRunDisposition(
   mode?: CronRunMode,
   opts?: Pick<ManualRunOptions, "commitGuard">,
 ): Promise<ManualRunDisposition | { ok: false }> {
-  // Queue callers need a cheap eligibility check before entering the command
-  // lane; the real reservation happens later under lock in prepareManualRun.
+  // Reject ineligible requests before root admission; prepareManualRun rechecks
+  // under lock before reserving eligible work for the command lane.
   const result = await locked(state, () => inspectManualRunPreflight(state, id, mode, opts));
   if (!result.ok) {
     return result;
@@ -361,6 +362,7 @@ export async function prepareManualRun(
         ...(isImmediateCronRunMode(mode) ? { scheduleMode: "preserve" as const } : {}),
         manualRun: {
           runId: opts?.runId,
+          commitGuard: opts?.commitGuard,
           terminalTracker: internalTracker,
           scheduleOwnershipAtMs: opts?.scheduleOwnershipAtMs,
           ...(onExit
@@ -424,6 +426,7 @@ export async function prepareManualRun(
       runId: opts?.runId,
       terminalTracker: opts?.terminalTracker,
       owningCronLaneTaskMarker: opts?.owningCronLaneTaskMarker,
+      commitGuard: opts?.commitGuard,
       reservationAt,
       scheduleOwnershipAtMs: opts?.scheduleOwnershipAtMs ?? reservationAt,
       reservationIdentity,
@@ -452,6 +455,7 @@ export async function activatePreparedManualRun(
     // Reservations can wait behind another cron run. Reload under the service
     // lock so disabling, rescheduling, or removing the job wins that wait.
     await ensureLoaded(state, { forceReload: true, skipRecompute: true });
+    prepared.commitGuard?.();
     prepared.onExit?.commitGuard();
     if (state.stopped) {
       await releasePreparedManualReservationWithRetry(state, prepared);
@@ -461,6 +465,10 @@ export async function activatePreparedManualRun(
     if (!job) {
       await releasePreparedManualReservationWithRetry(state, prepared);
       return { ok: true, ran: false, reason: "not-due" } as const;
+    }
+    if (mode === "if-enabled" && (!isJobEnabled(job) || job.state.autoDisabled)) {
+      await releasePreparedManualReservationWithRetry(state, prepared);
+      return { ok: true, ran: false, reason: "disabled" } as const;
     }
     if (
       !isQueuedCronRunReservationCurrent(state, prepared.jobId, prepared.reservationIdentity) ||
@@ -472,10 +480,6 @@ export async function activatePreparedManualRun(
     if (prepared.onExit && !matchesOnExitSchedule(job, prepared.onExit.schedule)) {
       await releasePreparedManualReservationWithRetry(state, prepared);
       return { ok: true, ran: false, reason: "not-due" };
-    }
-    if (mode === "if-enabled" && (!isJobEnabled(job) || job.state.autoDisabled)) {
-      await releasePreparedManualReservationWithRetry(state, prepared);
-      return { ok: true, ran: false, reason: "disabled" } as const;
     }
     if (!admitsStreamSourceRun(job, prepared.streamScheduleKey, prepared.streamSourceIdentity)) {
       // This is reservation identity, not watcher ownership: a force run can
@@ -505,7 +509,7 @@ export async function activatePreparedManualRun(
         terminalTracker: prepared.terminalTracker,
         error,
       });
-      releaseQueuedCronRun(state, prepared.jobId, prepared.reservationIdentity);
+      await releasePreparedManualReservationWithRetry(state, prepared);
       return { ok: true, ran: false, reason: "invalid-spec" } as const;
     }
 
@@ -513,7 +517,7 @@ export async function activatePreparedManualRun(
       state,
       job,
       reservationIdentity: prepared.reservationIdentity,
-      commitGuard: prepared.onExit?.commitGuard,
+      commitGuard: prepared.commitGuard ?? prepared.onExit?.commitGuard,
       onExitSchedule: prepared.onExit?.schedule,
       onUnavailableRollbackError: async () => {
         await releasePreparedManualReservationWithRetry(state, prepared);

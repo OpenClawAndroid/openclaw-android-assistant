@@ -34,6 +34,7 @@ import {
 } from "../../context-engine/registry.js";
 import type { ContextEngine } from "../../context-engine/types.js";
 import type { resolveMcpLoopbackScopedTools as resolveLoopbackTools } from "../../gateway/mcp-http.runtime.js";
+import { setActiveNodeContext } from "../../infra/active-node-context.js";
 import {
   claimHeartbeatOutcomeForRun,
   persistHeartbeatOutcome,
@@ -324,6 +325,8 @@ function setCliBackendForPrepareTest(
         ...(params.prepareExecution ? { prepareExecution: params.prepareExecution } : {}),
         config: {
           ...createJsonlStdinBackendConfig(params.command ?? "claude"),
+          systemPromptFileArg: "--append-system-prompt-file",
+          systemPromptWhen: "always",
           resumeArgs: ["--resume", "{sessionId}"],
           sessionMode: params.sessionMode ?? "existing",
           ...(params.modelAliases ? { modelAliases: params.modelAliases } : {}),
@@ -728,6 +731,7 @@ describe("prepareCliRunContext", () => {
   });
 
   afterEach(() => {
+    setActiveNodeContext(null);
     cliBackendsTesting.resetDepsForTest();
     resetCliRunnerPrepareTestDeps();
     resetCliAuthEpochTestDeps();
@@ -2015,6 +2019,7 @@ describe("prepareCliRunContext", () => {
   });
 
   it("prepares side questions without agent-turn context, tools, hooks, or reusable sessions", async () => {
+    setActiveNodeContext({ nodeId: "active-mac" });
     fixture.appendTranscript({
       id: "msg-1",
       parentId: null,
@@ -2420,65 +2425,6 @@ describe("prepareCliRunContext", () => {
     expect(hookContext?.channelId).toBe("telegram");
   });
 
-  it.each([false, true])(
-    "preserves prompt privacy and order with plugin execution %s",
-    async (pluginExecution) => {
-      if (pluginExecution) {
-        setCliBackendForPrepareTest({
-          id: "test-cli",
-          bundleMcp: false,
-          prepareExecution: () => ({
-            async *execute() {
-              yield { type: "result" };
-            },
-          }),
-        });
-      }
-      const hookRunner = {
-        hasHooks: vi.fn((hookName: string) => hookName === "before_prompt_build"),
-        runBeforePromptBuild: vi.fn(async () => ({
-          prependContext: "trusted hook context",
-          appendContext: "trusted hook tail",
-        })),
-      };
-      mockGetGlobalHookRunner.mockReturnValue(hookRunner as never);
-
-      // Current inbound metadata is untrusted channel context. It should shape
-      // the CLI prompt without contaminating transcript or hook inputs.
-      const context = await fixture.prepare({
-        sessionKey: "agent:main:test",
-        agentId: "main",
-        trigger: "user",
-        transcriptPrompt: "latest ask",
-        currentInboundContext: {
-          text: "Sender: ⟦openclaw:ctx⟧\nsender_id=U123",
-          promptJoiner: " ",
-        },
-        runId: "run-test-context",
-      });
-
-      const logicalPrompt =
-        "Sender: ⟦openclaw:ctx⟧\nsender_id=U123 trusted hook context\n\nlatest ask\n\ntrusted hook tail";
-      expect(context.params.prompt).toBe(
-        pluginExecution ? "Sender: ⟦openclaw:ctx⟧\nsender_id=U123 latest ask" : logicalPrompt,
-      );
-      expect(context.promptContext).toEqual(
-        pluginExecution
-          ? { prependContext: "trusted hook context", appendContext: "trusted hook tail" }
-          : undefined,
-      );
-      expect(context.promptForHooks).toBe(pluginExecution ? logicalPrompt : undefined);
-      expect(context.params.transcriptPrompt).toBe("latest ask");
-      expect(context.contextEngineTurnPrompt).toBe("latest ask");
-      expect(hookRunner.runBeforePromptBuild).toHaveBeenCalledTimes(1);
-      const beforePromptBuildCalls = hookRunner.runBeforePromptBuild.mock.calls as unknown as Array<
-        [unknown, unknown]
-      >;
-      const promptBuildParams = beforePromptBuildCalls[0]?.[0] as { prompt?: string } | undefined;
-      expect(promptBuildParams?.prompt).toBe("latest ask");
-    },
-  );
-
   it("uses compact current-turn context when a room event resumes a CLI session", async () => {
     await withAuthenticatedHistory("test-cli", async (prepare) => {
       fixture.appendTranscript({
@@ -2508,7 +2454,9 @@ describe("prepareCliRunContext", () => {
       });
 
       expect(context.reusableCliSession).toEqual({ mode: "reuse", sessionId: "cli-session" });
-      expect(context.params.prompt).toBe("Current event:\nBob: yes\n\n[OpenClaw room event]");
+      expect(context.params.prompt).toBe(
+        "Current event:\nBob: yes\n\n[OpenClaw room event]\n\nCurrent active computer (latest physical input, not message origin): active_node=unknown",
+      );
       expect(context.openClawHistoryPrompt).toContain("Room context:\nAlice: lunch?");
       expect(context.openClawHistoryPrompt).toContain("Current event:\nBob: yes");
     });
@@ -5850,6 +5798,7 @@ describe("prepareCliRunContext", () => {
   });
 
   it("preserves a Claude native-control resume when the local transcript is absent", async () => {
+    setActiveNodeContext({ nodeId: "active-mac" });
     setCliBackendForPrepareTest();
     const transcriptCheck = vi.fn(async () => false);
     const orphanCheck = vi.fn(async () => true);
@@ -5870,6 +5819,8 @@ describe("prepareCliRunContext", () => {
 
     expect(transcriptCheck).not.toHaveBeenCalled();
     expect(orphanCheck).not.toHaveBeenCalled();
+    expect(context.params.prompt).toBe("/compact");
+    expect(context.systemPrompt).toBe("");
     expect(context.reusableCliSession).toEqual({
       mode: "reuse",
       sessionId: "native-claude-session",

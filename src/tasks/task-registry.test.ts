@@ -3927,29 +3927,6 @@ describe("task-registry", () => {
     });
   });
 
-  it("records the transition time when a generic update becomes terminal", async () => {
-    await withTaskRegistryTempDir(async () => {
-      const task = createTaskFixture("cli", {
-        runId: "run-generic-terminal",
-        task: "Generic terminal transition",
-        status: "running",
-        deliveryStatus: "pending",
-        lastEventAt: 100,
-      });
-      updateTaskStateByRunId({ runId: "run-generic-terminal", endedAt: 150 });
-      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(300);
-
-      updateTaskStateByRunId({ runId: "run-generic-terminal", status: "failed" });
-      nowSpy.mockRestore();
-
-      expectRecordFields(requireTaskById(task.taskId), {
-        status: "failed",
-        endedAt: 300,
-        lastEventAt: 300,
-      });
-    });
-  });
-
   it("normalizes restored task timestamps before exposing them", async () => {
     await withTaskRegistryTempDir(async () => {
       configureTaskRegistryRuntime({

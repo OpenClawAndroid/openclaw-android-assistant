@@ -165,13 +165,14 @@ for (const owner of embeddedAgentVitestProjectOwners) {
  * Resolves default Node flags for Vitest, including the local Maglev opt-in.
  */
 export function resolveVitestNodeArgs(env: NodeJS.ProcessEnv = process.env): string[] {
-  if (parsePermissiveBooleanToken(env.OPENCLAW_VITEST_ENABLE_MAGLEV) === true) {
-    return [];
-  }
-
-  // Concurrent Sparkplug can await main-thread GC while forced exit joins its
-  // compiler worker (nodejs/node#54918). Keep Sparkplug compilation on the main thread.
-  return ["--no-maglev", "--no-concurrent-sparkplug"];
+  // Node 24 can join a Sparkplug compiler at process.exit while that compiler
+  // waits for main-thread GC. Keep baseline compilation on the main thread.
+  return [
+    ...(parsePermissiveBooleanToken(env.OPENCLAW_VITEST_ENABLE_MAGLEV) === true
+      ? []
+      : ["--no-maglev"]),
+    "--no-concurrent-sparkplug",
+  ];
 }
 
 /**

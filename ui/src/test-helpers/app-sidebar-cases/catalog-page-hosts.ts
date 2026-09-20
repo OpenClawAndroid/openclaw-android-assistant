@@ -7,7 +7,13 @@ import type {
 import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/context.ts";
-import { catalogPage, createGatewayHarness, createSessions, mountSidebar } from "../app-sidebar.ts";
+import {
+  catalogPage,
+  createGatewayHarness,
+  createSessions,
+  mountSidebar,
+  mountSessionCatalogSidebar,
+} from "../app-sidebar.ts";
 
 export function registerCatalogPageHostTests() {
   it("pages only cursor hosts and preserves exhausted hosts through a catalog change", async () => {
@@ -41,20 +47,9 @@ export function registerCatalogPageHostTests() {
           catalogPage([{ threadId: "thread-2", name: "Current title" }], "page-3"),
         )
         .mockResolvedValueOnce(catalogPage([{ threadId: "thread-3", name: "Oldest" }]));
-      const gateway = createGatewayHarness({ request } as unknown as GatewayBrowserClient);
-      gateway.publish({
-        hello: {
-          features: { methods: ["sessions.catalog.list"], events: ["sessions.catalog.changed"] },
-        } as ApplicationGatewaySnapshot["hello"],
-      });
-      const { sidebar } = await mountSidebar(
-        gateway.gateway,
-        createSessions("main", ["agent:main:main"]),
-      );
-      sidebar.connected = true;
-      await sidebar.updateComplete;
-      await vi.advanceTimersByTimeAsync(0);
-      await sidebar.updateComplete;
+      const { gateway, sidebar } = await mountSessionCatalogSidebar({
+        request,
+      } as unknown as GatewayBrowserClient);
 
       const catalogRows = () =>
         sidebar.querySelectorAll('[data-session-section="catalog:codex"] [data-session-key]');

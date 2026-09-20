@@ -132,6 +132,14 @@ export const sharedVitestConfig = {
   root: repoRoot,
   envDir: false as const,
   plugins: [
+    {
+      name: "openclaw:node-worker-policy",
+      config: () => ({
+        test: {
+          globalSetup: [resolveRepoRootPath("test/vitest/vitest.node-policy.global-setup.ts")],
+        },
+      }),
+    },
     createStateSchemaInlinePlugin(repoRoot),
     compiledSubprocessesPlugin(),
     createRedactingReporterPlugin(),

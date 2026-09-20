@@ -283,7 +283,6 @@ export type AgentEventHandlerOptions = {
     runId: string;
     clientRunId: string;
     sessionKey: string;
-    persisted?: boolean;
   }) => void;
   trackTrackedRunTerminalPersistence?: (params: {
     runId: string;
@@ -829,11 +828,6 @@ export function createAgentEventHandler({
         void persistence
           .then(
             async () => {
-              settleTrackedTerminal?.({
-                runId: evt.runId,
-                clientRunId,
-                sessionKey,
-              });
               if (projection) {
                 do {
                   await projection.ensureMaterialized();
@@ -845,14 +839,6 @@ export function createAgentEventHandler({
               logError(
                 `gateway: terminal session persistence failed session=${formatForLog(sessionKey)} run=${formatForLog(evt.runId)} error=${formatForLog(err)}`,
               );
-              // Persistence recovery remains tracked by the controller entry, but
-              // subscribers still need a terminal projection instead of hanging.
-              settleTrackedTerminal?.({
-                runId: evt.runId,
-                clientRunId,
-                sessionKey,
-                persisted: false,
-              });
               if (projection) {
                 do {
                   await projection.ensureMaterialized();
@@ -871,7 +857,6 @@ export function createAgentEventHandler({
           runId: evt.runId,
           clientRunId,
           sessionKey,
-          persisted: false,
         });
       }
     }

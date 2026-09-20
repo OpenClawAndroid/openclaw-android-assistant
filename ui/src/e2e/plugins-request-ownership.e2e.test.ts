@@ -181,7 +181,6 @@ suite.define(() => {
       });
       await page.goto(`${suite.server.baseUrl}settings/plugins/workboard?view=settings`);
       await gateway.waitForRequest("plugins.catalog.get");
-      await gateway.setMethodResponse("config.get", configResponse("After"));
       const greeting = page.getByRole("textbox", { name: "Greeting", exact: true });
       await greeting.fill("After");
       await greeting.press("Tab");

@@ -332,14 +332,18 @@ export async function handleInlineActions(params: {
     params.skillCommands.length > 0
       ? params.skillCommands
       : shouldLoadSkillCommands
-        ? (await skillCommandsRuntimeLoader.load()).listSkillCommandsForWorkspace({
+        ? await (
+            await skillCommandsRuntimeLoader.load()
+          ).prepareSkillCommandsForWorkspace({
             ...skillCommandContext,
             skillFilter,
           })
         : [];
   const allSkillCommands =
     shouldLoadSkillCommands && skillFilter !== undefined
-      ? (await skillCommandsRuntimeLoader.load()).listSkillCommandsForWorkspace({
+      ? await (
+          await skillCommandsRuntimeLoader.load()
+        ).prepareSkillCommandsForWorkspace({
           ...skillCommandContext,
           includeAllowlistHidden: true,
         })

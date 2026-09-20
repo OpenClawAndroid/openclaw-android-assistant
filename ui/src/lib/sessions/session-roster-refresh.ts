@@ -28,7 +28,6 @@ import {
   prepareSessionRefreshOptions,
   queuedSessionRefreshCompletion,
   retainSessionPaginationWindow,
-  sessionListAgentMatcher,
   sessionListEventMatcher,
   type ManagedSessionList,
   type QueuedSessionRefresh,
@@ -76,12 +75,13 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
     if (previous !== undefined) {
       return previous;
     }
+    const matches = sessionListEventMatcher(payload);
     const observation = {
       revision: ++requestRevision,
       scope: host.connection.capture(),
       lists: new Set(
         [...managedLists.values()]
-          .filter(sessionListEventMatcher(payload))
+          .filter((entry) => matches(entry.scope, entry.snapshot.result))
           .filter(
             (entry) =>
               entry.pending !== null ||
@@ -178,7 +178,7 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
       sourceListScope && JSON.stringify(normalizeManagedSessionListQuery(sourceListScope));
     // Adopting a query's accepted row into the primary roster cannot make
     // that supplying query stale. Other membership projections still refresh.
-    scheduleManagedLists(matches, sourceKey);
+    scheduleManagedLists((entry) => matches(entry.scope, entry.snapshot.result), sourceKey);
   };
 
   const refreshManagedList = createSessionManagedListRefresh(host, {
@@ -682,16 +682,16 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
       this: void,
       options: { agentId?: string | null; primarySnapshotApplied?: boolean; event?: unknown } = {},
     ) {
-      const matchesAgent = sessionListAgentMatcher(options.agentId);
+      const matches = sessionListEventMatcher(options.event, options.agentId);
       const event = options.event;
       const affected =
         event && typeof event === "object" ? eventRevisions.get(event)?.lists : undefined;
       // Server events can invalidate a read; accepted row observations are reconciled into it.
       primaryWindows.invalidate(
-        (entry) => affected?.has(entry) ?? matchesAgent(entry.scope.agentId),
+        (entry) => affected?.has(entry) ?? matches({ agentId: entry.scope.agentId }),
         lastListOptions,
       );
-      if (!options.primarySnapshotApplied && matchesAgent(lastListOptions.agentId)) {
+      if (!options.primarySnapshotApplied && matches({ agentId: lastListOptions.agentId })) {
         eventRefreshCoordinator.schedule();
       }
       if (affected) {

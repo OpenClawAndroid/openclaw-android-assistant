@@ -38,6 +38,14 @@ SIGN_IDENTITY="-" scripts/package-mac-app.sh                                    
 DISABLE_LIBRARY_VALIDATION=1 scripts/package-mac-app.sh                          # dev-only Sparkle Team ID mismatch workaround
 ```
 
+Worker packaging honors the existing `OPENCLAW_DOCKER_PACKAGE_INVENTORY_TIMEOUT_MS`,
+`OPENCLAW_DOCKER_PACKAGE_PACK_TIMEOUT_MS`, and
+`OPENCLAW_DOCKER_PACKAGE_TARBALL_CHECK_TIMEOUT_MS` budgets. Each defaults to five
+minutes; set a positive integer in milliseconds when packaging needs more time.
+These budgets pass through the worker's isolated environment without exposing
+operator credentials or state. The tarball-check budget covers the whole check,
+including extraction and validation.
+
 ### Ad-hoc signing note
 
 `SIGN_IDENTITY="-"` disables the Hardened Runtime (`--options runtime`). This prevents crashes when the app loads embedded frameworks (like Sparkle) that do not share the same Team ID. Ad-hoc signatures also break TCC permission persistence. See [macOS permissions](/platforms/mac/permissions) for recovery steps.

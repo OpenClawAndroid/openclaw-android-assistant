@@ -390,11 +390,9 @@ else if (endpoint === "graphql" && args.some(arg => arg.includes("viewerMergeBod
 }
 else if (endpoint === "graphql" && args.some(arg => arg.includes("repository(owner:"))) {
   out({data:{repository:{...repo,id:repoNodeId,databaseId:repo.id,ref:{target:{oid:"${mainSha}"}},pullRequest:pr}}});
-} else if (endpoint === "user") out(args[args.indexOf("--jq")+1] === ".login" ? "relay-reader" : {login:"relay-reader"});
-else if (endpoint === "graphql" && args.includes("query=query { viewer { login } }")) {
-  const json = JSON.stringify({data:{viewer:value.actor}});
-  if (args.includes("--include")) out("HTTP/2.0 200 OK\\n\\n" + json);
-  else out(cp.execFileSync("jq", ["-r", args[args.indexOf("--jq") + 1]], {input:json,encoding:"utf8"}).trim());
+} else if (endpoint === "user") {
+  if (JSON.stringify(args) === JSON.stringify(["api", "user", "--include"])) out("HTTP/2.0 200 OK\\n\\n" + JSON.stringify(value.actor));
+  else out(args[args.indexOf("--jq")+1] === ".login" ? "relay-reader" : {login:"relay-reader"});
 } else {
   if (!endpoint) fail("unexpected command");
   // PR metadata reads replace the old gh view requests. Authorization
@@ -556,11 +554,11 @@ describe("Crabbox protected gh request producers", () => {
 
   it("keeps protected refusal terminal without alternate identity or dispatch", () => {
     const result = runProtectedShell("require_active_org_admin_for_crabbox_gate", {
-      denied: "graphql",
+      denied: "user",
     });
-    expect(result.status).toBe(19);
-    expect(result.stderr).toContain("protected refusal");
-    expect(result.calls).toHaveLength(1);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("GitHub API preflight failed (HTTP unknown; exit=19)");
+    expect(result.calls).toEqual([["api", "user", "--include"]]);
   });
 
   it("audits the immutable landed commit in the prepared repository", () => {
@@ -603,14 +601,15 @@ describe("Crabbox authorization before final effects", () => {
       role,
     });
     expect(result.status, result.stdout + result.stderr).toBe(role === "admin" ? 0 : 1);
-    const viewer = result.calls.findIndex((args) => args.includes("graphql"));
+    const writer = result.calls.findIndex((args) => args.includes("user"));
     const membership = result.calls.findIndex((args) =>
       args.includes("orgs/openclaw/memberships/maintainer"),
     );
     const dispatches = result.calls.filter((args) => args[0] === "workflow" && args[1] === "run");
-    expect(viewer).toBeGreaterThanOrEqual(0);
-    expect(membership).toBeGreaterThan(viewer);
-    expect(result.calls.some((args) => args.includes("user"))).toBe(false);
+    expect(writer).toBeGreaterThanOrEqual(0);
+    expect(result.calls[writer]).toEqual(["api", "user", "--include"]);
+    expect(membership).toBeGreaterThan(writer);
+    expect(result.calls.some((args) => args.includes("graphql"))).toBe(false);
     expect(result.calls.filter((args) => args[0] === "pr" && args[1] === "merge")).toEqual([]);
     expect(dispatches).toHaveLength(role === "admin" ? 1 : 0);
     if (role === "admin") {
@@ -644,19 +643,17 @@ describe("Crabbox authorization before final effects", () => {
       const result = runProtectedShell(mergeAuthorizationCommand, { role, revoke, longPreview });
       const output = result.stdout + result.stderr;
       expect(result.status, output).toBe(1);
-      const viewers = result.calls.filter((args) =>
-        args.includes("query=query { viewer { login } }"),
-      );
+      const writers = result.calls.filter((args) => args.includes("user"));
       const memberships = result.calls.filter((args) =>
         args.includes("orgs/openclaw/memberships/maintainer"),
       );
       const requests = result.calls.filter((args) => args[0] === "pr" && args[1] === "merge");
-      expect(viewers, output).toHaveLength(reads);
+      expect(writers, output).toEqual(
+        Array.from({ length: reads }, () => ["api", "user", "--include"]),
+      );
       expect(memberships).toHaveLength(reads);
       expect(requests).toHaveLength(merges);
-      expect(result.calls.some((args) => args.includes("user") || args[0] === "workflow")).toBe(
-        false,
-      );
+      expect(result.calls.some((args) => args[0] === "workflow")).toBe(false);
       if (merges) {
         expect(requests[0]).toEqual([
           "pr",

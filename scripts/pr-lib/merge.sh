@@ -706,8 +706,7 @@ merge_run() {
     fi
   fi
   if [ -n "$recovery_oid" ]; then
-    # A relay's REST /user may identify its caller instead of this mutation writer.
-    recovery_actor=$(pr_gh_plain api --hostname "$MERGE_REPO_HOST" graphql -f 'query=query { viewer { login } }' --jq '.data.viewer.login | select(type == "string" and length > 0)') || return 1
+    recovery_actor=$(pr_gh_writer_login "$MERGE_REPO_HOST") || return 1
     [ -n "$recovery_actor" ] || { merge_outcome_stop "cannot identify the operator recovery actor"; return 1; }
   fi
   merge_outcome_stable "$pr" || return 1

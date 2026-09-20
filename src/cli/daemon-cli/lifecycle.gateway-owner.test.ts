@@ -79,6 +79,7 @@ vi.mock("./lifecycle-audit.js", () => ({
 vi.mock("../../infra/restart-intent.js", async (original) => ({
   ...(await original<typeof import("../../infra/restart-intent.js")>()),
   writeGatewayRestartIntentSync: () => true,
+  writeGatewayServiceRestartIntentSync: () => true,
   clearGatewayRestartIntentSync: vi.fn(),
 }));
 

@@ -26,6 +26,12 @@ includes blocked channel startup after a local plugin requests trusted runtime
 state, with the source and supported installation remedy. An unavailable Gateway
 does not prevent availability or run-history output.
 
+For a local Gateway, status also shows when its last shutdown recorded an
+installation replacement, even after the successor starts. JSON exposes the
+recorded reason and completion time as `lastGatewayInstallationReplacement`.
+This is historical information, not a current health verdict or an update run;
+a manual package-manager replacement does not create updater history.
+
 ```bash
 openclaw update status
 openclaw update status --json

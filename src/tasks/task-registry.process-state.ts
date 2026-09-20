@@ -217,7 +217,7 @@ export function addRunIdIndex(taskId: string, runId?: string) {
   ids.add(taskId);
 }
 
-export function deleteRunIdIndex(taskId: string, runId?: string): void {
+function deleteRunIdIndex(taskId: string, runId?: string): void {
   if (runId?.trim()) {
     deleteIndexedKey(indexState.taskIdsByRunId, runId.trim(), taskId);
   }
@@ -289,11 +289,34 @@ export function deleteRelatedSessionKeyIndex(taskId: string, task: TaskSessionKe
   }
 }
 
-export function rebuildRunIdIndex() {
-  indexState.taskIdsByRunId.clear();
-  for (const [taskId, task] of indexState.tasks.entries()) {
-    addRunIdIndex(taskId, task.runId);
+/** Update after installing next; previous is the row replaced at that write. */
+export function updateRunIdIndex(
+  previous: Pick<TaskRecord, "taskId" | "runId"> | undefined,
+  next: Pick<TaskRecord, "taskId" | "runId">,
+): void {
+  const previousRunId = normalizeOptionalString(previous?.runId);
+  const nextRunId = normalizeOptionalString(next.runId);
+  if (previous && previousRunId === nextRunId) {
+    return;
   }
+  if (previous) {
+    deleteRunIdIndex(previous.taskId, previousRunId);
+  }
+  if (!nextRunId) {
+    return;
+  }
+  if (!previous || !indexState.taskIdsByRunId.has(nextRunId)) {
+    addRunIdIndex(next.taskId, nextRunId);
+    return;
+  }
+  // Native create/reuse selects duplicate runs in task-map insertion order.
+  const ids = new Set<string>();
+  for (const [taskId, task] of indexState.tasks) {
+    if (normalizeOptionalString(task.runId) === nextRunId) {
+      ids.add(taskId);
+    }
+  }
+  indexState.taskIdsByRunId.set(nextRunId, ids);
 }
 
 export function removeTaskIndexes(task: TaskRecord): void {
@@ -383,12 +406,17 @@ export function recordTaskRegistryProjectionWrite(
         ? "snapshot"
         : "refresh";
   for (const pending of indexState.projection.pending) {
+    const publication = pending.publication;
     const recovery = pending.recoveryWitness;
     if (recovery && kind !== "delivery" && kind !== "refresh") {
       if (taskId === undefined) {
         recovery.replaced = true;
+        for (const id of publication?.records.keys() ?? []) {
+          publication?.invalidated.add(id);
+        }
       } else if (taskId === pending.scope.taskId) {
         recovery.writtenTaskIds.add(taskId);
+        publication?.invalidated.add(taskId);
       }
     }
     const witness = pending.readWitness;
@@ -404,7 +432,6 @@ export function recordTaskRegistryProjectionWrite(
         witness.writtenTaskIds.add(taskId);
       }
     }
-    const publication = pending.publication;
     if (!publication || kind === "delivery") {
       continue;
     }

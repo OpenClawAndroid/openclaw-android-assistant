@@ -31,15 +31,7 @@ repo_root() {
 }
 
 ensure_gh_api_auth() {
-  # Retain GraphQL here: a relay's REST /user may identify its caller instead of
-  # the mutation writer. REST is not an equivalent authentication preflight.
-  local response exit_code=0
-  response=$(pr_gh_plain api graphql -f 'query=query { viewer { login } }' --include 2>&1) || exit_code=$?
-  if [ "$exit_code" -eq 75 ] || [ "$exit_code" -eq 77 ]; then
-    printf '%s\n' "$response" >&2
-    return 1
-  fi
-  printf '%s' "$response" | node "$(dirname "${BASH_SOURCE[0]}")/gh-api-preflight.mjs" "$exit_code"
+  pr_gh_writer_login >/dev/null || return 1
 }
 
 ensure_full_pr_worktree_checkout() {
@@ -412,7 +404,7 @@ pr_meta_json() {
     | select(all(.baseRefOid, .headRefOid; type == "string" and test("^[0-9a-f]{40}$")))
     | select(all(.baseRefName, .headRefName; type == "string" and length > 0))
     | {number,url,baseRefOid,headRefOid,baseRefName,headRefName,headRepository,headRepositoryOwner}'
-  metadata=$(GH_REPO="$repo_nwo" read_pr_view_json "$pr" "number,title,state,isDraft,author,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner,url,body,labels,assignees,changedFiles,additions,deletions,statusCheckRollup,files") || return 1
+  metadata=$(GH_REPO="$repo_nwo" read_pr_view_json "$pr" "number,title,state,isDraft,author,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner,url,body,labels,assignees,changedFiles,additions,deletions,files") || return 1
   head_before=$(pr_view_string_field "$metadata" "headRefOid" "$pr" "Retry review initialization.") || return 1
   if ! identity_before=$(printf '%s\n' "$metadata" | jq -ceS --argjson pr "$pr" --arg repo_url "$repo_url" "$identity_filter"); then
     echo "Invalid PR identity for #$pr: expected $repo_url/pull/$pr and complete base/head OIDs and refs." >&2

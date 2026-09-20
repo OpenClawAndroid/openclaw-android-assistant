@@ -711,6 +711,9 @@ describe("cron service run admission", () => {
     );
     expect(completedJob?.state.runningAtMs).toBeUndefined();
     expect(completedJob?.state.lastRunStatus).toBe("skipped");
+    expect(
+      inspectActiveCronRunReceipt({ storePath: store.storePath, jobId: waitingJob.id }),
+    ).toBeUndefined();
   });
 
   it("commits invalid-run state before notifying a subscriber that edits the job", async () => {

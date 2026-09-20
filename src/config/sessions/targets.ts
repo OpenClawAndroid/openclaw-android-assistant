@@ -22,12 +22,19 @@ import {
   listDurableSqliteTargetOwnersForSessionStorePath,
   listSqliteTargetCandidatePathsForSessionStorePath,
   resolveSqliteTargetFromSessionStorePath,
+  type SessionStoreRegistryRead,
 } from "./session-sqlite-target.js";
 import { isPerAgentSessionStoreConfig } from "./session-store-config.js";
 import {
   resolvePersistedSessionStoreOwner,
   resolvePersistedSessionStoreOwnerForTarget,
 } from "./session-store-owner.js";
+import {
+  assertSessionStoreReadCandidate,
+  resolveCapturedSessionStorePath,
+  type CapturedSessionStorePaths,
+  type SessionStoreReadCandidate,
+} from "./session-store-read-candidates.js";
 import {
   dedupeSessionStoreTargetsBySqliteTarget,
   type SessionStoreTarget,
@@ -42,7 +49,8 @@ import {
   isValidatedRecoveryCandidateSessionsDir,
   resolveValidatedDiscoveredStorePathSync,
   shouldSkipDiscoveryError,
-  shouldSkipDiscoveredAgentDirName,
+  toDiscoveredSessionStoreTarget,
+  resolveExplicitSessionStoreTarget,
 } from "./targets-path-validation.js";
 
 export {
@@ -59,6 +67,16 @@ export type SessionStoreSelectionOptions = {
   store?: string;
   agent?: string;
   allAgents?: boolean;
+};
+
+type DatabasePathMatcher = (left: string, right: string) => boolean;
+
+type SessionStoreTargetReadOptions = {
+  env?: NodeJS.ProcessEnv;
+  isSameDatabasePath?: DatabasePathMatcher;
+  registeredDatabases?: SessionStoreRegistryRead;
+  readCandidates?: readonly SessionStoreReadCandidate[];
+  readPaths?: CapturedSessionStorePaths;
 };
 
 /** Lists configured owners plus persisted owners whose registered DB still matches this store. */
@@ -132,7 +150,9 @@ export function listKnownSessionStoreAgentIds(
 function resolveSessionStoreDiscoveryState(
   cfg: OpenClawConfig,
   env: NodeJS.ProcessEnv,
-  registeredDatabases?: readonly { agentId: string; path: string }[],
+  registeredDatabases?: SessionStoreRegistryRead,
+  readCandidates?: readonly SessionStoreReadCandidate[],
+  readPaths?: CapturedSessionStorePaths,
 ): {
   configuredTargets: SessionStoreTarget[];
   agentsRoots: string[];
@@ -143,6 +163,8 @@ function resolveSessionStoreDiscoveryState(
     {
       env,
       registeredDatabases,
+      readCandidates,
+      readPaths,
     },
   );
   const agentsRoots = new Set<string>();
@@ -159,38 +181,6 @@ function resolveSessionStoreDiscoveryState(
     configuredTargets,
     agentsRoots: [...agentsRoots],
   };
-}
-
-function toDiscoveredSessionStoreTarget(
-  sessionsDir: string,
-  storePath: string,
-): SessionStoreTarget | undefined {
-  const dirName = path.basename(path.dirname(sessionsDir));
-  const agentId = normalizeAgentId(dirName);
-  if (shouldSkipDiscoveredAgentDirName(dirName, agentId)) {
-    return undefined;
-  }
-  return {
-    agentId,
-    // Keep the actual on-disk store path so retired/manual agent dirs remain discoverable
-    // even if their directory name no longer round-trips through normalizeAgentId().
-    storePath,
-  };
-}
-
-function resolveExplicitSessionStoreTarget(params: {
-  defaultAgentId: string;
-  env: NodeJS.ProcessEnv;
-  store: string;
-}): SessionStoreTarget {
-  const storePath = resolveSessionStorePathCore(params.store, {
-    agentId: params.defaultAgentId,
-    env: params.env,
-  });
-  const discovered = resolveAgentsDirFromSessionStorePath(storePath)
-    ? toDiscoveredSessionStoreTarget(path.dirname(storePath), storePath)
-    : undefined;
-  return discovered ?? { agentId: params.defaultAgentId, storePath };
 }
 
 /** Resolves all configured and discoverable agent session stores synchronously. */
@@ -280,10 +270,7 @@ export type ExistingAgentSessionStoreTargetResolver = (
 /** Reuse configured fixed-store ownership only within one synchronous discovery operation. */
 export function createExistingAgentSessionStoreTargetResolver(
   cfg: OpenClawConfig,
-  params: {
-    env?: NodeJS.ProcessEnv;
-    registeredDatabases?: readonly { agentId: string; path: string }[];
-  },
+  params: SessionStoreTargetReadOptions & { isSameDatabasePath: DatabasePathMatcher },
 ): ExistingAgentSessionStoreTargetResolver {
   let configuredOwners: Set<string> | undefined;
   const isConfiguredTarget = (agentId: string) => {
@@ -307,11 +294,7 @@ export function createExistingAgentSessionStoreTargetResolver(
 export function resolveExistingAgentSessionStoreTargetsSync(
   cfg: OpenClawConfig,
   agentId: string,
-  params: {
-    env?: NodeJS.ProcessEnv;
-    excludeStorePath?: string;
-    registeredDatabases?: readonly { agentId: string; path: string }[];
-  } = {},
+  params: SessionStoreTargetReadOptions & { excludeStorePath?: string } = {},
 ): SessionStoreTarget[] {
   return resolveExistingAgentSessionStoreTargets(cfg, agentId, params);
 }
@@ -319,11 +302,7 @@ export function resolveExistingAgentSessionStoreTargetsSync(
 function resolveExistingAgentSessionStoreTargets(
   cfg: OpenClawConfig,
   agentId: string,
-  params: {
-    env?: NodeJS.ProcessEnv;
-    excludeStorePath?: string;
-    registeredDatabases?: readonly { agentId: string; path: string }[];
-  },
+  params: SessionStoreTargetReadOptions & { excludeStorePath?: string },
   isConfiguredTarget?: (agentId: string) => boolean,
 ): SessionStoreTarget[] {
   const env = params.env ?? process.env;
@@ -333,7 +312,7 @@ function resolveExistingAgentSessionStoreTargets(
   if (!isPerAgentSessionStoreConfig(storeConfig)) {
     const fixedTarget = {
       agentId: requested,
-      storePath: resolveSessionStorePathCore(storeConfig, { agentId: requested, env }),
+      storePath: resolveCapturedSessionStorePath(storeConfig, requested, env, params.readPaths),
     };
     const isSelectedTarget = () => {
       if (isConfiguredTarget && isConfiguredSessionStoreAgentId(cfg, requested)) {
@@ -342,7 +321,12 @@ function resolveExistingAgentSessionStoreTargets(
       const configuredTargets = listConfiguredSessionStoreAgentIds(cfg).map(
         (configuredAgentId) => ({
           agentId: configuredAgentId,
-          storePath: resolveSessionStorePathCore(storeConfig, { agentId: configuredAgentId, env }),
+          storePath: resolveCapturedSessionStorePath(
+            storeConfig,
+            configuredAgentId,
+            env,
+            params.readPaths,
+          ),
         }),
       );
       if (!configuredTargets.some((target) => normalizeAgentId(target.agentId) === requested)) {
@@ -352,6 +336,7 @@ function resolveExistingAgentSessionStoreTargets(
         defaultAgentId,
         env,
         registeredDatabases: params.registeredDatabases,
+        readCandidates: params.readCandidates,
       }).some((target) => normalizeAgentId(target.agentId) === requested);
     };
     const resolvedTarget = resolveSqliteTargetFromSessionStorePath(fixedTarget.storePath, {
@@ -359,6 +344,8 @@ function resolveExistingAgentSessionStoreTargets(
       defaultAgentId,
       env,
       registeredDatabases: params.registeredDatabases,
+      readCandidates: params.readCandidates,
+      isSameDatabasePath: params.isSameDatabasePath,
     });
     if (!resolvedTarget.shared && !isSelectedTarget()) {
       return [];
@@ -370,6 +357,9 @@ function resolveExistingAgentSessionStoreTargets(
     const sqlitePath = resolvedTarget.path;
     if (sqlitePath && fsSync.existsSync(sqlitePath)) {
       try {
+        const databasePath = params.readCandidates
+          ? assertSessionStoreReadCandidate(sqlitePath, params.readCandidates)
+          : sqlitePath;
         const databaseAgentId = resolvedTarget.shared
           ? normalizeAgentId(resolvedTarget.agentId ?? defaultAgentId)
           : requested;
@@ -386,7 +376,7 @@ function resolveExistingAgentSessionStoreTargets(
             }
             return false;
           },
-          { agentId: databaseAgentId, env, path: sqlitePath },
+          { agentId: databaseAgentId, env, path: databasePath },
         );
         return result.found && result.value ? [fixedTarget] : [];
       } catch {
@@ -400,6 +390,8 @@ function resolveExistingAgentSessionStoreTargets(
     env,
     sqliteOnly: true,
     registeredDatabases: params.registeredDatabases,
+    readCandidates: params.readCandidates,
+    readPaths: params.readPaths,
   });
   if (!isConfiguredSessionStoreAgentId(cfg, requested)) {
     // Always run sqlite-target dedupe for retired/manual agents: it probes the agent database
@@ -411,6 +403,7 @@ function resolveExistingAgentSessionStoreTargets(
       defaultAgentId,
       env,
       registeredDatabases: params.registeredDatabases,
+      readCandidates: params.readCandidates,
     });
   }
   return params.excludeStorePath === undefined
@@ -426,7 +419,7 @@ export function resolveAllAgentSessionStoreCandidateTargetsSync(
   cfg: OpenClawConfig,
   params: {
     env?: NodeJS.ProcessEnv;
-    registeredDatabases?: readonly { agentId: string; path: string }[];
+    registeredDatabases?: SessionStoreRegistryRead;
   } = {},
 ): SessionStoreTarget[] {
   const env = params.env ?? process.env;
@@ -504,17 +497,19 @@ export function resolveAgentSessionStoreTargetsSync(
 function resolveAgentSessionStoreTargets(
   cfg: OpenClawConfig,
   agentId: string,
-  params: {
-    env?: NodeJS.ProcessEnv;
-    sqliteOnly?: boolean;
-    registeredDatabases?: readonly { agentId: string; path: string }[];
-  },
+  params: SessionStoreTargetReadOptions & { sqliteOnly?: boolean },
 ): SessionStoreTarget[] {
   const env = params.env ?? process.env;
   const requested = normalizeAgentId(agentId);
   const storePaths = new Set<string>([
-    resolveSessionStorePathCore(cfg.session?.store, { agentId: requested, env }),
-    resolveSessionStorePathCore(undefined, { agentId: requested, env }),
+    resolveCapturedSessionStorePath(cfg.session?.store, requested, env, params.readPaths),
+    resolveCapturedSessionStorePath(
+      cfg.session?.store,
+      requested,
+      env,
+      params.readPaths,
+      "default",
+    ),
   ]);
   const targets: SessionStoreTarget[] = [];
   const getRealAgentsRoot = createRealAgentsRootResolver();
@@ -527,6 +522,7 @@ function resolveAgentSessionStoreTargets(
           agentId: requested,
           env,
           registeredDatabases: params.registeredDatabases,
+          readCandidates: params.readCandidates,
         }).path;
         if (!sqlitePath || !fsSync.existsSync(sqlitePath)) {
           continue;
@@ -556,7 +552,13 @@ function resolveAgentSessionStoreTargets(
     return dedupeTargetsByStorePath(targets);
   }
 
-  const { agentsRoots } = resolveSessionStoreDiscoveryState(cfg, env, params.registeredDatabases);
+  const { agentsRoots } = resolveSessionStoreDiscoveryState(
+    cfg,
+    env,
+    params.registeredDatabases,
+    params.readCandidates,
+    params.readPaths,
+  );
   for (const agentsDir of agentsRoots) {
     try {
       const realAgentsRoot = getRealAgentsRoot(agentsDir);
@@ -616,7 +618,7 @@ export function resolveConfiguredAgentDatabaseTargets(
   cfg: OpenClawConfig,
   params: {
     env: NodeJS.ProcessEnv;
-    registeredDatabases?: readonly { agentId: string; path: string }[];
+    registeredDatabases?: SessionStoreRegistryRead;
   },
 ): Array<{ agentId: string; path: string }> {
   const targets = resolveSessionStoreTargets(cfg, { allAgents: true }, params).map((target) => {
@@ -648,11 +650,7 @@ export function resolveConfiguredAgentDatabaseTargets(
 export function resolveSessionStoreTargets(
   cfg: OpenClawConfig,
   opts: SessionStoreSelectionOptions,
-  params: {
-    env?: NodeJS.ProcessEnv;
-    diagnostics?: string[];
-    registeredDatabases?: readonly { agentId: string; path: string }[];
-  } = {},
+  params: SessionStoreTargetReadOptions & { diagnostics?: string[] } = {},
 ): SessionStoreTarget[] {
   const env = params.env ?? process.env;
   const requestedAgent = opts.agent?.trim();
@@ -714,12 +712,18 @@ export function resolveSessionStoreTargets(
     const defaultAgentId = resolveSessionStoreCompatibilityAgentId(cfg);
     const targets = listConfiguredSessionStoreAgentIds(cfg).map((agentId) => ({
       agentId,
-      storePath: resolveSessionStorePathCore(cfg.session?.store, { agentId, env }),
+      storePath: resolveCapturedSessionStorePath(
+        cfg.session?.store,
+        agentId,
+        env,
+        params.readPaths,
+      ),
     }));
     return dedupeSessionStoreTargetsBySqliteTarget(targets, {
       defaultAgentId,
       env,
       registeredDatabases: params.registeredDatabases,
+      readCandidates: params.readCandidates,
       ...(params.diagnostics
         ? { onDiagnostic: (diagnostic) => params.diagnostics?.push(diagnostic.message) }
         : {}),

@@ -3,7 +3,13 @@
 import { html, nothing, render } from "lit";
 import { afterEach, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../../test/helpers/promise.js";
-import { createAsyncQuestionPresentation, type AsyncQuestionDraft } from "./chat-async-question.ts";
+import {
+  createAsyncQuestionPresentation,
+  createAsyncQuestionPanelProps,
+  renderAsyncQuestionSummary,
+  type AsyncQuestionDraft,
+} from "./chat-async-question.ts";
+import "./chat-question-card.ts";
 
 const container = document.createElement("div");
 afterEach(() => {
@@ -27,15 +33,17 @@ it.each(["answered", "failed"] as const)(
       questions: [{ title: "Which audience?", options: ["Engineers", "Everyone"] }],
     };
     const draw = () => {
+      const presentation = createAsyncQuestionPresentation(state, {
+        sessionKey: "agent:main:main",
+        onAsyncQuestionSubmit: submit,
+        onRequestUpdate: draw,
+      });
       render(
-        html`<openclaw-chat-async-question
-          .questions=${questions}
-          .presentation=${createAsyncQuestionPresentation(state, {
-            sessionKey: "agent:main:main",
-            onAsyncQuestionSubmit: submit,
-            onRequestUpdate: draw,
-          })}
-        ></openclaw-chat-async-question>`,
+        state.asyncQuestionDrafts.get(questions.itemId)?.status === "submitted"
+          ? renderAsyncQuestionSummary(questions, presentation)
+          : html`<openclaw-chat-question-panel
+              .props=${createAsyncQuestionPanelProps(questions, presentation, {})}
+            ></openclaw-chat-question-panel>`,
         container,
       );
     };

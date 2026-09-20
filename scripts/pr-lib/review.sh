@@ -34,8 +34,7 @@ review_claim() {
     local user_log
     user_log=".local/review-claim-user-attempt-$attempt.log"
 
-    # A relay's REST /user may identify its caller, not the local mutation writer.
-    if reviewer=$(pr_gh_plain api graphql -f 'query=query { viewer { login } }' --jq .data.viewer.login 2>"$user_log"); then
+    if reviewer=$(pr_gh_writer_login 2>"$user_log"); then
       printf "%s\n" "$reviewer" >"$user_log"
       break
     elif [ "$?" -eq 75 ]; then
@@ -60,7 +59,7 @@ review_claim() {
     local claim_log
     claim_log=".local/review-claim-assignee-attempt-$attempt.log"
 
-    if pr_gh_plain pr edit "$pr" --add-assignee "$reviewer" >"$claim_log" 2>&1; then
+    if pr_gh_plain assign-reviewer "$pr" "$reviewer" >"$claim_log" 2>&1; then
       echo "review claim succeeded: @$reviewer assigned to PR #$pr"
       return 0
     elif [ "$?" -eq 75 ]; then

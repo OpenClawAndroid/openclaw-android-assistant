@@ -5,6 +5,7 @@ import { enableCompileCache, getCompileCacheDir } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { isForegroundGatewayRunArgv } from "./cli/gateway-run-argv.js";
 import {
   isForegroundGmailRunArgv,
   isTerminalInteractiveRespawnArgv,
@@ -117,6 +118,10 @@ function buildOpenClawCompileCacheRespawnPlan(params: {
   const env = params.env ?? process.env;
   const argv = process.argv;
   const platform = process.platform;
+  // A recovered Unix Gateway must not acquire another short-lived stop wrapper.
+  if (platform !== "win32" && isForegroundGatewayRunArgv(argv)) {
+    return undefined;
+  }
   if (isForegroundGmailRunArgv(argv) || shouldKeepNativeHookRelayInProcess(argv, platform)) {
     return undefined;
   }

@@ -112,18 +112,13 @@ describe("AppSidebar footer identity menu", () => {
     sidebar.connected = true;
     sidebar.canPairDevice = false;
     sidebar.onNavigate = onNavigate;
-    gatewayHarness.publishEvent("presence", {
-      presence: [
-        {
-          instanceId: "self-instance",
-          user: {
-            id: "self",
-            name: fullName,
-            email: "ada.with.a.deliberately.long.address@example.test",
-            avatarUrl: "/api/users/self/avatar?v=1",
-          },
-        },
-      ],
+    gatewayHarness.publish({
+      selfUser: {
+        id: "self",
+        name: fullName,
+        email: "ada.with.a.deliberately.long.address@example.test",
+        avatarUrl: "/api/users/self/avatar?v=1",
+      },
     });
     await sidebar.updateComplete;
 
@@ -239,7 +234,7 @@ describe("AppSidebar footer identity menu", () => {
       );
       sidebar.connected = true;
       sidebar.canPairDevice = false;
-      sidebar.offline = offline;
+      sidebar.connectionStatus = offline ? "reconnecting" : null;
       await sidebar.updateComplete;
 
       const identity = sidebar.querySelector<HTMLButtonElement>(".sidebar-identity-card");

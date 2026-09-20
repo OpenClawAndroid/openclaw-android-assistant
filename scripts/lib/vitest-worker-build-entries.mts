@@ -48,6 +48,21 @@ import { nativeSchtasksIntegrationEnabled } from "./vitest-worker-declarations.m
 
 // These fixture hooks require physical module boundaries and complete namespaces.
 export const legacyFinalizerBuildSources = [
+  "src/cli/update-finalization-output.test-support.ts",
+  "src/commands/doctor.ts",
+  "src/config/config.ts",
+  "src/config/paths.ts",
+  "src/plugins/installed-plugin-index-records.ts",
+  "src/plugins/plugin-lifecycle-lease.ts",
+  "src/cli/update-cli/update-command-config-snapshot.ts",
+  "src/cli/update-cli/update-command-config.ts",
+  "src/cli/update-cli/update-command-plugins.ts",
+  "src/cli/update-cli/update-finalization-lifecycle.ts",
+  "src/cli/update-cli/update-command-report.ts",
+  "src/commands/doctor-service-repair-policy.ts",
+  "src/cli/update-cli/update-command-service-maintenance.ts",
+  "src/daemon/service.ts",
+  "src/cli/daemon-cli/restart-health.ts",
   "src/commands/doctor/shared/legacy-config-binding-repair.runtime.ts",
   "src/cli/update-cli/update-command-legacy-finalize.test-support.ts",
   "src/infra/update-migrated-finalize.worker.ts",

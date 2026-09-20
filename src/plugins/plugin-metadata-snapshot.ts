@@ -53,7 +53,12 @@ import type {
   ResolvePluginMetadataSnapshotParams,
 } from "./plugin-metadata-snapshot.types.js";
 import { createPluginRegistryIdNormalizer } from "./plugin-registry-id-normalizer.js";
-import type { preparePluginRegistrySnapshotReader } from "./plugin-registry-snapshot.js";
+import {
+  canReusePluginRegistrySnapshot,
+  getCurrentPluginMetadataSnapshotForRegistry,
+  type LoadPluginRegistryParams,
+  type preparePluginRegistrySnapshotReader,
+} from "./plugin-registry-snapshot.js";
 import { normalizePluginIdScope, serializePluginIdScope } from "./plugin-scope.js";
 import { buildDeclaredProviderOwnerIndex } from "./provider-owner-index.js";
 import { registerProviderPolicyOwnerIndexes } from "./provider-policy-owners.js";
@@ -419,6 +424,29 @@ export function loadPluginMetadataSnapshot(
       );
     }
   }
+  return loadCachedPluginMetadataSnapshot(params);
+}
+
+/** Registry readers retain their exact current-snapshot selection without publishing cold loads. */
+export function loadPluginMetadataSnapshotForRegistry(
+  params: LoadPluginRegistryParams,
+): PluginMetadataSnapshot | undefined {
+  if (!canReusePluginRegistrySnapshot(params) || params.artifactPreservingReadOnly !== undefined) {
+    return undefined;
+  }
+  return (
+    getCurrentPluginMetadataSnapshotForRegistry(params) ??
+    loadCachedPluginMetadataSnapshot({
+      config: params.config,
+      env: params.env,
+      workspaceDir: params.workspaceDir,
+    })
+  );
+}
+
+function loadCachedPluginMetadataSnapshot(
+  params: LoadPluginMetadataSnapshotParams,
+): PluginMetadataSnapshot {
   const cache = getPluginCache();
   const key = resolvePluginMetadataSnapshotCacheKey(params);
   const cached = cache.metadata.snapshots.get(key);

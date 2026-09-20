@@ -56,8 +56,8 @@ async function fixture(setupWrites = false) {
   const workspaceDir = path.join(ownerRoot, "workspace");
   const homeDir = path.join(ownerRoot, "home");
   await Promise.all([
-    fsp.mkdir(workspaceDir, { recursive: true }),
-    fsp.mkdir(homeDir, { recursive: true }),
+    fsp.mkdir(workspaceDir, { recursive: true, mode: 0o700 }),
+    fsp.mkdir(homeDir, { recursive: true, mode: 0o700 }),
   ]);
   const git = async (...args: string[]) =>
     (await runExec("git", ["-C", workspaceDir, ...args], { timeoutMs: 10_000 })).stdout.trim();
@@ -776,6 +776,12 @@ describe("prepared node workspace ownership", () => {
         );
         if (lateChange === "apply failure" || lateChange === "publication failure") {
           await expect(transfer).rejects.toThrow("workspace-transfer-failed");
+          await expect(transfer).rejects.toHaveProperty(
+            "cause.message",
+            lateChange === "publication failure"
+              ? "injected manifest publication failure"
+              : "injected failure after patch application",
+          );
           expect(await fsp.readFile(path.join(f.workspaceDir, "source.txt"), "utf8")).toBe(
             "prepared source\n",
           );

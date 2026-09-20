@@ -65,7 +65,7 @@ macOS TCC grants Accessibility to the code identity of the process it sees. If a
 
 Treat a `node` entry in System Settings as broad permission for that Node runtime, not as permission for one npm package. Avoid granting Accessibility to `node` unless you trust every script and package launched through that exact Node install.
 
-Accessibility approval does not enable activity sharing. **Dashboard → Settings → This Mac → Permissions → Active computer presence** is a separate, off-by-default control for sharing bounded idle duration with your Gateway. Turning it off clears retained activity without revoking Accessibility or disconnecting the node.
+Basic presence comes from interaction with OpenClaw and needs no Accessibility grant. **Dashboard → Settings → This Mac → Permissions → System-wide presence detection** is a separate, off-by-default control that includes physical activity in other apps. Accessibility approval alone does not enable it. Turning it off clears the system-wide sample and falls back to app-local activity, without revoking Accessibility or disconnecting the node.
 
 If you accidentally granted Accessibility to `node`, remove that entry from System Settings -> Privacy & Security -> Accessibility. Then grant the signed app or helper that should own UI automation.
 

@@ -1588,7 +1588,10 @@ openclaw-chat-video-player {
   position: relative;
   grid-area: 1 / 1;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
+  /* Keep header and launch controls inside short panes while the body scrolls. */
+  max-height: calc(100cqh - var(--chat-mobile-pane-header-height, 0px) - 20px);
   padding: 14px 16px 17px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
@@ -1637,6 +1640,8 @@ openclaw-chat-video-player {
 
 .task-suggestion__body {
   min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .task-suggestion__eyebrow {
@@ -1706,14 +1711,14 @@ openclaw-chat-video-player {
 }
 
 .task-suggestion__summary {
-  display: -webkit-box;
+  /* Show the requested one or two sentences; bound only unusually verbose output. */
+  max-height: 16lh;
   margin-top: 6px;
-  overflow: hidden;
+  overflow: auto;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .task-suggestion__instructions {

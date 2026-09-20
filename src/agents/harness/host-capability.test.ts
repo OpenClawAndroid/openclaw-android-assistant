@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import type { GatewayRequestContext } from "../../gateway/server-methods/types.js";
+import { setActiveNodeContext } from "../../infra/active-node-context.js";
 import { onAgentEvent } from "../../infra/agent-events.js";
 import {
   resetAgentRunRegistryForTest,
@@ -149,6 +150,7 @@ function bindTool(
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  setActiveNodeContext(null);
   for (const admission of admissions.splice(0)) {
     admission.close();
   }
@@ -371,7 +373,7 @@ describe("agent harness host capability", () => {
     }
   });
 
-  it("keeps prepared environment access closure-bound", async () => {
+  it("keeps host context reads current and closure-bound", async () => {
     vi.stubEnv("GH_TOKEN", "");
     vi.stubEnv("GITHUB_TOKEN", "");
     const config = { tools: { github: { profileId: "ghp_11111111111111111111111111111111" } } };
@@ -392,8 +394,19 @@ describe("agent harness host capability", () => {
       },
     });
     expect(Object.isFrozen(host.capabilities.preparedEnvironment?.().localProcessEnv)).toBe(true);
+    for (const nodeId of ["mac-a", "mac-b"]) {
+      setActiveNodeContext({ nodeId });
+      expect(host.capabilities.activeComputerContext?.()).toBe(
+        `Current active computer (latest physical input, not message origin): active_node=${nodeId}`,
+      );
+    }
+    setActiveNodeContext({ nodeId: "mac-b" }, { isCurrent: () => false });
+    expect(host.capabilities.activeComputerContext?.()).toBe(
+      "Current active computer (latest physical input, not message origin): active_node=unknown",
+    );
     host.close();
     expect(() => host.capabilities.preparedEnvironment?.()).toThrow("no longer active");
+    expect(() => host.capabilities.activeComputerContext?.()).toThrow("no longer active");
   });
 
   it("rejects retained preparation after the admitted Gateway is replaced", async () => {

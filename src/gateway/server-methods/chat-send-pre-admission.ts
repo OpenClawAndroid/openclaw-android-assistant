@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
+import { isMainSessionRecoveryReconciliationCandidate } from "../../agents/main-session-recovery/main-session-recovery-state.js";
 import { resolveSessionWorkStartError } from "../../config/sessions.js";
 import {
   lookupSessionGoalOperation,
@@ -19,7 +20,8 @@ import { createChatAbortOps } from "../chat-abort-ops.js";
 import { chatAbortMarkerTimestampMs } from "../server-chat-state.js";
 import { PENDING_CHAT_SEND_DEDUPE_PREFIX, type DedupeEntry } from "../server-shared.js";
 import { SessionMutationAuthorizationChangedError } from "../session-mutation-authorization-error.js";
-import { loadSessionEntry } from "../session-utils.js";
+import { loadSessionEntry, resolveGatewaySessionStoreTarget } from "../session-utils.js";
+import { resolveSessionWorkerPlacementContext } from "../session-worker-placement-context.js";
 import { formatForLog } from "../ws-log.js";
 import {
   buildAbortedChatSendPayload,
@@ -36,7 +38,10 @@ import {
   assertExpectedLeafActive,
 } from "./chat-send-active-leaf.js";
 import type { NormalizedChatSendRequest } from "./chat-send-request.js";
-import { SESSION_SETTINGS_CHANGED_ERROR_REASON } from "./chat-send-session-settings.js";
+import {
+  captureAdmittedChatSendSessionSettings,
+  SESSION_SETTINGS_CHANGED_ERROR_REASON,
+} from "./chat-send-session-settings.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
 import { resolveChatSendStopOwnerScope } from "./chat-send-stop-owner-scope.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
@@ -119,7 +124,7 @@ type ChatSendRetryParams = {
   assertCurrent?: () => void;
   request: Pick<
     NormalizedChatSendRequest,
-    "goalOperation" | "requestIdentity" | "rawMessage" | "mentions"
+    "goalOperation" | "requestIdentity" | "rawMessage" | "mentions" | "workContext"
   >;
   session: Pick<
     PreparedChatSendSession,
@@ -188,7 +193,11 @@ export function resolveChatSendRequestConflict({
   if (storedFingerprint !== undefined) {
     return storedFingerprint === session.restartSafeRequest?.fingerprint ? undefined : conflict();
   }
-  if (sameDurableSource && request.mentions?.length && !session.restartSafeRequest) {
+  if (
+    sameDurableSource &&
+    (request.mentions?.length || request.workContext) &&
+    !session.restartSafeRequest
+  ) {
     return conflict(true);
   }
   if (entries.some((entry) => entry?.requestIdentity === request.requestIdentity)) {
@@ -218,10 +227,16 @@ export function resolveChatSendRequestConflict({
       )
     : undefined;
   if (!submitted) {
-    return request.mentions?.length ? conflict(true) : undefined;
+    return request.mentions?.length || request.workContext ? conflict(true) : undefined;
   }
   const storedMentions = submitted["__openclaw"]?.humanMentions;
-  if (!request.mentions?.length && !storedMentions?.length) {
+  const storedContext = submitted["__openclaw"]?.workContext;
+  if (
+    !request.mentions?.length &&
+    !storedMentions?.length &&
+    !request.workContext &&
+    !storedContext
+  ) {
     return undefined;
   }
   const storedText =
@@ -230,7 +245,8 @@ export function resolveChatSendRequestConflict({
       normalizeText: (text) => text,
     }) ?? "";
   return storedText !== request.rawMessage ||
-    !isDeepStrictEqual(storedMentions ?? [], request.mentions ?? [])
+    !isDeepStrictEqual(storedMentions ?? [], request.mentions ?? []) ||
+    !isDeepStrictEqual(storedContext, request.workContext)
     ? conflict()
     : undefined;
 }
@@ -523,11 +539,78 @@ export async function runChatSendPreAdmission(
     return false;
   }
 
+  // Same-ID retries must enter durable recovery after reconciliation, before admission
+  // can mistake the restored claim for an already dispatched turn.
+  let durableEntry = entry;
+  if (entry && isMainSessionRecoveryReconciliationCandidate(entry)) {
+    const { reconcileOrphanedGatewaySessionRecovery } =
+      await import("../session-recovery-service.js");
+    try {
+      const recoveryEntry = loadSessionEntry(sessionLoadKey, sessionLoadOptions).entry;
+      if (recoveryEntry) {
+        await reconcileOrphanedGatewaySessionRecovery({
+          cfg,
+          target: resolveGatewaySessionStoreTarget({
+            cfg,
+            key: sessionKey,
+            agentId: session.agentId,
+          }),
+          entry: recoveryEntry,
+          authorizedPluginId: client?.internal?.pluginRuntimeOwnerId,
+          commitGuard: () => {
+            params.assertCurrent?.();
+            if (sessionRoutingChanged(context.getRuntimeConfig())) {
+              throw new Error(SESSION_ROUTING_CHANGED_ERROR_REASON);
+            }
+            const current = loadSessionEntry(sessionLoadKey, sessionLoadOptions);
+            const conflict = resolveChatSendRequestConflict({
+              ...params,
+              session: { ...session, entry: current.entry },
+            });
+            if (conflict) {
+              throw new Error(conflict.message);
+            }
+            const workStartError = resolveSessionWorkStartError(sessionKey, current.entry, {
+              allowPendingWorkspace: true,
+              expectedSessionId: session.requestedSessionId ?? session.backingSessionId,
+            });
+            if (workStartError) {
+              throw new Error(workStartError);
+            }
+            if (request.p.queueMode !== "steer" && session.expectedLeafEntryId !== undefined) {
+              assertExpectedLeafActive(
+                current,
+                session.agentId,
+                session.expectedLeafEntryId,
+                session.requestedSessionId,
+              );
+            }
+            captureAdmittedChatSendSessionSettings({
+              commit: false,
+              entry: current.entry,
+              expectedPermissionMode: request.p.expectedPermissionMode,
+              expectedToolOverrides: request.p.expectedToolOverrides,
+            });
+          },
+          workerPlacementContext: resolveSessionWorkerPlacementContext(context),
+        });
+      }
+      durableEntry = loadSessionEntry(sessionLoadKey, sessionLoadOptions).entry;
+    } catch (error) {
+      if (error instanceof SessionMutationAuthorizationChangedError) {
+        throw error;
+      }
+      respondChatSendAdmissionError(error, respond);
+      return false;
+    }
+    params.assertCurrent?.();
+  }
+
   const durableClaim = await resolveDurableChatClaim({
     canonicalSessionKey: sessionKey,
     cfg,
     clientRunId,
-    entry,
+    entry: durableEntry,
     persistedSessionKey: legacyKey ?? sessionKey,
     reloadEntry: () => loadSessionEntry(sessionLoadKey, sessionLoadOptions).entry,
     storePath,

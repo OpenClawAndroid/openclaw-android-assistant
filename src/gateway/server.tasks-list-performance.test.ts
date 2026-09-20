@@ -3,6 +3,7 @@ import {
   TASKS_LIST_CURSOR_MAX_LENGTH,
   type TasksListResult,
 } from "../../packages/gateway-protocol/src/index.js";
+import * as taskRegistryRead from "../tasks/task-registry-read.js";
 import {
   createTaskRecord,
   deleteTaskRecordById,
@@ -62,6 +63,7 @@ describe("tasks.list Gateway performance", () => {
       // Keep real authorization and RPCs, but make each prepared access slice
       // consume a deterministic work budget regardless of host speed.
       let workMs = performance.now();
+      let accessSliceWorkMs = 20;
       const workClock = vi.spyOn(performance, "now").mockImplementation(() => workMs);
       const prepareAccess = taskSessionAccess.prepareTaskSessionReadFilter;
       let onAccessSlice: ((batch: Parameters<typeof prepareAccess>[1]) => void) | undefined;
@@ -70,7 +72,7 @@ describe("tasks.list Gateway performance", () => {
         .mockImplementation((...args) => {
           const filter = prepareAccess(...args);
           onAccessSlice?.(args[1]);
-          workMs += 20;
+          workMs += accessSliceWorkMs;
           return filter;
         });
       const sortedInputLengths: number[] = [];
@@ -278,6 +280,90 @@ describe("tasks.list Gateway performance", () => {
         expect(convergingRevision).toBe(convergingRevisionTarget);
         expect(convergedRegistry.ok, JSON.stringify(convergedRegistry.error)).toBe(true);
         expect(convergedRegistry.payload?.tasks).toHaveLength(1);
+
+        for (const { sliceWorkMs, expectedQueuedWork } of [
+          { sliceWorkMs: 1, expectedQueuedWork: [false, false, false] },
+          { sliceWorkMs: 3, expectedQueuedWork: [false, true, true] },
+        ]) {
+          const retryTasks = new Map([...createTaskSnapshot()].slice(0, 65));
+          resetTaskRegistryForTests({ persist: false });
+          configureTaskRegistryRuntime({
+            store: createInMemoryTaskRegistryStore({
+              tasks: retryTasks,
+              deliveryStates: new Map(),
+            }),
+          });
+          let preparations = 0;
+          let mutations = 0;
+          let retryCandidates = 0;
+          let queuedWorkRan = false;
+          let queuedWork: ReturnType<typeof setImmediate> | undefined;
+          const queuedWorkDuringRetry: boolean[] = [];
+          const prepareRead = taskRegistryRead.prepareTaskRegistryRead;
+          const preparation = vi
+            .spyOn(taskRegistryRead, "prepareTaskRegistryRead")
+            .mockImplementation(async () => {
+              const read = await prepareRead();
+              preparations += 1;
+              if (preparations === 2) {
+                // Preparation elapsed time must not consume the scan's work budget.
+                workMs += 100;
+                queuedWork = setImmediate(() => {
+                  queuedWorkRan = true;
+                });
+              }
+              return read;
+            });
+          accessSliceWorkMs = sliceWorkMs;
+          onAccessSlice = (batch) => {
+            if (preparations === 1 && mutations === 0) {
+              const updated = markTaskTerminalById({
+                taskId: "task-00064",
+                status: "succeeded",
+                endedAt: TASK_COUNT + 1,
+                lastEventAt: TASK_COUNT + 1,
+              });
+              if (!updated) {
+                throw new Error("expected a task completion during page selection");
+              }
+              retryTasks.set(updated.taskId, updated);
+              mutations += 1;
+            }
+            if (preparations === 2 && retryCandidates < retryTasks.size) {
+              queuedWorkDuringRetry.push(queuedWorkRan);
+              retryCandidates += batch.length;
+            }
+          };
+          const sortedBeforeRetry = sortedInputLengths.length;
+          try {
+            const retriedPage = await sendRpc<TasksListResult>(
+              viewer,
+              `tasks-retry-budget-${sliceWorkMs}`,
+              "tasks.list",
+              { limit: 7 },
+            );
+            expect(retriedPage.ok, JSON.stringify(retriedPage.error)).toBe(true);
+            expect(preparations).toBe(2);
+            expect(mutations).toBe(1);
+            expect(queuedWorkDuringRetry).toEqual(expectedQueuedWork);
+            expect(sortedInputLengths.slice(sortedBeforeRetry).every((size) => size <= 7)).toBe(
+              true,
+            );
+            const visibleTasks = [...retryTasks.values()].filter(
+              (task) => task.requesterSessionKey === OWNED_SESSION_KEY,
+            );
+            expect(retriedPage.payload?.tasks.map((task) => task.id)).toEqual(
+              expectedTaskIds(visibleTasks, 0, 7),
+            );
+            expect(retriedPage.payload?.tasks[0]?.id).toBe("task-00064");
+            expect(retriedPage.payload?.nextCursor).toBeDefined();
+          } finally {
+            clearImmediate(queuedWork);
+            onAccessSlice = undefined;
+            accessSliceWorkMs = 20;
+            preparation.mockRestore();
+          }
+        }
 
         const churnTasks = createTaskSnapshot();
         const churnTaskId = churnTasks.keys().next().value;

@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import { asOptionalRecord, isStringRecord } from "@openclaw/normalization-core/record-coerce";
 import { hasErrnoCode } from "../infra/errno.js";
+import { LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS } from "../infra/gateway-shutdown-budget.js";
 import { runExec } from "../process/exec.js";
 import type {
   GatewayServiceCommandConfig,
@@ -9,10 +10,11 @@ import type {
   GatewayServiceReadOptions,
 } from "./service-types.js";
 
+export { LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS };
+
 // launchd defaults to a 10s spawn throttle. Keep that default explicitly so
 // crash loops back off instead of respawning every second while still allowing
 // explicit kickstart restarts to take effect.
-export const LAUNCH_AGENT_EXIT_TIMEOUT_SECONDS = 20;
 // launchd stores plist integer values in decimal; 0o077 renders as 63 (owner-only files).
 export const LAUNCH_AGENT_POLICY = {
   RunAtLoad: true,

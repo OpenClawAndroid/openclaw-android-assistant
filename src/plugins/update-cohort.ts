@@ -16,6 +16,7 @@ import {
   capturePluginPackageUpdateSnapshot,
   reconcilePluginPackageUpdateConfig,
 } from "./plugin-package-update.js";
+import { resolveOfficialPluginCohortNpmSpecs } from "./plugin-version-drift.js";
 import type { PluginChannelSyncResult } from "./update-channel.js";
 import {
   isPluginInstallRecordUpdateSource,
@@ -126,6 +127,13 @@ async function convergePluginReleaseCohortWithLease(
   });
   params.beforePersistentEffect?.();
   let config = sync.config;
+  const npmInstallSpecOverrides = params.coreVersion
+    ? resolveOfficialPluginCohortNpmSpecs({
+        gatewayVersion: params.coreVersion,
+        installRecords: config.plugins?.installs ?? {},
+        config,
+      })
+    : undefined;
   let changed = sync.changed;
   let npmChanged = false;
   let installOwners = Object.entries(config.plugins?.installs ?? {})
@@ -178,6 +186,7 @@ async function convergePluginReleaseCohortWithLease(
   if (repairedMissingPayloadIds.size > 0) {
     const repair = await updateNpmInstalledPlugins({
       config,
+      npmInstallSpecOverrides,
       pluginIds: [...repairedMissingPayloadIds],
       timeoutMs: params.timeoutMs,
       workTimeoutMs: params.workTimeoutMs,
@@ -202,6 +211,7 @@ async function convergePluginReleaseCohortWithLease(
 
   const update = await updateNpmInstalledPlugins({
     config,
+    npmInstallSpecOverrides,
     timeoutMs: params.timeoutMs,
     workTimeoutMs: params.workTimeoutMs,
     updateChannel: params.channel,

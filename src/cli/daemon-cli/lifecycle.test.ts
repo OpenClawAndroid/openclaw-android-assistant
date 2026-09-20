@@ -1,5 +1,5 @@
 // Daemon lifecycle tests cover CLI service lifecycle orchestration and cleanup.
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockSystemAccountHome } from "../../daemon/service.test-helpers.js";
 import { captureEnv } from "../../test-utils/env.js";
 import {
@@ -115,6 +115,7 @@ vi.mock("../../infra/gateway-owner-lease.js", () => ({ readGatewayOwnerLease }))
 
 vi.mock("../../infra/restart-intent.js", () => ({
   writeGatewayRestartIntentSync: (params: unknown) => writeGatewayRestartIntentSync(params),
+  writeGatewayServiceRestartIntentSync: (params: unknown) => writeGatewayRestartIntentSync(params),
   clearGatewayRestartIntentSync: () => clearGatewayRestartIntentSync(),
 }));
 
@@ -181,10 +182,9 @@ vi.mock("./lifecycle-core.js", () => ({
   runServiceUninstall: vi.fn(),
 }));
 
+const { runDaemonStart, runDaemonRestart, runDaemonStop } = await import("./lifecycle.js");
+
 describe("runDaemonRestart health checks", () => {
-  let runDaemonStart: typeof import("./lifecycle.js").runDaemonStart;
-  let runDaemonRestart: typeof import("./lifecycle.js").runDaemonRestart;
-  let runDaemonStop: typeof import("./lifecycle.js").runDaemonStop;
   let envSnapshot: ReturnType<typeof captureEnv>;
 
   function mockUnmanagedRestart({
@@ -221,10 +221,6 @@ describe("runDaemonRestart health checks", () => {
     await runDaemonStop(opts);
     return outcome;
   }
-
-  beforeAll(async () => {
-    ({ runDaemonStart, runDaemonRestart, runDaemonStop } = await import("./lifecycle.js"));
-  });
 
   beforeEach(() => {
     envSnapshot = captureEnv([

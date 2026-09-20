@@ -6,7 +6,7 @@ import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { sameFileIdentity } from "./fs-safe-advanced.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { applyPrivateModeSync } from "./private-mode.js";
-import { isSqliteLockError } from "./sqlite-error-diagnostics.js";
+import { isSqliteLockError, withSqliteNativeOpen } from "./sqlite-error-diagnostics.js";
 import { sqliteWriteAdmissionServicesForLocation } from "./sqlite-transaction.js";
 
 export const SqliteCoordinatorError = resolveGlobalSingleton(
@@ -273,7 +273,7 @@ function tryAcquireSqliteCoordinator(
   if (idle && !reused) {
     closeIdleCoordinatorDatabase(idle.database);
   }
-  const database = reused?.database ?? openNodeSqliteDatabase(location);
+  const database = reused?.database ?? withSqliteNativeOpen(() => openNodeSqliteDatabase(location));
   let identity: fs.BigIntStats | undefined;
   try {
     // Kysely transaction callbacks cannot own a lock beyond their synchronous commit section.

@@ -12,6 +12,7 @@ import {
   FakeChild,
   stubHealthyGateway,
 } from "./update-candidate-canary.test-support.js";
+import { renderUpdateRunReport, updateRunReportInputFromResult } from "./update-run-report.js";
 import { updateRunStepsFromResultStep, updateRunWarningMessages } from "./update-run-step.js";
 
 const mocks = vi.hoisted(() => ({
@@ -90,6 +91,106 @@ describe("canary teardown evidence", () => {
     mocks.port.mockResolvedValue(43_123);
     stubHealthyGateway();
   });
+
+  it.each([
+    "passed",
+    "failed",
+    "pipes",
+    "natural",
+    "unconfirmed",
+    "late",
+    "missing",
+    "malformed",
+  ] as const)(
+    "distinguishes a completed lint report (%s) from checks still running at the deadline",
+    async (report) => {
+      let now = 2_000_000;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      const spawnNormally = mocks.spawn.getMockImplementation()!;
+      const signalNormally = mocks.signal.getMockImplementation()!;
+      const lintFindings = Array.from({ length: 5 }, (_, index) => ({
+        checkId: `core/config-${index}`,
+        message: `Invalid configuration ${index}.`,
+      }));
+      let lintChild: FakeChild | undefined;
+      mocks.spawn.mockImplementation((command, args: string[], options) => {
+        if (!args.includes("--lint")) {
+          return spawnNormally(command, args, options);
+        }
+        const child = new FakeChild(nextPid++);
+        lintChild = child;
+        children.set(child.pid, child);
+        queueMicrotask(() => {
+          child.stderr.write("└  Doctor complete.\n");
+          child.stdout.write(
+            report === "missing" || report === "late"
+              ? ""
+              : JSON.stringify(
+                  report === "malformed"
+                    ? { ok: true }
+                    : {
+                        ok: report !== "failed",
+                        checksRun: 1,
+                        findings: report === "failed" ? lintFindings : [],
+                      },
+                ),
+          );
+          if (report === "pipes") {
+            child.emit("exit", 0, null);
+          }
+        });
+        now += 899;
+        return child;
+      });
+      mocks.signal.mockImplementation((pid, signal, options) => {
+        if (lintChild && pid === lintChild.pid) {
+          if (report === "late") {
+            lintChild.stdout.write(JSON.stringify({ ok: true, checksRun: 1, findings: [] }));
+          }
+          if (report === "unconfirmed") {
+            now += 101;
+            options.onComplete?.();
+            return;
+          }
+          lintChild.emit(
+            "exit",
+            report === "natural" ? 0 : null,
+            report === "natural" ? null : "SIGTERM",
+          );
+        }
+        signalNormally(pid, signal, options);
+      });
+      try {
+        const result = await validateUpdateCandidateCanary(canaryStateOptions(1_000));
+        const failed = result.steps.at(-1)!;
+        expect(result).toMatchObject({ status: "error", phase: "lint" });
+        expect(failed.termination).toBe("timeout");
+        if (["passed", "failed", "pipes", "natural", "unconfirmed"].includes(report)) {
+          const message = `Update health check completed, then ${report === "pipes" ? "output pipes stayed open" : "failed to exit"} (${["pipes", "natural", "unconfirmed"].includes(report) ? "termination requested" : "killed"} at 0.9 s)`;
+          if (report !== "failed") {
+            expect(failed.failureFacts?.[0]?.message).toBe(message);
+          }
+          const rendered = renderUpdateRunReport(
+            updateRunReportInputFromResult({ ...result, mode: "git", root }),
+          );
+          expect(rendered.markdown).toContain(message);
+          if (report === "failed") {
+            expect(failed.failureFacts?.map((fact) => fact.message)).toEqual(
+              lintFindings.map((finding) => finding.message),
+            );
+          }
+        } else {
+          expect(failed.failureFacts?.[0]?.message).toBe(
+            "Update health check failed (deadline exceeded)",
+          );
+          expect(result.logTail.join("\n")).toContain("deadline exceeded");
+          expect(JSON.stringify(result)).not.toContain("completed, then failed to exit");
+        }
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
 
   it.each(["close", "term-callback", "kill-callback", "error", "cancelled"] as const)(
     "reports incomplete %s evidence without changing validation outcomes",

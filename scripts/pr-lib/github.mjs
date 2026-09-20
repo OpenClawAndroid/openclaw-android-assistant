@@ -209,15 +209,11 @@ function api(repo, endpoint, route, paginate = false, options = {}) {
   );
 }
 
-function pageItems(pages, key) {
-  if (
-    !Array.isArray(pages) ||
-    pages.length === 0 ||
-    pages.some((page) => !Array.isArray(key ? page?.[key] : page))
-  ) {
+function pageItems(pages) {
+  if (!Array.isArray(pages) || pages.length === 0 || pages.some((page) => !Array.isArray(page))) {
     throw invalidMetadata("GitHub returned malformed paginated metadata.");
   }
-  return pages.flatMap((page) => (key ? page[key] : page));
+  return pages.flat();
 }
 
 function user(record) {
@@ -249,11 +245,6 @@ function readPr(repo, pr, fields, route, options = {}) {
   const record = api(repo, `repos/${repo.name}/pulls/${pr}`, route, false, options);
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     throw new Error("GitHub did not return one PR JSON object.");
-  }
-  if (fields.includes("statusCheckRollup") && !/^[0-9a-f]{40}$/.test(record.head?.sha)) {
-    throw invalidMetadata(
-      `Invalid PR identity for #${pr}: expected complete base/head OIDs and refs before reading checks.`,
-    );
   }
   const result = {
     number: record.number,
@@ -310,47 +301,51 @@ function readPr(repo, pr, fields, route, options = {}) {
       changeType: file.status === "removed" ? "DELETED" : file.status?.toUpperCase(),
     }));
   }
-  if (fields.includes("statusCheckRollup")) {
-    const commit = `repos/${repo.name}/commits/${record.head.sha}`;
-    const checks = pageItems(
-      api(repo, `${commit}/check-runs?filter=latest&per_page=100`, route, true, options),
-      "check_runs",
-    );
-    const statuses = pageItems(
-      api(repo, `${commit}/status?per_page=100`, route, true, options),
-      "statuses",
-    );
-    result.statusCheckRollup = [
-      ...checks.map((check) => ({
-        __typename: "CheckRun",
-        name: check.name,
-        status: check.status?.toUpperCase(),
-        conclusion: check.conclusion?.toUpperCase(),
-        detailsUrl: check.details_url,
-        startedAt: check.started_at,
-        completedAt: check.completed_at,
-        workflowName: check.check_suite?.workflow_run?.name ?? "",
-      })),
-      ...statuses.map((check) => ({
-        __typename: "StatusContext",
-        context: check.context,
-        state: check.state?.toUpperCase(),
-        targetUrl: check.target_url,
-        startedAt: check.created_at,
-      })),
-    ];
-  }
   return selectFields(result, fields, "PR");
 }
 
-export function readPrMetadata(pr, repository, fields, readOptions = () => ({})) {
-  const repo = repositoryLocator(repository, "read", readOptions);
-  return readPr(repo, String(pr), fields, "read", { readOptions, revalidate: true });
+export function createPrMetadataReader(repository) {
+  let repo;
+  return (pr, fields, readOptions = () => ({})) => {
+    repo ??= repositoryLocator(repository, "read", readOptions);
+    return readPr(repo, String(pr), fields, "read", { readOptions, revalidate: true });
+  };
+}
+
+function assignReviewer(pr, reviewer) {
+  if (!/^[1-9][0-9]*$/.test(pr) || typeof reviewer !== "string" || !reviewer.trim()) {
+    throw new Error("Expected a PR number and reviewer login.");
+  }
+  const repo = repositoryLocator(undefined, "plain");
+  const result = execPrGhJson(
+    [
+      "api",
+      "--hostname",
+      repo.host,
+      `repos/${repo.name}/issues/${pr}/assignees`,
+      "--method",
+      "POST",
+      "-f",
+      `assignees[]=${reviewer}`,
+    ],
+    {},
+    "plain",
+  );
+  if (
+    !Array.isArray(result?.assignees) ||
+    !result.assignees.some((assignee) => assignee?.login === reviewer)
+  ) {
+    throw invalidMetadata("GitHub did not assign the requested reviewer.");
+  }
 }
 
 function main([route, ...args]) {
   if (!["plain", "read"].includes(route)) {
     throw new Error("Expected a GitHub CLI route.");
+  }
+  if (route === "plain" && args[0] === "assign-reviewer" && args.length === 3) {
+    assignReviewer(args[1], args[2]);
+    return;
   }
   let result;
   // Keep the existing caller/artifact field contract while sourcing ordinary

@@ -26,6 +26,8 @@ export type OpenClawStateDatabaseReadAdmission = {
   assertCurrent: () => void;
 };
 export type OpenClawStateDatabaseAsyncResource = {
+  /** Shared execution resources close only after accepted owners settle their remaining work. */
+  phase?: "after-resources";
   close: (identity?: DatabasePathIdentity) => Promise<void>;
 };
 
@@ -467,8 +469,20 @@ export function createOpenClawStateDatabaseAsyncLifecycle() {
           current.queue = closing;
           const errors: unknown[] = [];
           while (current.queue.size) {
-            const batch = [...current.queue];
-            current.queue.clear();
+            const ordinary = [...current.queue].filter(
+              (resource) => resource.phase !== "after-resources",
+            );
+            // Failed owners retain the transports they may need during a canonical retry.
+            if (!ordinary.length && errors.length) {
+              for (const resource of current.queue) {
+                current.retained.add(resource);
+              }
+              break;
+            }
+            const batch = ordinary.length ? ordinary : [...current.queue];
+            for (const resource of batch) {
+              current.queue.delete(resource);
+            }
             await Promise.all(
               batch.map(async (resource) => {
                 try {

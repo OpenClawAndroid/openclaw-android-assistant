@@ -37,6 +37,18 @@ async function makeLauncherFixture(fixtureRoots: string[]): Promise<string> {
     path.join(fixtureRoot, "node-runtime-recovery.mjs"),
   );
   await fs.copyFile(
+    path.resolve(process.cwd(), "cli-root-options.mjs"),
+    path.join(fixtureRoot, "cli-root-options.mjs"),
+  );
+  await fs.copyFile(
+    path.resolve(process.cwd(), "gateway-run-argv.mjs"),
+    path.join(fixtureRoot, "gateway-run-argv.mjs"),
+  );
+  await fs.copyFile(
+    path.resolve(process.cwd(), "gateway-shutdown-budget.mjs"),
+    path.join(fixtureRoot, "gateway-shutdown-budget.mjs"),
+  );
+  await fs.copyFile(
     path.resolve(process.cwd(), "node-sqlite.mjs"),
     path.join(fixtureRoot, "node-sqlite.mjs"),
   );

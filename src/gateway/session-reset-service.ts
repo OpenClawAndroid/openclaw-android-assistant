@@ -337,10 +337,9 @@ async function ensureSessionRuntimeCleanup(params: {
       : undefined,
     assertCurrent: params.assertCurrent,
   });
-  // Session lifecycle mutation owns this heavy runtime edge; read-only gateway
-  // commands such as status must not load the embedded-agent barrel.
+  // Cleanup needs the active-run owner, not the runner and compaction orchestration.
   const [embeddedAgent, mcpTools, { clearFinishedSessionsForScopes }] = await Promise.all([
-    import("../agents/embedded-agent.js"),
+    import("../agents/embedded-agent-runner/runs.js"),
     import("../agents/agent-bundle-mcp-tools.js"),
     import("../agents/bash-process-registry.js"),
   ]);

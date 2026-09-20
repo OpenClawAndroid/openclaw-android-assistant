@@ -693,6 +693,7 @@ src/infra/sqlite-snapshot-source.ts
 src/infra/sqlite-snapshot-staging-owner.ts
 src/infra/sqlite-snapshot-staging.ts
 src/infra/sqlite-source-handle.ts
+src/infra/sqlite-store.worker.ts
 src/infra/sqlite-strict.ts
 src/infra/sqlite-terminal-open-latch.ts
 src/infra/sqlite-transaction.ts
@@ -710,6 +711,7 @@ src/infra/sqlite-worker-contract.ts
 src/infra/sqlite-worker-identity.ts
 src/infra/sqlite-worker-lifecycle-preparation.ts
 src/infra/sqlite-worker-operation-admission.ts
+src/infra/sqlite-worker-state-context.ts
 src/infra/sqlite-worker-store.ts
 src/infra/sqlite-worker-transfer.ts
 src/infra/stale-lock-file.ts
@@ -755,6 +757,10 @@ src/infra/windows-process-start.ts
 src/infra/worker-cpu.ts
 src/infra/worker-task-capacity.ts
 src/infra/worker-task-native-sections.ts
+src/infra/worker-task-pool-completion.ts
+src/infra/worker-task-pool-core.ts
+src/infra/worker-task-pool-owned.ts
+src/infra/worker-task-pool-retirement.ts
 src/infra/worker-task-pool.ts
 src/infra/worker-task-server.ts
 src/infra/worker-transfer-bytes.ts
@@ -1007,6 +1013,7 @@ src/process/exec-spawn.ts
 src/process/exec-termination.ts
 src/process/exec.ts
 src/process/kill-tree.ts
+src/process/output-drain.ts
 src/process/scoped-child-reaper.ts
 src/process/spawn-broker/child.ts
 src/process/spawn-broker/cleanup.ts
@@ -1147,6 +1154,7 @@ src/state/openclaw-state-lease-heartbeat.worker.ts
 src/state/openclaw-state-lease-storage.ts
 src/state/openclaw-state-lease-store.ts
 src/state/openclaw-state-lease-worker-owner.ts
+src/state/openclaw-state-lease-worker.ts
 src/state/openclaw-state-lease.ts
 src/state/openclaw-state-ownership.ts
 src/state/openclaw-state-read-scope.ts
@@ -1158,6 +1166,7 @@ src/state/openclaw-state-schema.ts
 src/state/openclaw-state-worker-context.ts
 src/state/openclaw-state-worker-error.ts
 src/state/openclaw-state-worker-store.ts
+src/state/openclaw-state.worker.ts
 src/state/openclaw-update-schema-refusal.ts
 src/state/session-watch-cursor-provenance.ts
 src/utils.ts

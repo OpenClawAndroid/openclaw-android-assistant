@@ -425,7 +425,7 @@ vi.mock("../plugins/plugin-metadata-snapshot.js", async (importOriginal) => {
 vi.mock("../skills/discovery/chat-commands.runtime.js", () => ({
   expandExplicitSkillReferences: ({ text }: { text: string }) => ({ body: text, skills: [] }),
   hasSkillReferenceCandidate: () => true,
-  listSkillCommandsForWorkspace: (params: unknown) =>
+  prepareSkillCommandsForWorkspace: async (params: unknown) =>
     state.listSkillCommandsForWorkspaceMock(params),
   resolveEffectiveAgentSkillFilter: () => undefined,
 }));

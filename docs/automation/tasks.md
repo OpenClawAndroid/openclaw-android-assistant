@@ -366,7 +366,7 @@ For the full operator ledger, use the CLI: `openclaw tasks list`.
 
 ### Control UI
 
-The web Control UI has a **Tasks** page in the sidebar with live active and recent background tasks. Use it to inspect progress, open linked sessions, refresh the ledger, cancel queued and running tasks, or retry/dismiss a blocked completion delivery. Task detail keeps execution status and delivery status separate and exposes the retained result for copying.
+The web Control UI has a **Tasks** page in the sidebar with live active and recent background tasks. Use it to inspect progress, open linked sessions, refresh the ledger, cancel queued and running tasks, or retry/dismiss a blocked completion delivery. Task detail keeps execution status and delivery status separate and exposes the retained result for copying. Final delivery and outcome corrections update the live task without counting delivery as additional execution time.
 
 Chat panes also have a collapsible **Background tasks** rail scoped to the current conversation, with active work, stop controls, and a finished section. Open it from the pane's **Tasks** panel action. Subagent activity below the parent conversation also opens the selected child's details.
 

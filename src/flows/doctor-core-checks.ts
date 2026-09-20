@@ -148,7 +148,7 @@ async function collectLocalAudioAccelerationFindingsWithRuntime(): Promise<
 async function collectGatewayHealthFindingsWithRuntime(
   ctx: HealthCheckContext,
 ): Promise<readonly HealthFinding[]> {
-  const runtime = await loadDoctorCoreChecksRuntimeModule();
+  const runtime = await import("../commands/doctor-gateway-health.js");
   return runtime.collectGatewayHealthFindings(ctx);
 }
 

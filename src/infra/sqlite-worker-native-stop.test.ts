@@ -1,9 +1,14 @@
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { SqliteWorkerBroker } from "./sqlite-worker-broker.js";
 import type { SqliteWorkerStore } from "./sqlite-worker-contract.js";
 import type { FixtureOperations } from "./sqlite-worker-store.test-support.js";
+
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  availableParallelism: () => 32,
+}));
 
 const dirs = useAutoCleanupTempDirTracker(afterEach);
 

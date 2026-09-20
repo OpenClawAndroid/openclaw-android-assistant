@@ -42,6 +42,7 @@ import { assertValidParams } from "./validation.js";
 
 type ChatAbortLifecycle = {
   onAuthorizedAfterQueuedAbort?: () => boolean;
+  onDescendantsCancelled?: () => void;
   excludeRunIds?: ReadonlySet<string>;
   cascadeDescendants?: true;
 };
@@ -168,6 +169,9 @@ export async function handleChatAbortRequestWithLifecycle(
     if (res.unauthorized) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unauthorized"));
       return;
+    }
+    if (res.descendants?.killed) {
+      lifecycle.onDescendantsCancelled?.();
     }
     const error = res.error ?? descendantAbortError(res.descendants, "Session");
     if (error) {

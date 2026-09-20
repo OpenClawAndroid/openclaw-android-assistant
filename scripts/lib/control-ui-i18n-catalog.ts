@@ -32,6 +32,7 @@ import { registerPluginManagementEnglish } from "../../ui/src/i18n/locales/en-pl
 import { registerPortalsEnglish } from "../../ui/src/i18n/locales/en-portals.ts";
 import { registerSessionPlacementEnglish } from "../../ui/src/i18n/locales/en-session-placement.ts";
 import { registerSettingsEnglish } from "../../ui/src/i18n/locales/en-settings.ts";
+import { registerSidebarAttentionEnglish } from "../../ui/src/i18n/locales/en-sidebar-attention.ts";
 import { registerSkillLibraryEnglish } from "../../ui/src/i18n/locales/en-skill-library.ts";
 import { registerSkillWorkshopEnglish } from "../../ui/src/i18n/locales/en-skill-workshop.ts";
 import { registerSkillsBrowserEnglish } from "../../ui/src/i18n/locales/en-skills-browser.ts";
@@ -84,6 +85,7 @@ const sourceFiles = [
   "en-plugin-management.ts",
   "en-portals.ts",
   "en-settings.ts",
+  "en-sidebar-attention.ts",
   "en-skill-library.ts",
   "en-skill-workshop.ts",
   "en-skills-browser.ts",
@@ -144,6 +146,7 @@ export function loadControlUiSourceCatalog(): TranslationMap {
       palette: registerCommandPaletteEnglish.catalog.palette,
       debug: registerDebugEnglish.catalog.debug,
       desktop: registerDesktopEnglish.catalog.desktop,
+      attention: registerSidebarAttentionEnglish.catalog.attention,
     },
     registerActivityEnglish.catalog,
     registerAgentsHomeEnglish.catalog,
@@ -168,6 +171,7 @@ export function loadControlUiSourceCatalog(): TranslationMap {
     registerPluginManagementEnglish.catalog,
     registerPortalsEnglish.catalog,
     registerSettingsEnglish.catalog,
+    registerSidebarAttentionEnglish.catalog,
     registerSkillWorkshopEnglish.catalog,
     registerSkillsBrowserEnglish.catalog,
     registerSystemsEnglish.catalog,

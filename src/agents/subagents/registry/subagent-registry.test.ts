@@ -48,7 +48,7 @@ import { findTaskByRunIdForStatus } from "../../../tasks/task-status-access.js";
 import { buildAgentRunTerminalOutcomeFromLifecycleEvent } from "../../agent-run-terminal-outcome.js";
 import {
   createSessionEntry,
-  createSubagentRunParams,
+  createSubagentRegistryHarness,
   createSubagentRunRecord,
   expectRecordFields,
   mockGatewayMethods,
@@ -56,7 +56,7 @@ import {
   waitForFast,
 } from "../../subagent-test-fixtures.test-helpers.js";
 import type {
-  SubagentRunParamsOverrides,
+  SubagentRegistryHarness,
   SubagentRunRecordOverrides,
 } from "../../subagent-test-fixtures.test-helpers.js";
 import { enqueueSwarmRun, releaseSwarmRun } from "../swarm/swarm-scheduler.js";
@@ -140,6 +140,9 @@ vi.mock("./subagent-registry-state.js", async () => ({
   ...(await import("../../subagent-test-fixtures.test-helpers.js")).createSubagentPersistenceMock(
     mocks,
   ),
+  persistSubagentRunsToDiskAsyncOrThrow: async () => {
+    throw new Error("Unexpected required queued registration");
+  },
 }));
 
 vi.mock("./subagent-registry-replacement-store.js", () => ({
@@ -181,11 +184,6 @@ vi.mock("../../internal-session-effects.js", () => ({
 }));
 
 describe("subagent registry seam flow", () => {
-  type RegistryModule = typeof import("./subagent-registry.test-helpers.js");
-  type RegistryHarness = Omit<RegistryModule, "addSubagentRunForTests" | "registerSubagentRun"> & {
-    addSubagentRunForTests(entry: SubagentRunRecordOverrides): void;
-    registerSubagentRun(params: SubagentRunParamsOverrides): void;
-  };
   type RunRecordFixtureOverrides = Pick<SubagentRunRecordOverrides, "runId"> &
     Partial<Omit<SubagentRunRecordOverrides, "runId">>;
   type KilledRunOverrides = Pick<SubagentRunRecordOverrides, "runId"> &
@@ -313,7 +311,7 @@ describe("subagent registry seam flow", () => {
       ...deliveryOverrides,
     },
   });
-  let mod: RegistryHarness;
+  let mod: SubagentRegistryHarness;
   const recoveryRuntime: GatewayRecoveryRuntime = {
     dispatchSessionMethod: vi.fn(),
     dispatchAgent: mocks.dispatchRecoveryAgent as GatewayRecoveryRuntime["dispatchAgent"],
@@ -366,12 +364,7 @@ describe("subagent registry seam flow", () => {
 
   beforeAll(async () => {
     const registry = await import("./subagent-registry.test-helpers.js");
-    mod = {
-      ...registry,
-      addSubagentRunForTests: registry.addSubagentRunForTests,
-      registerSubagentRun: (params) =>
-        registry.registerSubagentRun(createSubagentRunParams(params)),
-    };
+    mod = createSubagentRegistryHarness(registry);
   });
 
   beforeEach(() => {

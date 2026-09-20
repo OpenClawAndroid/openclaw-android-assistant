@@ -238,7 +238,7 @@ export function createMainRefreshFixture(
     failFetchAt: 0,
     pauseFetchAt: 0,
     failAuth: false,
-    viewerRateLimited: false,
+    writerRateLimited: false,
     moveAfterFirstFetch: false,
     moveAtGate: false,
     moveAtChecks: false,
@@ -453,22 +453,24 @@ if (args[0] === 'pr' && args[1] === 'view') {
   value = [];
 } else if (args[0] === 'api') {
   const endpoint = args.find((arg, index) => index > 0 &&
-    (arg === 'graphql' || arg === 'rate_limit' || arg === 'users/fixture' || arg.startsWith('repos/')));
+    (arg === 'graphql' || arg === 'user' || arg === 'rate_limit' || arg === 'users/fixture' || arg.startsWith('repos/')));
   if (endpoint === 'rate_limit') {
     value = { resources: {
       graphql: { remaining: 0, limit: 5000, reset: 1893456000 },
       core: { remaining: 4999, limit: 5000, reset: 1893459600 },
     } };
+  } else if (endpoint === 'user') {
+    if (control.failAuth) process.exit(1);
+    if (!args.includes('--include')) throw new Error('Writer identity requires response headers');
+    if (control.writerRateLimited) {
+      process.stdout.write('HTTP/2.0 403 Forbidden\\nX-RateLimit-Resource: core\\r\\nX-RateLimit-Remaining: 0\\r\\n\\r\\n');
+      console.log(JSON.stringify({ message: 'API rate limit exceeded for synthetic writer' }));
+      process.exit(1);
+    }
+    value = { login: 'fixture' };
   } else if (endpoint === 'graphql') {
     if (control.failAuth) process.exit(1);
-    if (args.some(arg => arg.includes('viewer { login }'))) {
-      if (control.viewerRateLimited) {
-        if (args.includes('--include')) process.stdout.write('HTTP/2.0 200 OK\\nX-RateLimit-Resource: graphql\\r\\nX-RateLimit-Remaining: 0\\r\\n\\r\\n');
-        console.log(JSON.stringify({ errors: [{ type: 'RATE_LIMITED', message: 'Synthetic quota failure' }] }));
-        process.exit(1);
-      }
-      value = { data: { viewer: { login: 'fixture' } } };
-    } else if (args.some(arg => arg.includes('viewerMergeBodyText'))) {
+    if (args.some(arg => arg.includes('viewerMergeBodyText'))) {
       value = { data: { repository: { pullRequest: {
         headRefOid: control.metadata.headRefOid,
         author: { ...control.metadata.author, __typename: 'User' },
