@@ -21,6 +21,7 @@ import {
   findUnmatchedExplicitTestTargets,
   formatFailedShardDigest,
   formatNoChangedTestTargetLines,
+  isTestFileTarget,
   orderFullSuiteSpecsForParallelRun,
   parseTestProjectsArgs,
   resolveChangedTestTargetPlanForArgs,
@@ -46,6 +47,36 @@ const normalizeRepoPath = toRepoPath;
 const CODEX_TEST_PROCESS_FILE_LIMIT = 12;
 const MATRIX_TEST_PROCESS_FILE_LIMIT = 40;
 const TELEGRAM_TEST_PROCESS_FILE_LIMIT = 1;
+
+describe("Windows CI partitions", () => {
+  it("keeps explicit coverage disjoint without repeating small project setup", () => {
+    const { scripts } = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const [first, second] = [1, 2].map((part) => {
+      const command = scripts[`test:windows:ci:${part}`];
+      assert(command);
+      const entrypoint = "scripts/test-projects.mts ";
+      expect(command).toContain(entrypoint);
+      const targets = command.slice(command.indexOf(entrypoint) + entrypoint.length).split(/\s+/u);
+      expect(targets.every((target) => isTestFileTarget(target))).toBe(true);
+      expect(findUnmatchedExplicitTestTargets(targets)).toEqual([]);
+      return {
+        targets,
+        configs: new Set(createVitestRunSpecs(targets, { baseEnv: {} }).map((spec) => spec.config)),
+      };
+    });
+    assert(first && second);
+    const targets = [...first.targets, ...second.targets];
+    expect(new Set(targets).size).toBe(targets.length);
+    // Tooling owns the long compiler fixtures; the extension catch-all retains
+    // separate plugin processes. The other projects share setup within one part.
+    expect([...first.configs].filter((config) => second.configs.has(config))).toEqual([
+      "test/vitest/vitest.tooling.config.ts",
+      "test/vitest/vitest.extensions.config.ts",
+    ]);
+  });
+});
 
 describe("test runtime prerequisites", () => {
   it.each([

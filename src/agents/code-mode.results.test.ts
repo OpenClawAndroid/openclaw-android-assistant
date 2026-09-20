@@ -234,8 +234,6 @@ it("preserves results through client append and wait, and exposes canonical Type
   try {
     const saved = resultDetails(
       await h.tools[0]!.execute("save", {
-        language: "typescript",
-        typecheck: true,
         code: 'const ref = await results.save({name:"sample"}); return {id:ref.id, count:ref.count};',
       }),
     );

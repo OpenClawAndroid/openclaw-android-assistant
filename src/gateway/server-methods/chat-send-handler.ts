@@ -1,4 +1,3 @@
-// chat.send owns admission, ACK timing, and detached dispatch handoff.
 import { performance } from "node:perf_hooks";
 import {
   createAgentRunRestartAbortError,
@@ -16,6 +15,8 @@ import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import { clearAgentRunContext } from "../../infra/agent-run-registry.js";
 import { emitDiagnosticsTimelineEvent } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+// chat.send owns admission, ACK timing, and detached dispatch handoff.
+import { isProgressCardRefreshInputProvenance } from "../../sessions/input-provenance.js";
 import { recordSessionCreated } from "../../sessions/session-created.js";
 import { recordSessionGoalChanged } from "../../sessions/session-state-events.js";
 import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
@@ -506,7 +507,11 @@ async function handleChatSendWithOptions(
       documentContext: steerDocumentContext,
       userTurnTranscriptRecorder: userTurnRecorder,
       logGateway: context.logGateway,
-      assertCurrent: req.expectedProfileId === undefined ? undefined : assertInputAdmissionCurrent,
+      assertCurrent:
+        req.expectedProfileId === undefined &&
+        !isProgressCardRefreshInputProvenance(systemInputProvenance)
+          ? undefined
+          : assertInputAdmissionCurrent,
     });
     const preAckReplyContextPromise =
       messageInjectionTarget && !isInternalTextSlashCommandTurn

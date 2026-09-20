@@ -935,9 +935,13 @@ appends also run their existing deduplication, sequence allocation, and insertio
 transaction on that worker. The capture records accepted speech before preparing
 its immutable input, preserves its order, and retains authority through native
 settlement. Terminal notes and failed-start restoration wait for accepted appends;
-terminal callbacks cannot admit new speech. Chronological
+terminal callbacks cannot admit new speech. Summary publication checks the captured
+input revision, prior notes, and speech sequence in the same worker transaction as
+the summary write. The host retains live summary-generation, caller, and abort
+checks at transaction and commit admission; stale results preserve prior notes.
+Chronological
 list reads still use the parent process because their SQL date function observes
-its current timezone. Streamed reads, export snapshots, and session and summary writes retain
+its current timezone. Streamed reads, export snapshots, and session and export-state writes retain
 their existing owners until their snapshot and write-drainage lifecycles move
 together.
 
@@ -1054,6 +1058,15 @@ pre-send best-effort fallback therefore cannot authorize a provider send after
 an unacknowledged settlement. Media stays available for existing orphan cleanup.
 Other outbound queue operations and media custody remain separate migration work.
 Schemas, retained receipts, update behavior, and cleanup policy are unchanged.
+
+Outbound producer claims and lease renewals run in the shared-state worker. The
+existing write transaction rereads the pending row, exact owner, and expiry on
+the executing worker. Callers await claim publication; lease stop joins accepted
+renewals before cancellation cleanup or acknowledgement can retire custody. An
+unavailable claim result leaves its row and media with recovery rather than
+replaying the mutation or starting a provider send. The lease period, heartbeat,
+retry budget, namespaces, stored payloads, and update behavior are unchanged.
+The final provider-dispatch fence and queue settlement retain their existing owners.
 
 Pending outbound failure settlement runs in the shared-state worker with the
 captured entry bytes and state context. Its existing exact-row and optional
@@ -1351,6 +1364,15 @@ mutations, and the final synchronous ownership check before closing a browser
 target retain their existing owners.
 
 ### Preserve the data and concurrency contracts
+
+Task, flow, and Cron receipt execution identity bindings run in the shared-state
+worker. Their synchronous transactions reread the exact live owner rows and
+recheck the caller's current execution authority before mutation and commit.
+Callers capture one database context for each ordered binding sequence and await
+its settlement before continuing or releasing their execution owner. Cron keeps
+receipt, task, then flow order. Metadata remains provenance only; lifecycle,
+collection settings, mismatch reporting, schemas, retention, and update behavior
+are unchanged.
 
 Doctor's local device-token inventory executes in the shared-state worker. The
 detector awaits its result and preserves role ordering, malformed-row omission,

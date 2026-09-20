@@ -52,13 +52,9 @@ and per-agent GitHub changes remain `operator.admin`. Publication remains
 Unknown future `operator.*` scopes require an exact match unless the caller
 already holds `operator.admin`.
 
-The same scope implications apply to RPC calls, event delivery, and internal
-tool calls from background continuations. A continuation admitted with
+RPCs, events, and background tools use the same scope rules. A continuation with
 `operator.write` can read its GitHub identity and session state without another
-interactive message. Narrowing evaluates requested scopes against the caller's
-current authority; read or write permission does not become admin, approval,
-pairing, or Talk-secret access. Session access and execution-lifetime checks
-still apply.
+interactive message. Session access and execution-lifetime checks still apply.
 
 ## Named operator roles
 

@@ -389,6 +389,23 @@ provenance metadata. Private QA shards select their private runtime entries. The
 `build-artifacts` job owns Control UI and SDK declaration validation; release
 package builds still generate the full declarations.
 
+Source-only Linux Node 24 shards can restore compiled Vitest workers from the
+protected cache warmer. The warmer prepares one generation before SDK or runtime
+builds change package resolution, joins the preparation owner, and publishes only
+the retained cache. PR jobs restore it without publishing. Consumers enable
+reuse only when an archive exists; cold runners keep ordinary fresh compilation.
+The worker owner verifies source and dependency bytes, compiler identity,
+resolution topology, environment, output inventory, and the exact checkout and
+output-slot paths before lending a generation. Changed or incompatible inputs
+rebuild locally. Frozen targets, other Node versions, and runtime-building shards
+retain fresh preparation.
+
+The artifact job keeps its built outputs for its own smoke and boundary checks.
+It no longer packs or uploads the unused `dist-runtime-build` and
+`bundled-plugin-assets` archives. Runtime shards still start after preflight;
+they do not wait for SDK declarations, the Control UI build, or artifact checks.
+Diagnostic and proof uploads remain available.
+
 Declaration caches hash the selected writer's transitive generator imports,
 package and plugin metadata, explicit schema and build metadata inputs, and
 the compiler's recorded source files. Editing an unrelated CI script does not

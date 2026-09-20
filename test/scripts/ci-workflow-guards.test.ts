@@ -8350,6 +8350,100 @@ server.listen(0, "127.0.0.1", () => {
     },
   );
 
+  it("restores compiled workers only for opted-in Linux consumers with a shared seed", () => {
+    const action = parse(readFileSync(".github/actions/setup-node-env/action.yml", "utf8"));
+    const steps = action.runs.steps as WorkflowStep[];
+    const restore = expectDefined(
+      steps.find((step) => step.id === "vitest-worker-cache"),
+      "compiled worker restore",
+    );
+    const enable = expectDefined(
+      steps.find((step) => step.name === "Enable restored Vitest workers"),
+      "compiled worker opt-in",
+    );
+    expect(action.inputs["vitest-worker-cache"].default).toBe("false");
+    expect(restore).toMatchObject({
+      uses: CACHE_V5,
+      "continue-on-error": true,
+      with: { path: ".artifacts/vitest-worker-cache" },
+    });
+    expect(restore.with?.key).toContain("${{ steps.setup-node.outputs.resolved-version }}");
+    expect(restore.with?.key).toContain("${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(restore.with?.["restore-keys"]).toContain(
+      "-protected-${{ runner.os }}-${{ runner.arch }}-",
+    );
+    const warmer = parse(readFileSync(".github/workflows/vitest-cache-warm.yml", "utf8"));
+    const warmerSteps = warmer.jobs.warm.steps as WorkflowStep[];
+    const prepare = expectDefined(
+      warmerSteps.find((step) => step.name === "Prepare compiled Vitest workers"),
+      "compiled worker preparation",
+    );
+    const save = expectDefined(
+      warmerSteps.find((step) => step.name === "Save compiled Vitest workers"),
+      "compiled worker publication",
+    );
+    expect(prepare).toMatchObject({
+      run: "node scripts/prepare-vitest-worker-cache.mts",
+      env: { NODE_OPTIONS: "--max-old-space-size=8192", OPENCLAW_VITEST_WORKER_CACHE: "1" },
+    });
+    expect(save).toMatchObject({
+      uses: CACHE_SAVE_V5,
+      with: {
+        path: restore.with?.path,
+        key: "${{ steps.setup-node-env.outputs.vitest-worker-cache-key }}",
+      },
+    });
+    expect(save.if).toContain("steps.setup-node-env.outputs.cache-mode == 'read-write'");
+    expect(save.if).not.toMatch(/always\(|failure\(|cancelled\(/u);
+    expect(warmerSteps.indexOf(prepare)).toBeLessThan(warmerSteps.indexOf(save));
+    expect(warmerSteps.indexOf(save)).toBeLessThan(
+      warmerSteps.findIndex((step) => step.name === "Prepare native SDK boundary cache"),
+    );
+    for (const mode of ["off", "restore", "read-write"]) {
+      for (const optedIn of ["true", "false"]) {
+        for (const os of ["Linux", "macOS", "Windows"]) {
+          for (const matched of ["", "protected-seed"]) {
+            const enabled = (step: WorkflowStep) =>
+              runInNewContext(String(step.if).replace(/\.([a-z][a-z-]*)/gu, '["$1"]'), {
+                inputs: { "cache-mode": mode, "vitest-worker-cache": optedIn },
+                runner: { os },
+                steps: { "vitest-worker-cache": { outputs: { "cache-matched-key": matched } } },
+              });
+            const eligible = mode !== "off" && optedIn === "true" && os === "Linux";
+            expect(enabled(restore)).toBe(eligible);
+            expect(enabled(enable)).toBe(eligible && matched !== "");
+          }
+        }
+      }
+    }
+    const shard = readCiWorkflow().jobs["checks-node-core-test-nondist-shard"];
+    const setup = expectDefined(
+      shard.steps.find((step: WorkflowStep) => step.name === "Setup Node environment"),
+      "Node shard setup",
+    );
+    for (const frozenTarget of [false, true]) {
+      for (const pretestBuild of [null, "runtime", "private-qa"]) {
+        for (const nodeVersion of [null, "24.x", "26.x"]) {
+          expect(
+            evaluateWorkflowExpression(setup.with["vitest-worker-cache"], {
+              eventName: "pull_request",
+              repository: "openclaw/openclaw",
+              runAttempt: 1,
+              frozenTarget,
+              matrix: { pretest_build_mode: pretestBuild, node_version: nodeVersion },
+            }),
+          ).toBe(
+            String(
+              !frozenTarget &&
+                pretestBuild === null &&
+                (nodeVersion === null || nodeVersion === "24.x"),
+            ),
+          );
+        }
+      }
+    }
+  });
+
   it("persists content-validated public full-build declarations", () => {
     const action = parse(readFileSync(".github/actions/setup-node-env/action.yml", "utf8"));
     const installStep = action.runs.steps.find(
@@ -9138,6 +9232,7 @@ server.listen(0, "127.0.0.1", () => {
             "node-compile-cache-scope": "test",
             "node-compile-cache": String(full),
             "vitest-fs-cache": String(full),
+            "vitest-worker-cache": String(full),
           });
           for (const step of [
             buildStep,
@@ -9185,6 +9280,7 @@ server.listen(0, "127.0.0.1", () => {
       "Save Node toolchain cache",
       "Save exact dependency cache",
       "Save pnpm store cache",
+      "Save compiled Vitest workers",
       "Save native SDK boundary cache",
       "Save build-all cache",
       "Save dist build cache",
@@ -9201,7 +9297,8 @@ server.listen(0, "127.0.0.1", () => {
       if (
         saveStep.name === "Save Node toolchain cache" ||
         saveStep.name === "Save exact dependency cache" ||
-        saveStep.name === "Save pnpm store cache"
+        saveStep.name === "Save pnpm store cache" ||
+        saveStep.name === "Save compiled Vitest workers"
       ) {
         expect(warmerSteps.indexOf(saveStep), saveStep.name).toBeLessThan(
           warmerSteps.indexOf(buildStep),
@@ -16068,7 +16165,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       stepNames.indexOf("Build dist"),
     );
     expect(stepNames.indexOf("Build dist")).toBeLessThan(
-      stepNames.indexOf("Pack built runtime artifacts"),
+      stepNames.indexOf("Smoke test CLI launcher help"),
     );
     expect(stepNames).not.toContain("Save dist build cache");
     expect(restoreStep.uses).toBe(CACHE_V5);
@@ -16081,10 +16178,6 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(restoreStep.with.path).toContain("packages/*/dist/");
     expect(saveStep.with?.path).toContain("packages/*/dist/");
     expect(restoreStep.with.key).toContain("dist-build-v3-");
-    expect(
-      buildArtifactSteps.find((step: WorkflowStep) => step.name === "Pack built runtime artifacts")
-        .run,
-    ).toContain("packages/*/dist");
     expect(restoreStep.with.path).toContain("extensions/*/src/host/**/.bundle.hash");
     expect(restoreStep.with.path).toContain("extensions/*/src/host/**/*.bundle.js");
     expect(warmerSteps.indexOf(saveStep)).toBeGreaterThan(

@@ -23,10 +23,7 @@ type CodeModeBridgeMethod =
   | "sleep"
   | "swarmNote";
 
-export type CodeModeLanguage = "javascript" | "typescript";
-
 export type CodeModeConfig = {
-  languages: CodeModeLanguage[];
   timeoutMs: number;
   memoryLimitBytes: number;
   maxOutputBytes: number;
@@ -59,9 +56,7 @@ type CodeModeWorkerInput =
   | {
       kind: "exec";
       source: string;
-      language?: CodeModeLanguage;
       prelude?: string;
-      preflightDeclarations?: string;
       executionTimeoutMs?: number;
       config: CodeModeConfig;
       catalog: unknown[];

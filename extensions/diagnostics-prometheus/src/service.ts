@@ -15,8 +15,15 @@ import type {
   OpenClawPluginService,
 } from "../api.js";
 import { isInternalDiagnosticEventMetadata, redactSensitiveText } from "../api.js";
-
-type LabelSet = Record<string, string>;
+import {
+  escapeHelp,
+  formatLabelEntry,
+  formatLabels,
+  formatPrometheusNumber,
+  metricKey,
+  sortedLabels,
+  type LabelSet,
+} from "./prometheus-format.js";
 
 type ScalarSample = {
   help: string;
@@ -50,43 +57,6 @@ const DROPPED_SERIES_COUNTER_NAME = "openclaw_prometheus_series_dropped_total";
 function seconds(ms: number | undefined): number | undefined {
   const value = numericValue(ms);
   return value === undefined ? undefined : value / 1000;
-}
-
-function sortedLabels(labels: LabelSet): [string, string][] {
-  const entries = Object.entries(labels);
-  entries.sort(([left], [right]) => left.localeCompare(right));
-  return entries;
-}
-
-function metricKey(name: string, labels: LabelSet): string {
-  return `${name}|${JSON.stringify(sortedLabels(labels))}`;
-}
-
-function escapeHelp(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
-}
-
-function escapeLabelValue(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/"/g, '\\"');
-}
-
-function formatLabelEntry([key, value]: [string, string]): string {
-  return `${key}="${escapeLabelValue(value)}"`;
-}
-
-function formatLabels(labels: LabelSet): string {
-  const entries = sortedLabels(labels);
-  if (entries.length === 0) {
-    return "";
-  }
-  return `{${entries.map(formatLabelEntry).join(",")}}`;
-}
-
-function formatPrometheusNumber(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "0";
-  }
-  return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(12)));
 }
 
 function createPrometheusMetricStore() {
@@ -876,18 +846,36 @@ function recordDiagnosticEvent(
         trigger: evt.trigger,
       });
       return;
+    case "diagnostic.child_process.spawn":
+      store.counter(
+        "openclaw_child_process_spawn_total",
+        "Successful child launches through the shared spawn and exec owners.",
+        { family: normalizeDiagnosticValue(evt.family) },
+        numericValue(evt.count) ?? 0,
+      );
+      return;
     case "diagnostic.memory.sample":
       for (const [kind, field] of [
         ["rss", "rssBytes"],
         ["heap_total", "heapTotalBytes"],
         ["heap_used", "heapUsedBytes"],
+        ["external", "externalBytes"],
+        ["array_buffers", "arrayBuffersBytes"],
+        ["worker_heap_total", "workerHeapTotalBytes"],
+        ["worker_heap_used", "workerHeapUsedBytes"],
       ] as const) {
         store.gauge(
           "openclaw_memory_bytes",
           "Latest process memory usage by memory kind.",
           { kind },
-          evt.memory[field],
+          numericValue(evt.memory[field]),
         );
+      }
+      for (const [name, field] of [
+        ["openclaw_worker_count", "workerCount"],
+        ["openclaw_worker_heap_sampled_count", "workerHeapSampledCount"],
+      ] as const) {
+        store.gauge(name, "Worker isolate counts.", {}, numericValue(evt.memory[field]));
       }
       store.histogram(
         "openclaw_memory_rss_bytes",

@@ -11,6 +11,59 @@ vi.mock("openclaw/plugin-sdk/plugin-runtime", () => ({
 }));
 
 describe("diagnostics-prometheus runtime metrics", () => {
+  it("exports isolate and native memory plus bounded successful spawn counts", () => {
+    const metrics = createMetricsHarness();
+    try {
+      metrics.record(
+        {
+          ...baseEvent(),
+          type: "diagnostic.memory.sample",
+          memory: {
+            rssBytes: 1000,
+            heapTotalBytes: 500,
+            heapUsedBytes: 300,
+            externalBytes: 200,
+            arrayBuffersBytes: 100,
+            workerHeapTotalBytes: 400,
+            workerHeapUsedBytes: 250,
+            workerCount: 3,
+            workerHeapSampledCount: 2,
+          },
+        },
+        trusted,
+      );
+      for (const count of [2, 3]) {
+        metrics.record(
+          {
+            ...baseEvent(),
+            type: "diagnostic.child_process.spawn",
+            family: "node",
+            count,
+            intervalMs: 60_000,
+          },
+          trusted,
+        );
+      }
+      const rendered = metrics.render();
+      for (const [kind, value] of Object.entries({
+        rss: 1000,
+        heap_total: 500,
+        heap_used: 300,
+        external: 200,
+        array_buffers: 100,
+        worker_heap_total: 400,
+        worker_heap_used: 250,
+      })) {
+        expect(rendered).toContain(`openclaw_memory_bytes{kind="${kind}"} ${value}\n`);
+      }
+      expect(rendered).toContain("openclaw_worker_count 3\n");
+      expect(rendered).toContain("openclaw_worker_heap_sampled_count 2\n");
+      expect(rendered).toContain('openclaw_child_process_spawn_total{family="node"} 5\n');
+    } finally {
+      metrics.stop();
+    }
+  });
+
   it.each([false, true])(
     "caps series growth while retaining admitted event-loop windows (preseed=%s)",
     (preseed) => {

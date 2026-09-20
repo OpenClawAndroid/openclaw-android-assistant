@@ -187,8 +187,9 @@ test("scope authorizes and applies membership before the hit limit, and empty sc
         sessions: [{ key: visible }],
       });
       expect(result.payload).not.toHaveProperty("truncated");
+      // Visible dashboard sessions stay discoverable with or without a sidebar group.
       for (const [category, expectedKeys] of [
-        [" ", []],
+        [" ", [visible]],
         ["Research", [visible]],
       ] as const) {
         await upsertSessionEntryCore({ agentId: "main", sessionKey: visible }, { category });

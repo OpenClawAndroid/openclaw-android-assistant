@@ -43,6 +43,10 @@ Hover the row or focus it with the keyboard for a tooltip explaining the exact
 status. Reduced motion keeps the claw still. Tasks without a display title keep
 the generic **Subagent** label. Select a row to open its details.
 
+Select a session's title in the chat header to rename it. Enter saves the name;
+Escape cancels the edit. While an input method is composing text, Enter and
+Escape stay with composition. Finish composing before saving or canceling.
+
 Dragging a session between sidebar groups updates its placement immediately. A successful
 save keeps that placement even if the subsequent list refresh fails; the UI reports
 the refresh error separately. If a connection failure leaves the save unconfirmed,
@@ -58,7 +62,13 @@ Choose **New agent** in the sidebar or Agents home to open the custodian chat.
 It recommends a chief of staff, researcher, writer, reviewer, or a small team
 with all four. Reply with a choice, or describe custom work and a name. Role
 choices use the same [role templates](/cli/agents#role-templates) as the CLI;
-creation waits for operator approval. Created agents appear in Agents home and
+creation waits for operator approval. For custom work, the approved purpose is
+saved in the new workspace's `AGENTS.md`; the normal identity ceremony still runs.
+With `skipBootstrap` enabled, only these requested instructions are seeded, without
+the generic identity or bootstrap files.
+Existing workspace instructions are never overwritten. If `AGENTS.md` already
+contains different instructions, choose a new workspace for the custom agent.
+Created agents appear in Agents home and
 the agent switcher.
 If team creation stops partway through, the custodian reports the retained
 agents so you can inspect them before creating the missing members.

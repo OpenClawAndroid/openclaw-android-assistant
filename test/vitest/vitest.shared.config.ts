@@ -460,6 +460,7 @@ export const sharedVitestConfig = {
       sourcePackageAlias("media-core"),
       sourcePackageAlias("retry"),
       sourcePackageAlias("session-url-contract", "parse"),
+      sourcePackageAlias("session-url-contract", "session-key-normalization"),
       sourcePackageAlias("session-url-contract", "share-build"),
       sourcePackageAlias("session-url-contract", "public-share"),
       sourcePackageAlias("session-url-contract"),

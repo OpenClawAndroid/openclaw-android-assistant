@@ -76,6 +76,10 @@ describe("diagnostic memory", () => {
         uptimeMs: 123,
         memory: {
           arrayBuffersBytes: 5,
+          workerCount: 0,
+          workerHeapSampledCount: 0,
+          workerHeapTotalBytes: 0,
+          workerHeapUsedBytes: 0,
           externalBytes: 10,
           heapTotalBytes: 80,
           rssBytes: 4096,
@@ -113,6 +117,10 @@ describe("diagnostic memory", () => {
         uptimeMs: 0,
         memory: {
           arrayBuffersBytes: 5,
+          workerCount: 0,
+          workerHeapSampledCount: 0,
+          workerHeapTotalBytes: 0,
+          workerHeapUsedBytes: 0,
           externalBytes: 10,
           heapTotalBytes: 80,
           heapUsedBytes: 40,
@@ -129,6 +137,10 @@ describe("diagnostic memory", () => {
         thresholdBytes: 1000,
         memory: {
           arrayBuffersBytes: 5,
+          workerCount: 0,
+          workerHeapSampledCount: 0,
+          workerHeapTotalBytes: 0,
+          workerHeapUsedBytes: 0,
           externalBytes: 10,
           heapTotalBytes: 80,
           heapUsedBytes: 40,
@@ -471,6 +483,10 @@ describe("diagnostic memory", () => {
       windowMs: 10_000,
       memory: {
         arrayBuffersBytes: 5,
+        workerCount: 0,
+        workerHeapSampledCount: 0,
+        workerHeapTotalBytes: 0,
+        workerHeapUsedBytes: 0,
         externalBytes: 10,
         heapTotalBytes: 80,
         heapUsedBytes: 40,
@@ -558,7 +574,9 @@ describe("diagnostic memory", () => {
       }),
     ]);
     expect(records[0]?.message).not.toMatch(/snapshot/i);
-    expect(records[0]?.message).toContain("rssBytes=4000 heapUsedBytes=3000 thresholdBytes=3000");
+    expect(records[0]?.message).toContain(
+      "rssBytes=4000 heapUsedBytes=3000 externalBytes=10 arrayBuffersBytes=5 workerHeapTotalBytes=0 workerHeapUsedBytes=0 workerCount=0 workerHeapSampledCount=0 thresholdBytes=3000",
+    );
     expect(records[0]?.message).toContain(
       "nextStep=run openclaw gateway diagnostics export, inspect an existing bundle with openclaw gateway stability --bundle latest, or on Node sample allocations with openclaw gateway call diagnostics.heapProfile --timeout 30000.",
     );

@@ -48,6 +48,14 @@ Node harnesses:
   `node scripts/run-vitest.mjs <path-or-filter>`.
 - Changed typecheck/lint/guard proof: `node scripts/check-changed.mjs`.
 
+Fresh source installs clone package files from the pnpm store, falling back to
+copies when the filesystem cannot clone. Separate checkouts therefore keep
+independent file metadata: installing dependencies elsewhere cannot change an
+active compiler input's modification history through a shared hardlink. Existing
+hardlinked installs are not converted by an up-to-date `pnpm install`; use a fresh
+task-owned checkout and install for isolated proof. Do not reinstall borrowed
+dependencies or replace an installation while another task uses it.
+
 For Control UI route tests, run `node scripts/run-tsgo-core-test-shards.mjs ui`
 to check fixture types; `node scripts/run-tsgo.mjs -p tsconfig.ui.json` checks
 production UI code and excludes tests. Type route fixtures against the loader's

@@ -5,7 +5,7 @@ extensions/acpx/src/codex-auth-bridge.ts	7
 extensions/acpx/src/codex-trust-config.ts	1
 extensions/acpx/src/pi-session-catalog-runtime.ts	1
 extensions/acpx/src/process-lease.ts	3
-extensions/acpx/src/runtime.ts	4
+extensions/acpx/src/runtime.ts	2
 extensions/acpx/src/service.ts	1
 extensions/acpx/src/state.ts	1
 extensions/active-memory/config.ts	2
@@ -1618,7 +1618,7 @@ src/agents/code-mode-runtime.ts	2
 src/agents/code-mode-script-syntax.ts	1
 src/agents/code-mode-worker.ts	2
 src/agents/code-mode.ts	2
-src/agents/code-mode.worker.ts	6
+src/agents/code-mode.worker.ts	5
 src/agents/codex-mcp-config.ts	1
 src/agents/command/attempt-execution.helpers.ts	7
 src/agents/command/attempt-execution.ts	1
@@ -3003,7 +3003,7 @@ src/logging/console.ts	5
 src/logging/diagnostic-run-activity.ts	1
 src/logging/diagnostic-session-recovery-coordinator.ts	1
 src/logging/diagnostic-stability-bundle.ts	11
-src/logging/diagnostic-stability.ts	3
+src/logging/diagnostic-stability.ts	2
 src/logging/diagnostic-support-log-redaction.ts	1
 src/logging/diagnostic-support-redaction.ts	1
 src/logging/diagnostic.ts	1

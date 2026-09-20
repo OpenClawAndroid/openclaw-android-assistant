@@ -171,10 +171,16 @@ Native dependency policy:
       Content, compiler, configuration, or resolution changes invalidate the
       seed; timestamp-only touches do not. Build provenance and resource receipts
       are refreshed for each invocation, and source/output verification still
-      runs before lending and after completion. Cold local preparation overlaps
+      runs before lending and after completion. Cold cache-enabled preparation overlaps
       the independent worker and finalizer builds when at least 8 GiB of memory
-      is available; smaller hosts keep sequential compilation. CI, Bun, and custom Node loader
-      runs keep fresh compilation. This cache does not share Vitest's writable
+      is available; smaller hosts keep sequential compilation. CI keeps fresh compilation
+      unless its workflow enables `OPENCLAW_VITEST_WORKER_CACHE=1` after restoring
+      a protected cache. Only the protected warmer publishes shared generations;
+      ordinary CI jobs remain remote-cache readers. Reuse requires the same
+      absolute checkout and reserved output paths, Node version, compiler options,
+      and verified inputs. Incompatible or missing generations compile normally.
+      Bun and custom Node loader runs keep fresh compilation.
+      This cache does not share Vitest's writable
       filesystem module cache with another checkout.
 
   </Accordion>

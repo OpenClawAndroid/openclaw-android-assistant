@@ -116,6 +116,10 @@ cancellable backoff without restarting that quiescence deadline. Snapshot debug
 telemetry contains only bounded operational metadata: operation and owner labels,
 main and WAL sizes, copied bytes, attempt, wait and duration, and outcome.
 
+Synchronous CLI snapshots also pause between source-change retries, so a brief
+write burst does not exhaust all ten attempts immediately. These retries only
+repeat private snapshot preparation; they do not resend Gateway commands.
+
 Private snapshot files remain temporary artifacts: the creator registers cleanup
 before copying and publishes the finished copy by rename. Graceful shutdown
 drains existing shutdown owners and joins snapshot workers before cleanup. Cleanup

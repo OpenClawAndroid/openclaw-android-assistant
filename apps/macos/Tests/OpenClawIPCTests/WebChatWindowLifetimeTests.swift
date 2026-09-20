@@ -107,8 +107,12 @@ struct WebChatWindowLifetimeTests {
                     "type": "res", "id": request.id, "ok": true,
                     "payload": ["config": ["session": ["scope": "global"]]],
                 ])))
-                await pending?.value
-                #expect(await !self.eventually { manager.hasVisibleWindows })
+                if let pending {
+                    await pending.value
+                    #expect(!manager.hasVisibleWindows)
+                } else {
+                    #expect(await !self.eventually { manager.hasVisibleWindows })
+                }
                 #expect(manager.openWindowCount(for: .primary) == 0)
                 #expect(manager.activeSessionKey == nil)
             }

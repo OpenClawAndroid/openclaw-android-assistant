@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { TLSSocket } from "node:tls";
 import { getPluginRuntimeGatewayRequestScope } from "openclaw/plugin-sdk/plugin-runtime";
+import { WORK_SESSIONS_PAGE_SIZE } from "./limits.js";
 import { DAY_MS, describePeriod } from "./periods.js";
 import {
   renderIndexPage,
@@ -13,14 +14,18 @@ import {
   type PageContext,
   type PeriodIndex,
 } from "./render/html.js";
+import { renderWorkSessionsPage } from "./render/work-sessions.js";
 import type { TeamReportsHealth } from "./scheduler.js";
 import type { ReportPerson } from "./store-contract.js";
 import type { TeamReportsStore } from "./store.js";
 import type { Period, Person } from "./types.js";
+import type { WorkSessions } from "./work-sessions.js";
 
 type TeamReportsHttpOptions = {
   basePath: string;
   displayTimezone: string;
+  sessionRouting: () => Pick<PageContext, "controlUiBasePath" | "mainKey">;
+  workSessions: (offset: number, limit: number) => Promise<WorkSessions>;
   /** The plugin's shipped `assets` directory; the dist bundle flattens `src/`, so callers resolve it from the plugin root. */
   assetsDir: string;
   getStore: () => TeamReportsStore | undefined;
@@ -119,12 +124,14 @@ function visiblePeople(configured: Person[], recentReports: ReportPerson[]): Per
 export function createTeamReportsHttpHandler(options: TeamReportsHttpOptions) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
     const nonce = randomBytes(16).toString("base64url");
-    const send = (
+    const send = async (
       status: number,
       contentType: string,
       body: string | Buffer,
       headers: Record<string, string> = {},
     ) => {
+      // Discovery and stored-report reads can outlive the admitted browser grant.
+      await getPluginRuntimeGatewayRequestScope()?.revalidate?.();
       res.writeHead(status, {
         "Content-Type": typeof body === "string" ? `${contentType}; charset=utf-8` : contentType,
         "Content-Length": Buffer.byteLength(body),
@@ -212,10 +219,25 @@ export function createTeamReportsHttpHandler(options: TeamReportsHttpOptions) {
     const ctx: PageContext = {
       basePath: options.basePath,
       displayTimezone: options.displayTimezone,
+      ...options.sessionRouting(),
       nonce,
       absoluteUrl,
     };
     const html = (body: string) => send(200, "text/html", body);
+    if (first === "sessions" && route.segments.length === 1) {
+      const rawOffset = new URL(req.url ?? "", absoluteUrl).searchParams.get("offset") ?? "0";
+      const offset = Number(rawOffset);
+      if (!/^\d+$/.test(rawOffset) || !Number.isSafeInteger(offset)) {
+        return send(400, "text/plain", "Invalid session page offset.\n");
+      }
+      return html(
+        renderWorkSessionsPage(
+          ctx,
+          await options.workSessions(offset, WORK_SESSIONS_PAGE_SIZE),
+          offset,
+        ),
+      );
+    }
     if (route.segments.length === 0) {
       const periods = await index();
       const latest = periods.day[0];
@@ -225,6 +247,7 @@ export function createTeamReportsHttpHandler(options: TeamReportsHttpOptions) {
           orgs: stored?.report.orgs ?? options.orgs(),
           latest: stored,
           health: await options.health(),
+          workSessions: await options.workSessions(0, 8),
         }),
       );
     }

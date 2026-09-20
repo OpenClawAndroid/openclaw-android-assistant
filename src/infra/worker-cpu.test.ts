@@ -1,8 +1,12 @@
 import { once } from "node:events";
-import type { Worker } from "node:worker_threads";
+import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeferredCore } from "../shared/deferred.js";
-import { getTrackedWorkerCpuSources, createCpuTrackedWorker } from "./worker-cpu.js";
+import {
+  getTrackedWorkerCpuSources,
+  createCpuTrackedWorker,
+  sampleTrackedWorkerMemory,
+} from "./worker-cpu.js";
 
 const workers: Worker[] = [];
 afterEach(async () => {
@@ -18,6 +22,54 @@ async function createWorker() {
 }
 
 describe("worker CPU lifecycle", () => {
+  it("includes direct Workers in heap totals and removes their samples at native exit", async () => {
+    const initial = sampleTrackedWorkerMemory();
+    const direct = new Worker("setInterval(() => {}, 1000)", { eval: true });
+    workers.push(direct);
+    await once(direct, "online");
+    const owned = await createWorker();
+    sampleTrackedWorkerMemory();
+    await vi.waitFor(() => {
+      const memory = sampleTrackedWorkerMemory();
+      expect(memory.workerCount).toBe(initial.workerCount + 2);
+      expect(memory.workerHeapSampledCount).toBe(initial.workerHeapSampledCount + 2);
+      expect(memory.workerHeapTotalBytes).toBeGreaterThan(memory.workerHeapUsedBytes);
+      expect(memory.workerHeapUsedBytes).toBeGreaterThan(0);
+    });
+    // Some consumers clear listeners before native teardown; counters must still retire.
+    direct.removeAllListeners();
+    await Promise.all([direct.terminate(), owned.terminate()]);
+    expect(sampleTrackedWorkerMemory()).toEqual(initial);
+  });
+
+  it("bounds outstanding heap reads and excludes stale samples during a native stall", async () => {
+    const worker = await createWorker();
+    const native = await worker.getHeapStatistics();
+    const stalled = createDeferredCore<typeof native>();
+    const read = vi
+      .spyOn(worker, "getHeapStatistics")
+      .mockResolvedValueOnce(native)
+      .mockReturnValue(stalled.promise);
+    sampleTrackedWorkerMemory();
+    await Promise.resolve();
+    expect(sampleTrackedWorkerMemory().workerHeapSampledCount).toBe(1);
+    const now = performance.now();
+    vi.spyOn(performance, "now").mockReturnValue(now + 60_001);
+    for (let index = 0; index < 10; index++) {
+      expect(sampleTrackedWorkerMemory()).toMatchObject({
+        workerCount: 1,
+        workerHeapSampledCount: 0,
+        workerHeapTotalBytes: 0,
+        workerHeapUsedBytes: 0,
+      });
+    }
+    expect(read).toHaveBeenCalledTimes(2);
+    await worker.terminate();
+    stalled.resolve(native);
+    await stalled.promise;
+    expect(sampleTrackedWorkerMemory().workerCount).toBe(0);
+  });
+
   it("retains native ownership through stalled reads and removes it only at exit", async () => {
     const initial = getTrackedWorkerCpuSources();
     const worker = await createWorker();

@@ -12152,6 +12152,50 @@ public struct ProgressCardPutResult: Codable, Sendable {
     }
 }
 
+public struct ProgressCardRefreshParams: Codable, Sendable {
+    public let sessionkey: String
+    public let agentid: String?
+    public let idempotencykey: String
+
+    public init(
+        sessionkey: String,
+        agentid: String? = nil,
+        idempotencykey: String)
+    {
+        self.sessionkey = sessionkey
+        self.agentid = agentid
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case agentid = "agentId"
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct ProgressCardRefreshResult: Codable, Sendable {
+    public let runid: String
+    public let status: String
+    public let revision: Int
+
+    public init(
+        runid: String,
+        status: String,
+        revision: Int)
+    {
+        self.runid = runid
+        self.status = status
+        self.revision = revision
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runid = "runId"
+        case status
+        case revision
+    }
+}
+
 public struct ProgressCard: Codable, Sendable {
     public let sessionkey: String
     public let revision: Int

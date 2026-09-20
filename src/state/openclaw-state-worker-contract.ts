@@ -11,9 +11,7 @@ import type {
   ConfigHealthSnapshot,
   ConfigHealthEntryBasis,
 } from "../config/io.health-state.types.js";
-import type { CronStoreWorkerOperations } from "../cron/store/load-worker.types.js";
-import type { CronRunRecoveryWorkerOperations } from "../cron/store/run-recovery.types.js";
-import type { CronStoreSaveWorkerOperations } from "../cron/store/save-worker.types.js";
+import type { CronStateWorkerOperations } from "../cron/store/dispatch.worker.js";
 import type { FleetRegistryWriteOperations } from "../fleet/registry.types.js";
 import type {
   RepositoryGitHubPublicationPendingQuery,
@@ -81,9 +79,7 @@ export type OpenClawStateWorkerOperations = WebPushWorkerOperations &
   UserPreferenceWorkerOperations &
   OnboardingRecommendationWriteOperations &
   UserProfileWorkerOperations &
-  CronStoreWorkerOperations &
-  CronRunRecoveryWorkerOperations &
-  CronStoreSaveWorkerOperations &
+  CronStateWorkerOperations &
   FleetRegistryWriteOperations &
   SessionDeliveryWorkerOperations &
   DeliveryQueueWorkerOperations &

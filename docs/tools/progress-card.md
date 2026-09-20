@@ -115,11 +115,23 @@ The composer and dashboard placements show the local time of the last progress u
 
 Without a matching terminal outcome, unfinished steps appear paused when the Gateway reports no active run or the card predates a later run. The last-update time shows when the agent last revised the card; elapsed time alone does not expire a card belonging to an active run.
 
+## Refresh current work status
+
+In the Control UI composer, select **Refresh task progress** beside the card’s timestamp to ask the agent to reconcile the card with its current work. The action remains available when the card is collapsed. It does not send a visible chat message.
+
+While the request is pending, the previous card and its last-update time remain visible. The refresh is confirmed only after the Gateway returns a newer saved card. If the request fails or takes too long, use the retry action; a timeout does not cancel running work.
+
+An active agent receives the request at its next supported steering boundary without interrupting a running tool or answering a pending question. If steering is unavailable, the request waits for a status-only turn. An idle agent can update the card with read-only context tools and `progress_card`; refreshing does not authorize it to resume stopped work or change the task goal. The control request and standalone refresh output remain hidden from chat, including reloaded history. Normal replies from an already-active task remain visible.
+
+The action uses the session’s existing write permissions. Dashboard and hovercard placements remain read-only.
+
 ## Gateway requests
 
-`progressCard.get` and `progressCard.put` accept a required `sessionKey` and optional `agentId`. Pass both when selecting an agent explicitly, for example `{ "sessionKey": "global", "agentId": "research" }`. Omitting `agentId` retains the Gateway's existing session-owner resolution. An unknown agent or an agent that conflicts with the session owner is rejected.
+`progressCard.get`, `progressCard.put`, and `progressCard.refresh` accept a required `sessionKey` and optional `agentId`. Pass both when selecting an agent explicitly, for example `{ "sessionKey": "global", "agentId": "research" }`. Omitting `agentId` retains the Gateway's existing session-owner resolution. An unknown agent or an agent that conflicts with the session owner is rejected.
 
-Keep the original session and agent together for subsequent reads and clears. The returned card and change event use an agent-qualified display key; that key alone cannot distinguish a retained `global` session from an ordinary session whose key is `agent:<agentId>:global`. Both methods use the selected session’s normal access checks, in addition to their operator read or write scope.
+Keep the original session and agent together for subsequent reads and clears. The returned card and change event use an agent-qualified display key; that key alone cannot distinguish a retained `global` session from an ordinary session whose key is `agent:<agentId>:global`. All three methods use the selected session’s normal access checks, in addition to their operator read or write scope.
+
+`progressCard.refresh` also requires an `idempotencyKey` and an existing card. It accepts no prompt text. Its `{ runId, status: "accepted", revision }` response acknowledges the request and identifies the baseline revision; it does not mean the card was updated. Clients confirm a newer card through the existing change event and read path.
 
 The Control UI ships with its Gateway and follows the captured session owner without version negotiation: ordinary agent-qualified keys omit redundant `agentId`, while raw targets retain their explicit owner. Gateways also advertise `progress-card-agent-scope-v1` in `hello.features.capabilities` for independently upgraded clients, such as native apps. Those clients check the capability before sending `agentId`: ordinary agent-qualified keys can omit the field, while a canonical `global` target with an explicit owner requires it. If that capability is missing, the independently upgraded client reports that a Gateway update is needed.
 

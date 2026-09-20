@@ -29,6 +29,7 @@ import {
   MAX_SNAPSHOT_ATTEMPTS,
   waitForSnapshotQuiescence,
   waitForSnapshotRetry,
+  waitForSnapshotRetrySync,
 } from "./sqlite-snapshot-policy.js";
 import {
   createSqliteSnapshotStagingDirectory,
@@ -530,22 +531,12 @@ async function prepareReadOnlySourceInProcess(
 function prepareReadOnlySourceSyncInProcess(
   pathname: string,
   stagingRoot?: string,
-  maxAttempts = MAX_SNAPSHOT_ATTEMPTS,
 ): PreparedSqliteReadOnlyLocation {
   const canonicalPath = fs.realpathSync.native(pathname);
   let lastChange: Error | undefined;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    let journalMode: SourceJournalMode;
+  for (let attempt = 0; attempt < MAX_SNAPSHOT_ATTEMPTS; attempt += 1) {
     try {
-      journalMode = readSourceJournalMode(canonicalPath);
-    } catch (error) {
-      if (!(error instanceof SqliteSourceChangedError)) {
-        throw error;
-      }
-      lastChange = error;
-      continue;
-    }
-    try {
+      const journalMode = readSourceJournalMode(canonicalPath);
       // Stable malformed bytes still belong to SQLite's diagnostic path. The
       // private copy checks bytes, sidecars, and mode before a reader opens it.
       return createStableReadOnlyCopyInTempDirectory(
@@ -559,10 +550,11 @@ function prepareReadOnlySourceSyncInProcess(
         throw error;
       }
       lastChange = error;
+      waitForSnapshotRetrySync(attempt);
     }
   }
   throw new Error(
-    `SQLite source did not stabilize after ${maxAttempts} read-only inspection attempts (the database may be under concurrent write activity): ${canonicalPath}. Wait a moment for write activity to settle, then retry the inspection`,
+    `SQLite source did not stabilize after ${MAX_SNAPSHOT_ATTEMPTS} read-only inspection attempts (the database may be under concurrent write activity): ${canonicalPath}. Wait a moment for write activity to settle, then retry the inspection`,
     {
       cause: lastChange,
     },

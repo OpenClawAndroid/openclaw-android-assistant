@@ -20,9 +20,10 @@ import {
   patchConfigHealthEntryInDatabase,
   readConfigHealthSnapshotInDatabase,
 } from "../config/io.health-state.kernel.js";
-import { loadMutableCronStoreInWorker } from "../cron/store/load.worker.js";
-import { proposeCronRunRecoveryInWorker } from "../cron/store/run-recovery.worker.js";
-import { executeCronStoreSaveCommand } from "../cron/store/save.worker.js";
+import {
+  executeCronStateCommand,
+  isCronStateWorkerCommand,
+} from "../cron/store/dispatch.worker.js";
 import {
   acquireFleetCellOperationInDatabase,
   assertFleetCellOperationInDatabase,
@@ -40,15 +41,8 @@ import {
 } from "../gateway/managed-image-record-store.kernel.js";
 import { registerSessionGroupInDatabase } from "../gateway/session-group-registration.kernel.js";
 import { readDeferredPluginMigrations } from "../infra/deferred-plugin-migrations.js";
-import {
-  countFailedDeliveryQueueEntriesInDatabase,
-  pruneExpiredDeliveryQueueTombstonesInDatabase,
-} from "../infra/delivery-queue-sqlite.kernel.js";
+import * as deliveryQueue from "../infra/delivery-queue.worker.js";
 import * as deviceAuth from "../infra/device-auth-store.kernel.js";
-import { executeDeliveryQueueAck } from "../infra/outbound/delivery-queue-ack.worker.js";
-import { executeDeliveryQueueEnqueue } from "../infra/outbound/delivery-queue-enqueue.worker.js";
-import { loadDeliveryQueueMediaRetentionSnapshotInDatabase } from "../infra/outbound/delivery-queue-media-staging.kernel.js";
-import { executePendingDeliveryFailure } from "../infra/outbound/delivery-queue-pending-failure.worker.js";
 import { executePromotionCommand } from "../infra/promotions-feed.worker.js";
 import {
   readApnsRegistrationFromDatabase,
@@ -104,7 +98,7 @@ import * as skillWorkshop from "../skills/workshop/store.worker.js";
 import { isTaskRegistryWorkerCommand } from "../tasks/task-registry.worker-contract.js";
 import { executeTaskRegistryCommand } from "../tasks/task-registry.worker.js";
 import { executeTranscriptRead } from "../transcripts/store-worker-read.js";
-import { appendTranscriptInWorker } from "../transcripts/store-worker-write.js";
+import { executeTranscriptWrite } from "../transcripts/store-worker-write.js";
 import {
   listAgentProvenanceInDatabase,
   readAgentProvenanceBatchInDatabase,
@@ -398,8 +392,8 @@ export function executeSharedStateCommand(
   if (command.type === "deviceAuth.list") {
     return deviceAuth.readDeviceAuthTokensFromDatabase(database.db, command.input);
   }
-  if (command.type === "transcripts.append") {
-    return appendTranscriptInWorker(command.input, { database, path: context.databasePath });
+  if (command.type === "transcripts.append" || command.type === "transcripts.writeSummary") {
+    return executeTranscriptWrite(command, { database, path: context.databasePath });
   }
   switch (command.type) {
     case "transcripts.sessionEntries":
@@ -455,23 +449,8 @@ export function executeSharedStateCommand(
   if (command.type === "sessionUpstream.listWatched") {
     return listWatchedSessionUpstreamLinksInDatabase(database.db);
   }
-  if (command.type === "cron.loadMutable") {
-    return loadMutableCronStoreInWorker(database, command.input.storeKey);
-  }
-  if (command.type === "cron.proposeRunRecovery") {
-    return proposeCronRunRecoveryInWorker(database, command.input);
-  }
-  if (command.type === "cron.save" || command.type === "cron.saveChanges") {
-    return executeCronStoreSaveCommand(command, database);
-  }
-  if (command.type === "deliveryQueue.countFailed") {
-    return countFailedDeliveryQueueEntriesInDatabase(database);
-  }
-  if (command.type === "deliveryQueue.pruneTombstones") {
-    return pruneExpiredDeliveryQueueTombstonesInDatabase(database);
-  }
-  if (command.type === "deliveryQueue.mediaRetentionSnapshot") {
-    return loadDeliveryQueueMediaRetentionSnapshotInDatabase(database, command.input);
+  if (isCronStateWorkerCommand(command)) {
+    return executeCronStateCommand(command, database);
   }
   if (isSessionDeliveryCommand(command)) {
     return executeSessionDeliveryCommand(command, database);
@@ -484,17 +463,11 @@ export function executeSharedStateCommand(
   if (command.type === "sessionGroups.register") {
     return registerSessionGroupInDatabase(database, command.input.name, writeOptions.env);
   }
-  if (command.type === "deliveryQueue.ack") {
-    return executeDeliveryQueueAck(command.input, writeOptions);
-  }
-  if (command.type === "deliveryQueue.failPending") {
-    return executePendingDeliveryFailure(command.input, writeOptions);
+  if (deliveryQueue.isDeliveryQueueCommand(command)) {
+    return deliveryQueue.executeDeliveryQueueCommand(command, writeOptions);
   }
   if (command.type === "skillUploads.commit") {
     return commitSkillUploadInDatabase(command.input, writeOptions);
-  }
-  if (command.type === "deliveryQueue.enqueue") {
-    return executeDeliveryQueueEnqueue(command.input, writeOptions);
   }
   if (
     command.type === "deviceAuth.store" ||

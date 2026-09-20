@@ -703,4 +703,5 @@ export const CORE_GATEWAY_METHOD_SPECS = [
   ["themes.set", "themes", "operator.write", "2026.9"],
   ["themes.import", "themes", "operator.write", "2026.9"],
   ["controlUi.githubDetail", "control-ui", "operator.read", "2026.9"],
+  ["progressCard.refresh", "progress-card", "operator.write", "2026.9"],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];

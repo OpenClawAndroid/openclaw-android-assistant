@@ -134,6 +134,44 @@ Canonical-repo CI keeps Blacksmith as the default runner path for pushes and fir
 
 ## Vitest worker sizing
 
+### Fixed job preparation
+
+The September 20 overhead sample measured all job steps in green main run
+`35520044205` and green PR run `35456568835`. Main had 72 active jobs and a
+16m45s workflow wall; the PR had 152 active jobs and a 26m25s wall. Checkout
+medians were 9/8 seconds and Node setup medians were 13/13 seconds. Across each
+run, checkout plus setup consumed 30.63/82.18 machine-minutes. The jobs API
+reports composite setup as one step; sampled logs confirmed dependency/store
+hits and measured cold worker preparation at 7.1–21.7 seconds inside test steps.
+These different inventories are baselines, not a paired performance comparison.
+
+Compiled-worker reuse adds no jobs, registrations, test processes, or workers.
+It uses the existing protected warmer and restore-only Actions cache mechanism.
+The warm result must include transfer, validation, and joined cleanup; an archive
+hit alone does not establish savings. Initial PR runs remain cold until the
+protected warmer publishes the new namespace. Removing unused build archive
+uploads saves their measured 5–6 seconds plus packing and plugin-asset upload
+time in the artifact job, which was not the finishing bottleneck in either
+baseline. Node runtime builds remain separate to preserve parallel startup and
+private-QA output variants. Checkout already fetches depth-one selected source;
+historical test prerequisites and revision-comparison inputs stay with their
+existing owners.
+
+A Linux Testbox probe on four CPUs, 15.4 GiB RAM, and Node 24.19.0 measured
+preparation plus joined cleanup at 8.43/9.44 seconds without reuse and 3.21/3.17
+seconds after restoring a 30 MiB archive. Peak process RSS fell from
+2.59–2.66 GiB to 0.55 GiB. The two-sample midpoint saves 5.75 seconds before
+download and extraction; transport must cost less than that to improve a
+consumer's wall. The producer took 9.38 seconds on a cold cache. These are
+preparation measurements, not full-workflow or production cache-hit rates.
+
+At 36 runs per eight hours, one second saved across 152 active jobs is 1.52
+machine-hours per eight-hour window, or 4.56 hours if that rate persists all day.
+Use each run's actual eligible count; requested vCPU cost and machine wall time
+are separate measures.
+
+### Worker ceilings
+
 Current serial self-hosted Node jobs sample the shared worker scheduler after
 runtime preparation. Hosts with fewer than eight available CPUs or less than
 24 GiB retain the workflow's existing CPU-based ceiling. Hosted runners, frozen
@@ -228,6 +266,11 @@ config policy even when a caller requests two plans. Precise changed-test
 selection retains the Gateway config owner and its admission metadata.
 Gateway admission is finalized before runtime placement, so inventory changes
 retain the admitted job ceiling instead of creating a different group policy.
+
+The large workspace inventory proof runs in its own `agentic-gateway-core-inventory`
+invocation, with exclusive plan admission in full CI plans. Its
+13,000-file staging, apply, serialized journal, and recovery checks retain their
+120-second deadline without competing with sibling Vitest files.
 
 Within its exclusive plan, the Gateway database-worker cohort runs files in
 parallel forks under the existing Vitest worker ceiling. Each fork retains the

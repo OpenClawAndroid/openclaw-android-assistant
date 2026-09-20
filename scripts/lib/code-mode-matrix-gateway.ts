@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { asFiniteNumber } from "@openclaw/normalization-core/number-coercion";
 import { isRecord as record } from "@openclaw/normalization-core/record-coerce";
+import { parse } from "acorn";
 import { readResponseWithLimit } from "../../src/infra/http-response-body.js";
 import type { ManagedRun } from "../../src/process/supervisor/types.js";
 import type { CodeModeMatrixCellResult, RunCellParams } from "../code-mode-model-matrix.ts";
@@ -31,6 +32,7 @@ type ToolActivity = {
   name: string;
   input: RecordValue;
   result: RecordValue;
+  content?: unknown;
   isError: boolean;
   parentId?: string;
 };
@@ -75,7 +77,6 @@ export type GatewayMatrixEvidence = GatewayMatrixWorkload & {
   traceAvailable: boolean;
   upstreamCalls?: number;
   outerCalls?: number;
-  checkedCells?: number;
   outerOutputBytes?: number;
   taskAssistantTurns?: number;
   interview: {
@@ -117,6 +118,7 @@ export function createGatewayMatrixWorkload(
       .update(JSON.stringify(fixture.expected))
       .update(JSON.stringify(createGatewayMatrixPluginManifest(fixture.requiredTools)))
       .update(fixture.processHelperSource ?? "")
+      .update(JSON.stringify(fixture.workspaceFiles ?? {}))
       .digest("hex"),
     settings: {
       thinking,
@@ -139,8 +141,8 @@ function gatewayAllowedTools(
   if (task === "process-contracts") {
     return ["exec", "process"];
   }
-  if (task === "checked-cell-cache") {
-    return ["process"];
+  if (task === "javascript-contracts") {
+    return ["read", "write"];
   }
   if (task === "gateway-config-read") {
     return ["gateway"];
@@ -265,6 +267,7 @@ export function collectGatewayMatrixTrace(events: readonly unknown[]): GatewayMa
         name: data.toolName,
         input: record(data.input) ? data.input : {},
         result,
+        content: record(data.result) ? data.result.content : undefined,
         isError: data.isError === true,
         ...(typeof data.parentToolCallId === "string" ? { parentId: data.parentToolCallId } : {}),
       });
@@ -346,6 +349,66 @@ function source(call: ToolCall): string {
       : "";
 }
 
+function isDirectApiRead(call: ToolCall, method: "list" | "read", argument: string): boolean {
+  try {
+    const program = parse(source(call), {
+      ecmaVersion: "latest",
+      allowAwaitOutsideFunction: true,
+      allowReturnOutsideFunction: true,
+    });
+    const statement = program.body[0];
+    if (
+      program.body.length !== 1 ||
+      statement?.type !== "ReturnStatement" ||
+      statement.argument?.type !== "AwaitExpression"
+    ) {
+      return false;
+    }
+    const invocation = statement.argument.argument;
+    return (
+      invocation.type === "CallExpression" &&
+      !invocation.optional &&
+      invocation.callee.type === "MemberExpression" &&
+      !invocation.callee.computed &&
+      !invocation.callee.optional &&
+      invocation.callee.object.type === "Identifier" &&
+      invocation.callee.object.name === "API" &&
+      invocation.callee.property.type === "Identifier" &&
+      invocation.callee.property.name === method &&
+      invocation.arguments.length === 1 &&
+      invocation.arguments[0]?.type === "Literal" &&
+      invocation.arguments[0].value === argument
+    );
+  } catch {
+    return false;
+  }
+}
+
+function normalizeCaughtError(message: string): string {
+  // Host activity retains the catalog ID; the guest bridge exposes the callable name.
+  return message
+    .replace(/\r\n/gu, "\n")
+    .trim()
+    .replace(/^(?:Error|ToolInputError):\s*/u, "")
+    .replace(
+      /^Invalid arguments for tool "openclaw:core:read":/u,
+      'Invalid arguments for tool "read":',
+    );
+}
+
+function matchesTextRead(activity: ToolActivity | undefined, expected: unknown): boolean {
+  return (
+    typeof expected === "string" &&
+    activity?.result.kind === "text" &&
+    activity.result.content === expected &&
+    Array.isArray(activity.content) &&
+    activity.content.length === 1 &&
+    record(activity.content[0]) &&
+    activity.content[0].type === "text" &&
+    activity.content[0].text === expected
+  );
+}
+
 function observedReferences(
   trace: GatewayMatrixTrace,
 ): { id: string; previewComplete: boolean | null }[] {
@@ -381,21 +444,8 @@ export function evaluateGatewayMatrixTask(params: {
   const { task, trace, expected } = params;
   const receiptRows = params.receipts.filter(record);
   const receiptCalls = receiptRows.filter((row) => row.kind === "call");
-  const checked = trace.calls.filter(
-    (call) =>
-      call.name === "exec" &&
-      call.args.language === "typescript" &&
-      call.args.typecheck === true &&
-      completedCallOutcome(trace, call) !== undefined,
-  );
-  const checkedInvocation = (item: ToolActivity) =>
-    trace.calls.some(
-      (call) =>
-        call.id === item.parentId &&
-        call.name === "exec" &&
-        call.args.language === "typescript" &&
-        call.args.typecheck === true,
-    );
+  const codeModeInvocation = (item: ToolActivity) =>
+    trace.calls.some((call) => call.id === item.parentId && call.name === "exec");
   const activity = trace.activities.filter((item) => !item.isError);
   const checks: BehaviorChecks = {
     answer: isDeepStrictEqual(jsonAnswer(params.final), expected),
@@ -541,7 +591,7 @@ export function evaluateGatewayMatrixTask(params: {
         automations.some((item) => item.input.action === action),
       ) &&
       automations.some((item, index) => index < firstMutation && item.input.action === "status");
-    checks.checkedComposition = automations.length > 0 && automations.every(checkedInvocation);
+    checks.codeModeComposition = automations.length > 0 && automations.every(codeModeInvocation);
     checks.createdDisabled =
       created.length > 0 &&
       created.every(
@@ -670,8 +720,8 @@ export function evaluateGatewayMatrixTask(params: {
           (["log", "poll"].includes(String(item.input.action)) &&
             helperSessionIds.has(String(item.input.sessionId))),
       );
-    checks.checkedComposition =
-      processes.length > 0 && [...launches, ...processes].every(checkedInvocation);
+    checks.codeModeComposition =
+      processes.length > 0 && [...launches, ...processes].every(codeModeInvocation);
     checks.observedCompletion = helperOperations.some(
       (item) => item.result.status === "completed" && item.result.exitCode === 0,
     );
@@ -716,33 +766,99 @@ export function evaluateGatewayMatrixTask(params: {
     });
     checks.actionableDiagnostics =
       failureText.includes("receipt") && failureText.includes("totalCents");
-  } else {
-    checks.threeCheckedCells =
-      checked.length === 3 && trace.calls.filter((call) => call.name === "exec").length === 3;
-    checks.sequentialCells = checked.every((call, index) => {
-      const previous = checked[index - 1];
+  } else if (task === "javascript-contracts") {
+    const execs = trace.calls.filter((call) => call.name === "exec");
+    checks.javascriptArguments = execs.every(
+      (call) => !("language" in call.args) && !("typecheck" in call.args),
+    );
+    const completedOutput = (call: ToolCall) =>
+      completedCallOutcome(trace, call)
+        ? JSON.stringify(callOutcomes(trace, call).map((outcome) => outcome.details))
+        : "";
+    const fileList = execs.find((call) => {
+      const output = completedOutput(call);
       return (
-        previous === undefined ||
-        (completedCallOutcome(trace, previous)?.eventIndex ?? Infinity) < call.eventIndex
+        isDirectApiRead(call, "list", "tools/") &&
+        ["read", "write"].every((name) => output.includes(`tools/${name}.d.ts`))
       );
     });
-    checks.onlyProcessListReads = trace.activities.every(
-      (item) => item.name === "process" && item.input.action === "list",
+    const declarations = ["read", "write"].map((name) =>
+      execs.find((call) => {
+        const output = completedOutput(call);
+        return (
+          isDirectApiRead(call, "read", `tools/${name}.d.ts`) &&
+          output.includes(`declare function ${name}(`) &&
+          output.includes("string")
+        );
+      }),
     );
-    checks.processListPerCell = checked.every((call) =>
-      activity.some(
+    const reads = activity.filter((item) => item.name === "read");
+    const writes = activity.filter((item) => item.name === "write");
+    const sourceRead = reads.find((item) => path.basename(String(item.input.path)) === "facts.txt");
+    const readback = reads.find((item) => path.basename(String(item.input.path)) === "result.txt");
+    const firstToolCell = execs.find((call) =>
+      trace.activities.some((item) => item.parentId === call.id),
+    );
+    const discovery = [fileList, ...declarations];
+    checks.declarationsBeforeTools =
+      firstToolCell !== undefined &&
+      discovery.every((call, index) => {
+        const next = discovery[index + 1] ?? firstToolCell;
+        return (
+          call !== undefined &&
+          (completedCallOutcome(trace, call)?.eventIndex ?? Infinity) < next.eventIndex
+        );
+      });
+    const rejectedReads = trace.activities.filter(
+      (item) => item.name === "read" && item.isError && item.input.path === 42,
+    );
+    const rejectedRead = rejectedReads.length === 1 ? rejectedReads[0] : undefined;
+    checks.caughtArgumentError =
+      rejectedRead !== undefined &&
+      execs.some((call) => {
+        const actualError = rejectedRead.result.error;
+        const emitted = callOutcomes(trace, call).flatMap((outcome) =>
+          Array.isArray(outcome.details.output) ? outcome.details.output.filter(record) : [],
+        );
+        return (
+          call.id === rejectedRead.parentId &&
+          completedCallOutcome(trace, call) !== undefined &&
+          typeof actualError === "string" &&
+          actualError.includes("Invalid arguments for tool") &&
+          emitted.some(
+            (item) =>
+              item.type === "text" &&
+              typeof item.text === "string" &&
+              normalizeCaughtError(item.text) === normalizeCaughtError(actualError),
+          )
+        );
+      });
+    const written = writes[0];
+    checks.dependentReadWrite =
+      rejectedRead !== undefined &&
+      sourceRead !== undefined &&
+      readback !== undefined &&
+      writes.length === 1 &&
+      written !== undefined &&
+      path.basename(String(written.input.path)) === "result.txt" &&
+      written.input.content === expected.verificationCode &&
+      trace.activities.indexOf(rejectedRead) < trace.activities.indexOf(sourceRead) &&
+      activity.indexOf(sourceRead) < activity.indexOf(written) &&
+      activity.indexOf(written) < activity.indexOf(readback);
+    checks.observedSource =
+      typeof expected.verificationCode === "string" &&
+      matchesTextRead(sourceRead, `verification_code=${expected.verificationCode}\n`);
+    checks.observedReadback = matchesTextRead(readback, expected.verificationCode);
+    checks.onlyFixtureAccess =
+      reads.every(
         (item) =>
-          item.parentId === call.id && item.name === "process" && item.input.action === "list",
-      ),
-    );
-    const expectedCells = expected.cells;
-    checks.returnedCellValues =
-      Array.isArray(expectedCells) &&
-      checked.length === expectedCells.length &&
-      checked.every((call, index) =>
-        isDeepStrictEqual(completedCallOutcome(trace, call)?.details.value, expectedCells[index]),
-      );
+          item.input.path === sourceRead?.input.path || item.input.path === readback?.input.path,
+      ) &&
+      activity.length === reads.length + writes.length &&
+      trace.activities.length === activity.length + rejectedReads.length &&
+      trace.activities.every(codeModeInvocation);
   }
+
   return checks;
 }
 
@@ -977,6 +1093,9 @@ export async function runGatewayMatrixCell(
       openclaw: { extensions: ["./index.mjs"] },
     }),
   );
+  for (const [name, content] of Object.entries(fixture.workspaceFiles ?? {})) {
+    await fs.writeFile(path.join(workspace, name), content);
+  }
   if (fixture.processHelperSource !== undefined) {
     await fs.writeFile(path.join(workspace, "process-probe.mjs"), fixture.processHelperSource);
   }
@@ -1227,6 +1346,11 @@ export async function runGatewayMatrixCell(
     receipts: taskReceipts,
     probeCode: fixture.probeCode,
   });
+  if (params.cell.task === "javascript-contracts") {
+    behavior.persistedFile =
+      (await fs.readFile(path.join(workspace, "result.txt"), "utf8").catch(() => undefined)) ===
+      fixture.expected.verificationCode;
+  }
   const interviewChecks = evaluateGatewayMatrixInterview(
     params.cell.task,
     trace,
@@ -1263,10 +1387,6 @@ export async function runGatewayMatrixCell(
       ? {
           upstreamCalls: trace.activities.length,
           outerCalls: trace.calls.length,
-          checkedCells: trace.calls.filter(
-            (call) =>
-              call.args.typecheck === true && completedCallOutcome(trace, call) !== undefined,
-          ).length,
           outerOutputBytes: Buffer.byteLength(outerOutput),
           taskAssistantTurns: trace.assistantTurns,
         }

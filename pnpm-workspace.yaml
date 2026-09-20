@@ -10,8 +10,16 @@ minimumReleaseAgeStrict: true
 
 # Trusted Codex runtimes are outside the dependency cooldown.
 minimumReleaseAgeExclude:
-  # Reviewed ACPX release; remove after 2026-09-27T04:05:14Z.
-  - acpx@0.17.1
+  # Requested CUA update with keyboard delivery fixes; remove after 2026-09-22T22:00:08Z.
+  - "@trycua/cua-driver@0.28.2"
+  - "@trycua/cua-driver-darwin-arm64@0.28.2"
+  - "@trycua/cua-driver-darwin-x64@0.28.2"
+  - "@trycua/cua-driver-linux-arm64-gnu@0.28.2"
+  - "@trycua/cua-driver-linux-x64-gnu@0.28.2"
+  - "@trycua/cua-driver-win32-arm64-msvc@0.28.2"
+  - "@trycua/cua-driver-win32-x64-msvc@0.28.2"
+  # Reviewed ACPX release; remove after 2026-09-27T20:56:00Z.
+  - acpx@0.18.0
   # Published ACPX runtime dependencies; remove after 2026-09-22T12:38:43Z.
   - "@openclaw/fs-safe@0.12.0"
   - "@openclaw/fs-safe-darwin-arm64@0.12.0"
@@ -51,6 +59,8 @@ minimumReleaseAgeExclude:
 
 # Isolated installs let pnpm reuse whole-package APFS clones instead of relinking every file.
 nodeLinker: isolated
+# Private inodes keep sibling installs from changing compiler input ctimes.
+packageImportMethod: clone-or-copy
 # GWTs share node_modules; script commands must not reconcile that shared install.
 verifyDepsBeforeRun: false
 blockExoticSubdeps: true

@@ -169,6 +169,7 @@ export const validateBoardDataReadParams = compile(S.BoardDataReadParamsSchema);
 export const validateBoardActionParams = compile(S.BoardActionParamsSchema);
 export const validateProgressCardGetParams = compile(S.ProgressCardGetParamsSchema);
 export const validateProgressCardPutParams = compile(S.ProgressCardPutParamsSchema);
+export const validateProgressCardRefreshParams = compile(S.ProgressCardRefreshParamsSchema);
 export const validateWorktreesCreateParams = compile(S.WorktreesCreateParamsSchema);
 export const validateWorktreesRemoveParams = compile(S.WorktreesRemoveParamsSchema);
 export const validateWorktreesRestoreParams = compile(S.WorktreesRestoreParamsSchema);

@@ -18,6 +18,7 @@ const SESSION_TARGET_FIELDS_BY_METHOD = new Map<string, readonly SessionMutation
   ["plugins.sessionAction", ["sessionKey"]],
   ["progressCard.get", ["sessionKey"]],
   ["progressCard.put", ["sessionKey"]],
+  ["progressCard.refresh", ["sessionKey"]],
   ["send", ["sessionKey"]],
   ["session.discussion.open", ["sessionKey"]],
   ["sessions.abort", ["key"]],
@@ -78,6 +79,7 @@ const REQUIRED_SESSION_TARGET_METHODS = new Set([
   "mcp.app.updateModelContext",
   "progressCard.get",
   "progressCard.put",
+  "progressCard.refresh",
   "session.discussion.open",
   "sessions.abort",
   "sessions.assignOwner",
@@ -160,5 +162,33 @@ export function isSessionProfileDependentMethod(method: string): boolean {
     REQUIRED_SESSION_TARGET_METHODS.has(method) ||
     APPROVAL_SESSION_TARGET_METHODS.has(method) ||
     method === "sessions.patchMany"
+  );
+}
+
+const AGENT_RUN_START_METHODS = new Set([
+  "progressCard.refresh",
+  "agent",
+  "chat.send",
+  "message.action",
+  "send",
+  "sessions.dispatch",
+  "sessions.send",
+  "sessions.steer",
+  "talk.client.create",
+  "talk.client.toolCall",
+  "talk.session.create",
+  "tools.invoke",
+  "wake",
+]);
+
+/** Run starts require participation even when the operator has admin scope. */
+export function isAgentRunStartMethod(method: string, requestParams: unknown): boolean {
+  return (
+    AGENT_RUN_START_METHODS.has(method) ||
+    (method === "sessions.goal.update" &&
+      typeof requestParams === "object" &&
+      requestParams !== null &&
+      "action" in requestParams &&
+      requestParams.action === "resume")
   );
 }

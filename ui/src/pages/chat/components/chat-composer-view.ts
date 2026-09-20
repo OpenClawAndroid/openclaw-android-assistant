@@ -295,6 +295,7 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
             onManipulate: props.onProgressManipulate,
             completedRunId: props.runStatus?.phase === "done" ? props.runStatus.runId : null,
           },
+          props.connected && canCompose ? props.progressCardRefresh : undefined,
         )}
       </div>`
     : props.progressCardInitialLoading

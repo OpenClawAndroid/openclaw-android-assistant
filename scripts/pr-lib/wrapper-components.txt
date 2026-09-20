@@ -79,6 +79,7 @@ packages/session-url-contract/package.json
 packages/session-url-contract/src/focus.ts
 packages/session-url-contract/src/grammar.ts
 packages/session-url-contract/src/index.ts
+packages/session-url-contract/src/session-key-normalization.ts
 packages/session-url-contract/src/session-key.ts
 packages/session-url-contract/src/share.ts
 packages/terminal-core/package.json
@@ -276,6 +277,7 @@ src/commands/doctor/shared/legacy-config-migrations.qqbot.ts
 src/commands/doctor/shared/legacy-config-migrations.queue.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.agents.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.cli-backends.ts
+src/commands/doctor/shared/legacy-config-migrations.runtime.code-mode.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.config-tranche.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.cron.ts
 src/commands/doctor/shared/legacy-config-migrations.runtime.diagnostics.ts
@@ -1042,6 +1044,7 @@ src/process/spawn-broker/host.ts
 src/process/spawn-broker/ipc.ts
 src/process/spawn-broker/pipe.ts
 src/process/spawn-broker/protocol.ts
+src/process/spawn-utils.ts
 src/process/supervisor/cancellation-policy.ts
 src/process/supervisor/service-child-windows-job-native.ts
 src/process/windows-command.ts

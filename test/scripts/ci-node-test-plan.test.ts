@@ -1443,6 +1443,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
           "agentic-commands-doctor-sessions-cron",
           "agentic-commands-doctor-sessions-cron-memory",
           "agentic-commands-doctor-sessions-cron-sqlite",
+          "agentic-commands-doctor-sessions-cron-sqlite-recovery",
           "agentic-control-plane-auth-node",
           "core-runtime-infra-storage-state",
           "agentic-control-plane-runtime-ui-tools",
@@ -1460,7 +1461,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         pullRequest: githubPullRequestCompact,
         push: githubCompact,
         largeOwners: [
-          "core-runtime-cron-service",
+          "core-runtime-cron-parallel-service",
           "agentic-agents-tools",
           "core-runtime-infra-storage-state",
         ],
@@ -1472,7 +1473,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         push: hybridCompact,
         largeOwners: [
           "agentic-commands-doctor-config-state",
-          "core-runtime-cron-service",
+          "core-runtime-cron-parallel-service",
           "agentic-control-plane-runtime-shared-token",
           "agentic-commands-doctor-platform",
         ],
@@ -2230,6 +2231,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       "agentic-commands-doctor-sessions-cron",
       "agentic-commands-doctor-sessions-cron-memory",
       "agentic-commands-doctor-sessions-cron-sqlite",
+      "agentic-commands-doctor-sessions-cron-sqlite-recovery",
     ];
     const base = createNodeTestShards({ includeReleaseOnlyPluginShards: false });
     const commandShards = base.filter((shard) =>
@@ -2245,6 +2247,10 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     ]);
     expect(owners.get("agentic-commands-doctor-sessions-cron-sqlite")).toEqual([
       "src/commands/doctor-session-sqlite.test.ts",
+    ]);
+    expect(owners.get("agentic-commands-doctor-sessions-cron-sqlite-recovery")).toEqual([
+      "src/commands/doctor-session-sqlite.receipt-recovery.test.ts",
+      "src/commands/doctor-session-transcripts.missing-index.test.ts",
     ]);
     expect(owners.get("agentic-commands-doctor-sessions-cron")).toEqual([
       "src/commands/doctor-heartbeat-cadence-migration.test.ts",
@@ -2798,6 +2804,33 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       PRIVATE_QA_TOOLING_TEST,
     ]);
   });
+
+  it.each(["blacksmith", "github", "hybrid"])(
+    "runs large workspace inventory without sibling files in %s plans",
+    (runnerBackend) => {
+      const inventory = "src/gateway/worker-environments/workspace-large-inventory.test.ts";
+      const owners = defaultShards.filter((shard) => shard.includePatterns?.includes(inventory));
+      expect(owners).toHaveLength(1);
+      expect(owners[0]!.includePatterns).toEqual([inventory]);
+
+      for (const plan of [
+        getCommittedCompactPlan("pull-request", runnerBackend),
+        getCommittedCompactPlan("push", runnerBackend),
+      ]) {
+        const jobs = plan.filter((job) =>
+          job.groups.some((group) => group.includePatterns?.includes(inventory)),
+        );
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]!.planConcurrency).toBe(1);
+        const groups = jobs[0]!.groups.filter((group) =>
+          group.includePatterns?.includes(inventory),
+        );
+        expect(groups).toHaveLength(1);
+        expect(groups[0]!.includePatterns).toEqual([inventory]);
+        expect(groups[0]!.configs).toEqual(["test/vitest/vitest.gateway-core.config.ts"]);
+      }
+    },
+  );
 
   it.each(["blacksmith", "github", "hybrid"])(
     "retains measured Gateway worker fallback in precise %s plans",
@@ -3354,19 +3387,19 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         configs: ["test/vitest/vitest.cron.config.ts"],
         requiresDist: false,
         runner: DEFAULT_NODE_TEST_RUNNER,
-        shardName: "core-runtime-cron-core",
+        shardName: "core-runtime-cron-parallel-core",
       },
       {
         configs: ["test/vitest/vitest.cron.config.ts"],
         requiresDist: false,
         runner: DEFAULT_NODE_TEST_RUNNER,
-        shardName: "core-runtime-cron-isolated-agent",
+        shardName: "core-runtime-cron-parallel-isolated-agent",
       },
       {
         configs: ["test/vitest/vitest.cron.config.ts"],
         requiresDist: false,
         runner: DEFAULT_NODE_TEST_RUNNER,
-        shardName: "core-runtime-cron-service",
+        shardName: "core-runtime-cron-parallel-service",
       },
     ]);
   });
@@ -3561,13 +3594,62 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       .toSorted((a, b) => a.localeCompare(b));
 
     expect(cronShards.map((shard) => shard.shardName)).toEqual([
-      "core-runtime-cron-core",
-      "core-runtime-cron-isolated-agent",
-      "core-runtime-cron-service",
+      "core-runtime-cron-parallel-core",
+      "core-runtime-cron-parallel-isolated-agent",
+      "core-runtime-cron-parallel-service",
     ]);
     expect(actual).toEqual(listTestFiles("src/cron"));
     expect(new Set(actual).size).toBe(actual.length);
   });
+
+  it.each(["blacksmith", "github", "hybrid"])(
+    "prices parallel cron from serial work until %s has direct measurements",
+    (runnerBackend) => {
+      const original = fullSuiteVitestShards.slice();
+      try {
+        const cron = "test/vitest/vitest.cron.config.ts";
+        fullSuiteVitestShards.splice(
+          0,
+          fullSuiteVitestShards.length,
+          ...original
+            .filter((shard) => shard.projects.includes(cron))
+            .map((shard) => Object.assign({}, shard, { projects: [cron] })),
+        );
+        const timings = vi.spyOn(testTimings, "readCompactGroupTimings").mockReturnValue({
+          "core-runtime-cron-core": 40,
+          "core-runtime-cron-isolated-agent": 100,
+          "core-runtime-cron-service": 140,
+        });
+        const options = { compactMode: "pull-request" as const, runnerBackend };
+        const baseline = createNodeTestShardBundles(options);
+        const totalSeconds = (plan: typeof baseline) =>
+          plan.reduce((total, job) => total + job.predictedSeconds!, 0);
+        expect(totalSeconds(baseline)).toBe(runnerBackend === "hybrid" ? 122 : 140);
+        expect(baseline.flatMap((job) => job.groups)).toHaveLength(3);
+        timings.mockReturnValue({
+          "core-runtime-cron-core": 400,
+          "core-runtime-cron-isolated-agent": 1_000,
+          "core-runtime-cron-service": 1_400,
+          "core-runtime-cron-parallel-core": 20,
+          "core-runtime-cron-parallel-isolated-agent": 60,
+          "core-runtime-cron-parallel-service": 80,
+        });
+        const measured = createNodeTestShardBundles(options);
+        expect(totalSeconds(measured)).toBe(runnerBackend === "hybrid" ? 139 : 160);
+        const groups = measured.flatMap((job) => job.groups);
+        expect(groups).toHaveLength(3);
+        expect(groups.every((group) => group.env === undefined)).toBe(true);
+        expect(groups.every((group) => group.fallbackMaxWorkers === undefined)).toBe(true);
+        expect(groups.flatMap((group) => group.includePatterns ?? []).toSorted()).toEqual(
+          baseline
+            .flatMap((job) => job.groups.flatMap((group) => group.includePatterns ?? []))
+            .toSorted(),
+        );
+      } finally {
+        fullSuiteVitestShards.splice(0, fullSuiteVitestShards.length, ...original);
+      }
+    },
+  );
 
   it("splits the agentic lane into control-plane, command, agent, gateway, SDK, and plugin shards", () => {
     const shards = defaultShards;
@@ -3681,6 +3763,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       "agentic-commands-doctor-sessions-cron",
       "agentic-commands-doctor-sessions-cron-memory",
       "agentic-commands-doctor-sessions-cron-sqlite",
+      "agentic-commands-doctor-sessions-cron-sqlite-recovery",
       "agentic-commands-doctor-shared",
       "agentic-commands-doctor-whatsapp",
       "agentic-commands-doctor-workspace",

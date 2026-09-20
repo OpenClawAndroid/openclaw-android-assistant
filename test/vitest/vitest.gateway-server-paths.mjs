@@ -2,10 +2,12 @@
 export const gatewayPluginTestFiles = [
   "test/plugins/codex-model-catalog.gateway.test.ts",
   "test/plugins/crabbox-allocation-authority.gateway.test.ts",
+  "test/plugins/team-reports-http.gateway.test.ts",
 ];
 
 // Native database consumers retain lifecycle cleanup within each forked process.
 export const gatewayDatabaseWorkerTestFiles = [
+  "src/gateway/agent-turn/agent-run-dispatch.execution-binding.test.ts",
   "src/gateway/agent-turn/agent-run-dispatch.sqlite.test.ts",
   "src/gateway/board-http.test.ts",
   "src/gateway/board-store.test.ts",

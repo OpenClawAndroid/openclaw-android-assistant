@@ -575,7 +575,6 @@ describe("scoped vitest configs", () => {
   const defaultPluginSdkConfig = createPluginSdkVitestConfig({});
   const defaultSecretsConfig = createSecretsVitestConfig({});
   const defaultRuntimeConfig = createRuntimeConfigVitestConfig({});
-  const defaultCronConfig = createCronVitestConfig({});
   const defaultDaemonConfig = createDaemonVitestConfig({});
   const defaultMediaConfig = createMediaVitestConfig({});
   const defaultMediaUnderstandingConfig = createMediaUnderstandingVitestConfig({});
@@ -1029,6 +1028,7 @@ describe("scoped vitest configs", () => {
       "src/gateway/**/*.test.ts",
       "test/plugins/codex-model-catalog.gateway.test.ts",
       "test/plugins/crabbox-allocation-authority.gateway.test.ts",
+      "test/plugins/team-reports-http.gateway.test.ts",
     ]);
     expect(testConfig.exclude).toContain("src/gateway/gateway.test.ts");
     expect(testConfig.exclude).toContain(
@@ -1158,14 +1158,24 @@ describe("scoped vitest configs", () => {
     expect(testConfig.include).toEqual(["config/**/*.test.ts"]);
   });
 
-  it("normalizes cron include patterns relative to the scoped dir", () => {
-    const testConfig = requireTestConfig(defaultCronConfig);
-    expect(testConfig.dir).toBe(path.join(process.cwd(), "src"));
-    expect(testConfig.include).toEqual(["cron/**/*.test.ts"]);
-    expectForkedNonIsolatedRunner(defaultCronConfig);
-    expect(testConfig.maxWorkers).toBe(1);
-    expect(testConfig.fileParallelism).toBe(false);
-    expect(testConfig.sequence).toMatchObject({ groupOrder: 1 });
+  it.each([1, 2, 8])("keeps cron scoped while honoring %i shared workers", (maxWorkers) => {
+    const original = sharedVitestConfig.test;
+    try {
+      sharedVitestConfig.test = {
+        ...original,
+        maxWorkers,
+        fileParallelism: maxWorkers > 1,
+      };
+      const config = createCronVitestConfig({});
+      const testConfig = requireTestConfig(config);
+      expect(testConfig.dir).toBe(path.join(process.cwd(), "src"));
+      expect(testConfig.include).toEqual(["cron/**/*.test.ts"]);
+      expectForkedNonIsolatedRunner(config);
+      expect(testConfig.maxWorkers).toBe(maxWorkers);
+      expect(testConfig.fileParallelism).toBe(maxWorkers > 1);
+    } finally {
+      sharedVitestConfig.test = original;
+    }
   });
 
   it("normalizes daemon include patterns relative to the scoped dir", () => {

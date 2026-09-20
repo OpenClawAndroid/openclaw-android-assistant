@@ -30,7 +30,6 @@ import {
 import { prepareSource } from "./code-mode-source.js";
 import type {
   CodeModeConfig,
-  CodeModeLanguage,
   CodeModeNamespaceDescriptor,
   CodeModeWorkerPayload,
   CodeModeWorkerContinuation,
@@ -559,25 +558,7 @@ async function run(
   channel?: WorkerTaskChannel,
 ): Promise<CodeModeWorkerResult> {
   const startedAt = performance.now();
-  let sourceMap: string | undefined;
-  const source =
-    input.kind === "exec"
-      ? await prepareSource({
-          code: input.source,
-          language: input.language,
-          config: input.config,
-          preflight:
-            input.preflightDeclarations === undefined
-              ? undefined
-              : {
-                  declarations: input.preflightDeclarations,
-                  maxBytes: input.config.memoryLimitBytes,
-                },
-          onSourceMap: (map) => {
-            sourceMap = map;
-          },
-        })
-      : "";
+  const source = input.kind === "exec" ? prepareSource(input.source) : "";
   const config = {
     ...input.config,
     timeoutMs: Math.min(
@@ -605,11 +586,7 @@ async function run(
     maxTimeoutMs: input.config.timeoutMs,
     prepare: () => {
       if (input.kind === "exec") {
-        const program = buildUserSource(source, input.prelude, input.language);
-        if (sourceMap) {
-          program.location.sourceMap = sourceMap;
-          program.location.generatedLines = source.split(/\r\n|[\r\n\u2028\u2029]/u);
-        }
+        const program = buildUserSource(source, input.prelude);
         // Immutable guest state travels with the existing VM snapshot and its byte limit.
         vm.newString(JSON.stringify(program.location)).consume((location) =>
           vm.global.defineProp(SOURCE_LOCATION_KEY, location),
@@ -666,11 +643,6 @@ async function main(
             wasmModule: input.wasmModule,
             wasmExtensions: input.wasmExtensions,
             source: input.source,
-            preflightDeclarations:
-              typeof input.preflightDeclarations === "string"
-                ? input.preflightDeclarations
-                : undefined,
-            language: input.language as CodeModeLanguage | undefined,
             prelude: typeof input.prelude === "string" ? input.prelude : undefined,
             executionTimeoutMs:
               typeof input.executionTimeoutMs === "number" ? input.executionTimeoutMs : undefined,

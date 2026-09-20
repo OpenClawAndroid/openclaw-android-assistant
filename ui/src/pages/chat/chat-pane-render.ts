@@ -362,6 +362,14 @@ export class ChatPane extends ChatPaneLayoutRender {
       disabledBanner:
         sessionDisabledBanner ?? placementComposer.disabledBanner ?? modelUnavailableBanner,
     };
+    const progressCardRefresh =
+      canDismissProgressCard &&
+      composerAvailability.canSend &&
+      !catalogKey &&
+      !suggestionViewer &&
+      progressPresentation
+        ? this.captureProgressCardRefreshAction()
+        : undefined;
     const selfProfileId = selfUser?.identity?.type === "profile" ? selfUser.identity.id : null;
     const mentionsUnsupported = Boolean(
       catalogKey || suggestionViewer || selectedSession?.incognito || !selfProfileId,
@@ -409,6 +417,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       progressCardIdentity: progressPresentation?.identity,
       gatewayScope: gatewayPresentationScope(this.context.gateway),
       progressCardInitialLoading: this.progressCardInitialLoading,
+      progressCardRefresh,
       collapseTaskProgress: state.settings.chatCollapseTaskProgress === true,
       readingHistory: state.chatReadingHistory,
       onProgressManipulate: () => {

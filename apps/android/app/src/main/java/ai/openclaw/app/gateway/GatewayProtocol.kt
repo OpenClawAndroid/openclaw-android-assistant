@@ -969,6 +969,7 @@ enum class GatewayMethod(
   ThemesSet("themes.set"),
   ThemesImport("themes.import"),
   ControlUiGithubDetail("controlUi.githubDetail"),
+  ProgressCardRefresh("progressCard.refresh"),
 }
 
 enum class GatewayEvent(

@@ -269,8 +269,8 @@ importers:
         specifier: 0.3.4
         version: 0.3.4
       '@trycua/cua-driver':
-        specifier: 0.24.0
-        version: 0.24.0
+        specifier: 0.28.2
+        version: 0.28.2
       acorn:
         specifier: 8.18.0
         version: 8.18.0
@@ -495,8 +495,8 @@ importers:
         specifier: 5.0.0
         version: 5.0.0(@vitest/browser@5.0.0)(vitest@5.0.0)
       acpx:
-        specifier: 0.17.1
-        version: 0.17.1
+        specifier: 0.18.0
+        version: 0.18.0
       apache-arrow:
         specifier: 21.2.0
         version: 21.2.0
@@ -635,8 +635,8 @@ importers:
         specifier: 1.10.0
         version: 1.10.0
       acpx:
-        specifier: 0.17.1
-        version: 0.17.1
+        specifier: 0.18.0
+        version: 0.18.0
       smol-toml:
         specifier: 1.8.0
         version: 1.8.0
@@ -947,8 +947,8 @@ importers:
   extensions/cua-computer:
     dependencies:
       '@trycua/cua-driver':
-        specifier: 0.24.0
-        version: 0.24.0
+        specifier: 0.28.2
+        version: 0.28.2
       rastermill:
         specifier: 0.3.3
         version: 0.3.3
@@ -5448,40 +5448,40 @@ packages:
   '@tokenizer/token@0.3.0':
     resolution: {integrity: sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A==}
 
-  '@trycua/cua-driver-darwin-arm64@0.24.0':
-    resolution: {integrity: sha512-V6C580ZFIYmB6fxjqM3eEoXahvzGjWc34I1SoVSBjDRjQSn2fXLldlNsCBxEUHs4TH/JopTyP1hTChbNtCC06w==}
+  '@trycua/cua-driver-darwin-arm64@0.28.2':
+    resolution: {integrity: sha512-Eeo62jJjxi67/XwSQKvxpJQMmJg7pjLqGa4vZTxLj3KUmjfGYjwt3wifLl82yU0AfJs6icB7V1uu6sYE+nm9mg==}
     cpu: [arm64]
     os: [darwin]
 
-  '@trycua/cua-driver-darwin-x64@0.24.0':
-    resolution: {integrity: sha512-4KmFTUsGegTXmt+Crr/M+Zf/92zI+tGmJWFfM3CkCNGaCBw+wqJFmAYp9mVaR2F+zmdpaWyptB/movaHC88Lcg==}
+  '@trycua/cua-driver-darwin-x64@0.28.2':
+    resolution: {integrity: sha512-n7iWl2iqIyPoDpCJ3hyK2gKZqu0RTolabRptmZKYPzRSTbRbzO3mejOa+CXHsJjVbM4+FyDJDNn5NE2CZLMdXg==}
     cpu: [x64]
     os: [darwin]
 
-  '@trycua/cua-driver-linux-arm64-gnu@0.24.0':
-    resolution: {integrity: sha512-SWiyMz8z6Oax/Q+Fp2zN4WjxcXE1pSQH9SsET63W2+C6t2CZdhLzypB1h4xNStcX8eCQZ/dl0ayiV2h0U2c/Zw==}
+  '@trycua/cua-driver-linux-arm64-gnu@0.28.2':
+    resolution: {integrity: sha512-ZFrYmA53ooEGyImEHo7cxYxgyXidP6Mkxc1KYiM8KoFmeHFSX3TmuKDsVV9dwZGKrhAOJBvQTvLvlb85RlccQg==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@trycua/cua-driver-linux-x64-gnu@0.24.0':
-    resolution: {integrity: sha512-7FDtyemjyaZwNIOahfYPr6NcJOr86i3WXGcaJ9Q+a5wG13srkr3vhA0K7mPQcGd/tZTyZAulXA0fnjYv7oZiXg==}
+  '@trycua/cua-driver-linux-x64-gnu@0.28.2':
+    resolution: {integrity: sha512-mZp8rRyaT0/gUXnHGAC53EKA6WHKvRbliacMVsiwf/EEUOLNtz6pRNfhYyF4GLT6jHbC/Xwu8V9kpntz9Tssdg==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@trycua/cua-driver-win32-arm64-msvc@0.24.0':
-    resolution: {integrity: sha512-NktveoX98qafCjgBePzqTsHqjlFHdz6ositvEtwVTS3xA7hNEgCsr9w55sRQYuUSGfz5xjxpFioSn6Mh/f5brw==}
+  '@trycua/cua-driver-win32-arm64-msvc@0.28.2':
+    resolution: {integrity: sha512-prShQ7VSVXMkytMGj+d43u54/9H3K0nJT5OOAqT3S78XATw7dlu1ESdEacr/J2lNcmn5mxwEy+i+9HRmEt0DJw==}
     cpu: [arm64]
     os: [win32]
 
-  '@trycua/cua-driver-win32-x64-msvc@0.24.0':
-    resolution: {integrity: sha512-8tudsgdnfgCgeavIyhIOVCAAkfKezTkhTaZvPqZnikYN+5xKrO4o+vPhyyuEurYZLBLKluAxRwGr9DP/7syZjw==}
+  '@trycua/cua-driver-win32-x64-msvc@0.28.2':
+    resolution: {integrity: sha512-H7pUIwbrKCqkyDBcI4ovk1ggN+MOmFtATGl0fokPkD7dp1EHGn5I9vRJEPVvqjP0BTwdlBJ8NucIy0g2eFK86Q==}
     cpu: [x64]
     os: [win32]
 
-  '@trycua/cua-driver@0.24.0':
-    resolution: {integrity: sha512-OVYuBBvo7HNxGmqZDaWlfQ5tdr7FruA0YfytJ0p+aTZ9QF/1T8G5nQNsLVJht7JBAybktxO6JW+lxBNn9QHp8A==}
+  '@trycua/cua-driver@0.28.2':
+    resolution: {integrity: sha512-18DHs68WpIdKtkAMecd5mLKwJtT854gXzie24Ag0QMxveRNgzKphAje51t0oeI7ZnHetyXKDAQUr5fQyZu7S6Q==}
 
   '@tufjs/canonical-json@2.0.0':
     resolution: {integrity: sha512-yVtV8zsdo8qFHe+/3kw81dSLyF7D576A5cCFCi4X7B39tWT7SekaEFUnvnWJHz+9qO7qJTah1JbrDjWKqFtdWA==}
@@ -6168,8 +6168,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  acpx@0.17.1:
-    resolution: {integrity: sha512-VafoVDYO8xE/Pd/8hTwAR6eHoSJf3K119knfFfAjCVqGy8ilGtWoVRI8z7fm+Q1o+R1vKDo58MJoxDx6YIt1tQ==}
+  acpx@0.18.0:
+    resolution: {integrity: sha512-O5L2ldiSijytxsot9IIuViHCeZGNZpexlWKTD6za/flqrswotfl7RJ5Ch0NaU6ceSxFqAnLT/KVPwUF9KGVZlQ==}
     engines: {node: '>=22.13.0'}
     hasBin: true
 
@@ -12873,35 +12873,35 @@ snapshots:
 
   '@tokenizer/token@0.3.0': {}
 
-  '@trycua/cua-driver-darwin-arm64@0.24.0':
+  '@trycua/cua-driver-darwin-arm64@0.28.2':
     optional: true
 
-  '@trycua/cua-driver-darwin-x64@0.24.0':
+  '@trycua/cua-driver-darwin-x64@0.28.2':
     optional: true
 
-  '@trycua/cua-driver-linux-arm64-gnu@0.24.0':
+  '@trycua/cua-driver-linux-arm64-gnu@0.28.2':
     optional: true
 
-  '@trycua/cua-driver-linux-x64-gnu@0.24.0':
+  '@trycua/cua-driver-linux-x64-gnu@0.28.2':
     optional: true
 
-  '@trycua/cua-driver-win32-arm64-msvc@0.24.0':
+  '@trycua/cua-driver-win32-arm64-msvc@0.28.2':
     optional: true
 
-  '@trycua/cua-driver-win32-x64-msvc@0.24.0':
+  '@trycua/cua-driver-win32-x64-msvc@0.28.2':
     optional: true
 
-  '@trycua/cua-driver@0.24.0':
+  '@trycua/cua-driver@0.28.2':
     dependencies:
       '@ubjs/core': 0.31.0-3
       '@ubjs/node': 0.31.0-3
     optionalDependencies:
-      '@trycua/cua-driver-darwin-arm64': 0.24.0
-      '@trycua/cua-driver-darwin-x64': 0.24.0
-      '@trycua/cua-driver-linux-arm64-gnu': 0.24.0
-      '@trycua/cua-driver-linux-x64-gnu': 0.24.0
-      '@trycua/cua-driver-win32-arm64-msvc': 0.24.0
-      '@trycua/cua-driver-win32-x64-msvc': 0.24.0
+      '@trycua/cua-driver-darwin-arm64': 0.28.2
+      '@trycua/cua-driver-darwin-x64': 0.28.2
+      '@trycua/cua-driver-linux-arm64-gnu': 0.28.2
+      '@trycua/cua-driver-linux-x64-gnu': 0.28.2
+      '@trycua/cua-driver-win32-arm64-msvc': 0.28.2
+      '@trycua/cua-driver-win32-x64-msvc': 0.28.2
 
   '@tufjs/canonical-json@2.0.0': {}
 
@@ -13560,7 +13560,7 @@ snapshots:
 
   acorn@8.18.0: {}
 
-  acpx@0.17.1:
+  acpx@0.18.0:
     dependencies:
       '@agentclientprotocol/sdk': 1.4.0(zod@4.6.4)
       '@openclaw/fs-safe': 0.12.0
