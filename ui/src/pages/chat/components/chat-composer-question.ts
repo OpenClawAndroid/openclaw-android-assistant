@@ -1,5 +1,4 @@
 import { html, nothing } from "lit";
-import { areUiSessionKeysEquivalent } from "../../../lib/sessions/session-key.ts";
 import { createAsyncQuestionPanelProps } from "./chat-async-question.ts";
 import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types.ts";
 import {
@@ -22,12 +21,7 @@ export function resolveComposerQuestionPanel(
   requestUpdate: () => void,
 ): QuestionPanelProps | null {
   const gatewayQuestions =
-    props.gatewayQuestionPrompts?.filter(
-      (prompt) =>
-        prompt.status === "pending" &&
-        prompt.sessionKey !== undefined &&
-        areUiSessionKeysEquivalent(prompt.sessionKey, props.sessionKey),
-    ) ?? [];
+    props.gatewayQuestionPrompts?.filter((prompt) => prompt.status === "pending") ?? [];
   const asyncQuestions = props.asyncQuestions;
   const requests =
     props.disabledBanner?.kind === "composer-replacement"

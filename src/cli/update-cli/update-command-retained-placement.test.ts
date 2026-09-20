@@ -99,8 +99,7 @@ describe("current native placement", () => {
             }
             return "current scope completed";
           }),
-        undefined,
-        native,
+        { nativeCommand: native },
       ).then(
         (value) => {
           settled = true;

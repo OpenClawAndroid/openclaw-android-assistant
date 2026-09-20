@@ -18,6 +18,10 @@ import type {
   OpenClawAgentDatabaseOwnerInspection,
 } from "./openclaw-agent-db-contract.js";
 import {
+  readOpenClawAgentDatabaseIdentity,
+  isOpenClawAgentDatabasePathCurrent,
+} from "./openclaw-agent-db-identity.js";
+import {
   readOpenClawAgentDatabaseWorkerLeaseReceiptFromClaim,
   releaseOpenClawAgentDatabaseLease,
   type OpenClawAgentDatabaseWorkerLeaseReceipt,
@@ -32,6 +36,7 @@ import {
   readExistingAgentSchemaMeta,
 } from "./openclaw-agent-db-schema-helpers.js";
 import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
+import { clearOpenClawAgentIntegrityVerification } from "./openclaw-quarantine-store.js";
 import {
   getOpenClawDatabaseMaintenanceScope,
   observeOpenClawDatabaseMaintenanceResource,
@@ -184,14 +189,34 @@ export function closeCachedOpenClawAgentDatabase(
 ): void {
   // Eviction must stay cheap: PASSIVE skips waiting on concurrent readers,
   // whose drained TRUNCATE checkpoints blocked the event loop for seconds.
-  disposeNodeSqliteDependents(database.db);
-  database.walMaintenance.close(options.eviction ? { checkpointMode: "PASSIVE" } : undefined);
-  if (database.db.isOpen) {
-    database.db.close();
-  }
   const lease = cache.leases.get(database.path);
+  let clean: { path: string; identity: string } | undefined;
+  try {
+    disposeNodeSqliteDependents(database.db);
+    const checkpointed = database.walMaintenance.close(
+      options.eviction ? { checkpointMode: "PASSIVE" } : undefined,
+    );
+    if (
+      checkpointed &&
+      !cache.failures.has(database.path) &&
+      isOpenClawAgentDatabasePathCurrent(database)
+    ) {
+      const { identity } = readOpenClawAgentDatabaseIdentity(database);
+      if (typeof identity === "string") {
+        clean = { path: database.path, identity };
+      }
+    }
+    if (database.db.isOpen) {
+      database.db.close();
+    }
+  } catch (error) {
+    if (lease) {
+      clearOpenClawAgentIntegrityVerification(database.path, lease.env);
+    }
+    throw error;
+  }
   if (lease) {
-    releaseOpenClawAgentDatabaseLease(lease.leaseId, { env: lease.env });
+    releaseOpenClawAgentDatabaseLease(lease.leaseId, { env: lease.env }, clean);
     cache.leases.delete(database.path);
   }
   releaseAgentDeletionDatabaseCleanup(database);
@@ -317,8 +342,7 @@ export function settleOpenClawAgentDatabaseWorkerClose(
   const database = cache.databases.get(resolvedPath);
   if (database) {
     try {
-      disposeNodeSqliteDependents(database.db);
-      database.walMaintenance.close();
+      closeCachedOpenClawAgentDatabase(database);
     } catch (error) {
       errors.push(error instanceof Error ? error : new Error(String(error)));
     }

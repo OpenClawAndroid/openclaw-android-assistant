@@ -10,7 +10,7 @@ import {
   isRestartEnabledMock,
   resolveUpdateInstallSurfaceMock,
   runGatewayUpdateMock,
-  scheduleGatewaySigusr1RestartMock,
+  scheduleGatewayRestartMock,
   sendGatewayLifecycleNoticeMock,
   sentinelState,
   startManagedServiceUpdateHandoffMock,
@@ -84,7 +84,7 @@ describe("update.run chat restart permission", () => {
     expect(runGatewayUpdateMock).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
     expect(transferManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(sentinelState.capturedPayload).toBeUndefined();
   }
 

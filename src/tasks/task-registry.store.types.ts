@@ -9,6 +9,7 @@ export type TaskRegistryStoreSnapshot = {
 };
 
 export type TaskExecutionRestoreStore = {
+  repairLegacyIdentifiers?: () => void;
   loadSnapshot: () => TaskRegistryStoreSnapshot;
   withMutation?: <T>(operation: () => T) => T;
   upsertTaskWithDeliveryState: (params: {

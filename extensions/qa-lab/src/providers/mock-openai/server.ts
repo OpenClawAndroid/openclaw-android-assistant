@@ -66,9 +66,6 @@ import {
   QA_STRANDED_FINAL_RETRY_PROMPT_RE,
   QA_TELEGRAM_CURRENT_SESSION_STATUS_PROMPT_RE,
   QA_TELEGRAM_STREAM_SINGLE_MARKER,
-  QA_TELEGRAM_LONG_FINAL_THREE_CHUNK_PROMPT_RE,
-  QA_TELEGRAM_LONG_FINAL_PROMPT_RE,
-  QA_WHATSAPP_LONG_FINAL_PROMPT_RE,
   QA_SLACK_CHART_PRESENTATION_PROMPT_RE,
   QA_MESSAGE_DECISION_SUPPRESSION_PROMPT_RE,
   QA_MESSAGE_DECISION_SEND_PROMPT_RE,
@@ -151,7 +148,8 @@ import {
   extractPlannedToolIdentity,
   extractPlannedToolArgs,
   splitMockStreamingText,
-  buildQaLongFinalText,
+  buildChannelStreamingFixtureEvents,
+  QA_TELEGRAM_PREPARED_DELIVERY_RE,
   buildAssistantThenToolCallEvents,
   buildAssistantEvents,
   buildStreamingFinalAnswerEvents,
@@ -1623,26 +1621,13 @@ async function buildResponsesPayload(
     }
     return buildAssistantEvents("");
   }
-  if (QA_TELEGRAM_LONG_FINAL_THREE_CHUNK_PROMPT_RE.test(allInputText)) {
-    const text = buildQaLongFinalText({
-      endMarker: "TELEGRAM-LONG-FINAL-3CHUNK-END",
-      segmentCount: 96,
-      startMarker: "TELEGRAM-LONG-FINAL-3CHUNK-BEGIN",
-    });
-    return buildStreamingFinalAnswerEvents("msg_mock_telegram_long_final_three_chunk", text);
-  }
-  if (QA_TELEGRAM_LONG_FINAL_PROMPT_RE.test(allInputText)) {
-    const text = buildQaLongFinalText();
-    return buildStreamingFinalAnswerEvents("msg_mock_telegram_long_final", text);
-  }
-  if (QA_WHATSAPP_LONG_FINAL_PROMPT_RE.test(allInputText)) {
-    const text = buildQaLongFinalText({
-      endMarker: "WHATSAPP-LONG-FINAL-END",
-      segmentPrefix: "whatsapp-long-final-segment",
-      segmentCount: 64,
-      startMarker: "WHATSAPP-LONG-FINAL-BEGIN",
-    });
-    return buildStreamingFinalAnswerEvents("msg_mock_whatsapp_long_final", text);
+  const channelStreamingEvents = buildChannelStreamingFixtureEvents({
+    currentPrompt,
+    allInputText,
+    hasCompletedToolOutput,
+  });
+  if (channelStreamingEvents) {
+    return channelStreamingEvents;
   }
   const whatsAppPendingHistoryReply = buildWhatsAppPendingHistoryReply(prompt, input);
   if (whatsAppPendingHistoryReply) {
@@ -2831,9 +2816,11 @@ export async function startQaMockOpenAiServer(params?: QaMockOpenAiServerOptions
           }
         : {}),
       ...(failure ? { failure } : {}),
-      ...(QA_FINAL_ONLY_MARKER_STREAMING_PROMPT_RE.test(allInputText)
-        ? { previewPauseMs: finalOnlyMarkerPauseMs }
-        : {}),
+      ...(QA_TELEGRAM_PREPARED_DELIVERY_RE.test(splitMockConversationContext(prompt).current)
+        ? { previewPauseMs: 3_000 }
+        : QA_FINAL_ONLY_MARKER_STREAMING_PROMPT_RE.test(allInputText)
+          ? { previewPauseMs: finalOnlyMarkerPauseMs }
+          : {}),
       // Stall one request; later failures let the normal retry budget settle the turn.
       ...(repeatedRequestRecovery &&
       scenarioState.repeatedRequestRecoveryAttempts <= QA_REPEATED_REQUEST_STALL_ATTEMPT

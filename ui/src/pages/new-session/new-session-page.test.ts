@@ -6,6 +6,7 @@ import "./new-session-page-entry.ts";
 
 type NewSessionElement = HTMLElement & {
   data: NewSessionRouteData | undefined;
+  focusComposer(): void;
   updateComplete: Promise<boolean>;
   requestUpdate: () => void;
 };
@@ -58,6 +59,33 @@ afterEach(() => {
 });
 
 describe("new session draft route ownership", () => {
+  it("focuses an opened draft and refocuses without changing its message", async () => {
+    const page = await mount(routeData("research"));
+    const textarea = page.querySelector<HTMLTextAreaElement>(".new-session-page__message");
+    expect(document.activeElement).toBe(textarea);
+    await enterMessage(page, "Keep this draft; do not submit it");
+    const other = document.body.appendChild(document.createElement("button"));
+    try {
+      other.focus();
+      page.focusComposer();
+      await settle(page);
+      expect(document.activeElement).toBe(textarea);
+      expect(message(page)).toBe("Keep this draft; do not submit it");
+      page.focusComposer();
+      other.focus();
+      await settle(page);
+      expect(document.activeElement).toBe(other);
+      (document.openClawModalLayers ??= new Set()).add(other);
+      other.focus();
+      page.focusComposer();
+      await settle(page);
+      expect(document.activeElement).toBe(other);
+    } finally {
+      document.openClawModalLayers?.delete(other);
+      other.remove();
+    }
+  });
+
   it.each(["show in composer", "finish dictation", "change route", "disconnect"] as const)(
     "opens pasted text in the shared side panel and clears it on %s",
     async (transition) => {
@@ -232,7 +260,8 @@ describe("new session draft route ownership", () => {
 
   it("leaves shortcuts, composition, and other form controls alone", async () => {
     const page = await mount(routeData("research"));
-    const textarea = page.querySelector<HTMLTextAreaElement>(".new-session-page__message");
+    const neutral = page.appendChild(document.createElement("button"));
+    neutral.focus();
 
     for (const init of [
       { key: "x", ctrlKey: true },
@@ -244,7 +273,7 @@ describe("new session draft route ownership", () => {
       document.dispatchEvent(
         new KeyboardEvent("keydown", { ...init, bubbles: true, composed: true }),
       );
-      expect(document.activeElement).not.toBe(textarea);
+      expect(document.activeElement).toBe(neutral);
     }
 
     const editable = document.createElement("div");

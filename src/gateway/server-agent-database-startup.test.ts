@@ -32,6 +32,7 @@ import {
   resolveOpenClawAgentSqlitePath,
 } from "../state/openclaw-agent-db.js";
 import { assertOpenClawDatabasesReady } from "../state/openclaw-database-preflight.js";
+import { clearOpenClawAgentIntegrityVerification } from "../state/openclaw-quarantine-store.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { loadGatewayTestConfig } from "./test-helpers.config-runtime.js";
 import { testState } from "./test-helpers.runtime-state.js";
@@ -177,6 +178,8 @@ it.each([
     const agentPath = database.path;
     closeOpenClawAgentDatabasesForTest();
     closeOpenClawStateDatabaseForTest();
+    // These fixtures exercise full startup inspection after unclean external mutation.
+    clearOpenClawAgentIntegrityVerification(agentPath, env);
     const raw = new DatabaseSync(agentPath);
     try {
       raw.exec("PRAGMA journal_mode=DELETE");
@@ -440,6 +443,7 @@ it("recovers queued agents after both inspection slots expire without refusing a
   closeOpenClawAgentDatabasesForTest();
   closeOpenClawStateDatabaseForTest();
   for (const pathname of paths) {
+    clearOpenClawAgentIntegrityVerification(pathname, env);
     const database = new DatabaseSync(pathname);
     try {
       database.exec("PRAGMA journal_mode=DELETE");

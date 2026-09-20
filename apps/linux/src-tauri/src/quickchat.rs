@@ -23,9 +23,10 @@ pub const QUICKCHAT_LABEL: &str = "quickchat";
 pub const QUICKCHAT_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
 const QUICKCHAT_SHORTCUT_FILE: &str = "quickchat-shortcut";
 const QUICKCHAT_SHORTCUT_DISABLED_MARKER: &str = "quickchat-shortcut-disabled";
-const QUICKCHAT_WIDTH: f64 = 640.0;
-const QUICKCHAT_HEIGHT: f64 = 92.0;
-const QUICKCHAT_EXPANDED_HEIGHT: f64 = 360.0;
+pub(crate) const QUICKCHAT_WIDTH: f64 = 640.0;
+pub(crate) const QUICKCHAT_COMPACT_WINDOW_HEIGHT: f64 = 152.0;
+pub(crate) const QUICKCHAT_TEXT_WINDOW_HEIGHT: f64 = 520.0;
+pub(crate) const QUICKCHAT_WIDGET_WINDOW_HEIGHT: f64 = 560.0;
 const RECOVERY_TIMEOUT: Duration = Duration::from_secs(15);
 const RECOVERY_MAX_BYTES: usize = 256 * 1024;
 
@@ -932,7 +933,7 @@ fn ensure_quickchat_window(app: &AppHandle) -> Result<Window, String> {
         WebviewUrl::App("quickchat.html".into()),
     )
     .title("Quick Chat")
-    .inner_size(QUICKCHAT_WIDTH, QUICKCHAT_HEIGHT)
+    .inner_size(QUICKCHAT_WIDTH, QUICKCHAT_COMPACT_WINDOW_HEIGHT)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)
@@ -1019,7 +1020,10 @@ fn show_quickchat(app: &AppHandle) -> Result<(), String> {
     let window = ensure_quickchat_window(app)?;
     app.state::<GatewayClient>().resume_paused_reconnect();
     window
-        .set_size(LogicalSize::new(QUICKCHAT_WIDTH, QUICKCHAT_HEIGHT))
+        .set_size(LogicalSize::new(
+            QUICKCHAT_WIDTH,
+            QUICKCHAT_COMPACT_WINDOW_HEIGHT,
+        ))
         .map_err(|error| format!("Could not reset Quick Chat size: {error}"))?;
     position_quickchat(app, &window)?;
     app.state::<QuickChatState>()
@@ -1180,9 +1184,9 @@ pub fn quickchat_set_expanded(webview: Webview, expanded: bool) -> Result<(), St
     require_quickchat_webview(&webview)?;
     let window = webview.window();
     let height = if expanded {
-        QUICKCHAT_EXPANDED_HEIGHT
+        QUICKCHAT_TEXT_WINDOW_HEIGHT
     } else {
-        QUICKCHAT_HEIGHT
+        QUICKCHAT_COMPACT_WINDOW_HEIGHT
     };
     window
         .set_size(LogicalSize::new(QUICKCHAT_WIDTH, height))

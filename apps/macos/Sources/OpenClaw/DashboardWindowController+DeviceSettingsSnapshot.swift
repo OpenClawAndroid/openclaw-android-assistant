@@ -134,7 +134,7 @@ extension DashboardWindowController {
     }
 
     private static func devicePermissionEntries() async -> [DeviceSettingsSnapshot.Permissions.Entry] {
-        let monitored = await PermissionManager.authorizationStatus([.accessibility, .screenRecording, .appleScript])
+        let monitored = await PermissionManager.authorizationStatus([.accessibility, .screenRecording])
         var statuses = Dictionary(uniqueKeysWithValues: DeviceSettingsPermission.macOSPermissions.map {
             ($0, DeviceSettingsPermissionStatus($0.capability.flatMap { monitored[$0] }))
         })

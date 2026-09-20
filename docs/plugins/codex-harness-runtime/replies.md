@@ -44,6 +44,13 @@ restrictions remain. Completed actions are transcript evidence, not instructions
 to replay. Preserving a native model does not, by itself, disable host-authenticated
 finalization.
 
+Hidden background-task completion messages remain eligible for this recovery
+when they are part of the model's context. The host records their native turn
+identity on the admitted prompt while keeping them hidden in chat. Native
+transcript mirroring reuses that prompt as evidence; it cannot recreate an
+admitted prompt that disappeared. Messages explicitly excluded from model
+context remain outside native prompt annotation.
+
 Recovery reserves its existing limits for the complete current turn, then keeps
 the nearest whole earlier exchanges that fit. Older exchanges can be omitted,
 including a whole exchange that is too large. A notice identifies missing history

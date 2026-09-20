@@ -720,12 +720,24 @@ suite.define(() => {
             )
             .toBe("The shared design is ready");
           const continuation = thread.locator('.chat-bubble[data-entry-id="continuation"]');
-          await continuation.evaluate((element) => {
+          await thread.hover();
+          const continuationDelta = await continuation.evaluate((element) => {
             const root = element.closest<HTMLElement>(".chat-thread")!;
             const rect = element.getBoundingClientRect();
-            root.scrollTop +=
-              rect.top - root.getBoundingClientRect().top + rect.height / 2 - root.clientHeight / 2;
+            return (
+              rect.top - root.getBoundingClientRect().top + rect.height / 2 - root.clientHeight / 2
+            );
           });
+          await page.mouse.wheel(0, continuationDelta);
+          await expect
+            .poll(() =>
+              continuation.evaluate((element) => {
+                const rect = element.getBoundingClientRect();
+                const viewport = element.closest(".chat-thread")!.getBoundingClientRect();
+                return rect.top < viewport.top && rect.bottom > viewport.bottom;
+              }),
+            )
+            .toBe(true);
           await expect.poll(() => runMarker.getAttribute("aria-current")).toBe("true");
           await expect.poll(() => runMarker.getAttribute("data-visible")).toBe("");
           expect(
@@ -738,17 +750,7 @@ suite.define(() => {
                 element.closest(".chat-thread")!.getBoundingClientRect().top,
             ),
           ).toBe(true);
-          expect(
-            await continuation.evaluate((element) => {
-              const rect = element.getBoundingClientRect();
-              const viewport = element.closest(".chat-thread")!.getBoundingClientRect();
-              return rect.top < viewport.top && rect.bottom > viewport.bottom;
-            }),
-          ).toBe(true);
           const composerInput = page.locator(".agent-chat__composer-combobox textarea");
-          await composerInput.fill(
-            Array.from({ length: 6 }, (_, index) => `Review note ${index + 1}`).join("\n"),
-          );
           const markerFits = () =>
             runMarker.evaluate((element) => {
               const marker = element.getBoundingClientRect();
@@ -758,6 +760,26 @@ suite.define(() => {
                 marker.top >= viewport.top && marker.bottom <= viewport.top + scroller.clientHeight
               );
             });
+          const markerBottomClearance = () =>
+            runMarker.evaluate((element) => {
+              const scroller = element.closest(".chat-position-rail__marks")!;
+              return (
+                scroller.getBoundingClientRect().top +
+                scroller.clientHeight -
+                element.getBoundingClientRect().bottom
+              );
+            });
+          // Resize preserves the reader's rail offset; make its clipping precondition explicit.
+          await composerInput.focus();
+          await thread.locator(".chat-position-rail__marks").hover();
+          await page.mouse.wheel(0, 1 - (await markerBottomClearance()));
+          await expect
+            .poll(async () => Math.abs((await markerBottomClearance()) - 1))
+            .toBeLessThanOrEqual(1);
+          await expect.poll(markerFits).toBe(true);
+          await composerInput.fill(
+            Array.from({ length: 6 }, (_, index) => `Review note ${index + 1}`).join("\n"),
+          );
           await expect.poll(markerFits).toBe(false);
           const readerOffset = await thread.evaluate((element) => element.scrollTop);
           await thread.hover();

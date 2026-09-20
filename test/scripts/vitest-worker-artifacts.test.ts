@@ -19,7 +19,7 @@ import { resolveRuntimeWorkerArgv } from "../../src/infra/runtime-worker-url.js"
 import { resolveTestNodeExecPath } from "../../src/test-utils/node-process.js";
 import { waitForFixtureFile } from "../helpers/process-wait.js";
 import { fixturePreloadArgs } from "./fixtures/ci-fixture-runtime.cjs";
-import { copyFsSafePackageFixture } from "./fs-safe-package.test-support.js";
+import { copyCompiledFsSafeRuntimeFixture } from "./fs-safe-package.test-support.js";
 import {
   createPreparedWorkerCompiler,
   interceptCompilerBuild,
@@ -54,9 +54,7 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
       const native = path.join(relocated, "node_modules/@openclaw/fs-safe/node_modules");
       try {
         await prepareWorkers(owner);
-        fs.cpSync(path.join(directory, "dist"), path.join(relocated, "dist"), { recursive: true });
-        fs.writeFileSync(path.join(relocated, "package.json"), '{"type":"module"}');
-        const { nativePackages } = copyFsSafePackageFixture(relocated);
+        const { nativePackages } = await copyCompiledFsSafeRuntimeFixture(directory, relocated);
         expect(nativePackages.length).toBeGreaterThan(0);
         const probe = async (name: string, mode: string | undefined, outcome: string) => {
           const rootDir = path.join(relocated, name);
@@ -221,12 +219,14 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
           clearInterval(poll);process.exit(0);
         });
       });
+      let leafSpawned=false; // One descendant per compiler, across every build phase.
       export async function build(options) {
         const result=await compile(options);
         if(mode==='cancel while compiling') {
           record('compiling',String(process.pid));
           await gate();
-        } else if(mode==='terminated group' || mode==='uncertain output') {
+        } else if((mode==='terminated group' || mode==='uncertain output') && !leafSpawned) {
+          leafSpawned=true;
           const leaf=spawn(process.execPath,['--input-type=module','--eval',\`
             import fs from 'node:fs';
             const poll=setInterval(()=>{

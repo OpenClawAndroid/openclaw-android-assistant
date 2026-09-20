@@ -1,12 +1,17 @@
 import { html } from "lit";
+import {
+  formatKeyboardShortcutCombo,
+  type KeyboardShortcutCombo,
+} from "../lib/keyboard-shortcut-contract.ts";
 import { resolveAsciiShortcutKey } from "../lib/keyboard-shortcuts.ts";
 
 // Single-letter context-menu shortcuts. Items opt in via data-shortcut plus a
 // rendered hint; menu hosts route non-Escape keydowns here so a bare letter
 // clicks the matching enabled item and disabled items swallow nothing.
-export function menuShortcutHint(key: string) {
+export function menuShortcutHint(key: string, alias?: KeyboardShortcutCombo) {
+  const label = key.length === 1 ? key.toUpperCase() : key;
   return html`<span slot="details" class="session-menu__shortcut" aria-hidden="true"
-    >${key.toUpperCase()}</span
+    >${alias ? `${label} / ${formatKeyboardShortcutCombo(alias)}` : label}</span
   >`;
 }
 

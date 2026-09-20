@@ -94,15 +94,15 @@ export async function runGatewayLoop(params: {
   let startupStartedAt: number;
   const processStartedAt = performance.timeOrigin;
   // Eagerly resolve the lifecycle runtime module before installing signal
-  // listeners. Without this, every subsequent lifecycle path (SIGUSR1,
+  // listeners. Without this, every subsequent lifecycle path (SIGUSR2,
   // SIGTERM-with-intent, restart iteration hook, stability bundle writer)
   // depends on a dynamic import() call. After an in-place package upgrade
   // (e.g. `npm install -g openclaw@latest` triggered via update.run),
   // dist/ chunk hashes rotate while the process is still running. The next
-  // SIGUSR1 — including the one update.run schedules for itself — would
+  // SIGUSR2 — including the one update.run schedules for itself — would
   // hit ERR_MODULE_NOT_FOUND from inside its async IIFE, reject silently,
   // and leave restart.ts's emittedRestartToken permanently unconsumed.
-  // From that point every scheduleGatewaySigusr1Restart() returns
+  // From that point every scheduleGatewayRestart() returns
   // { coalesced: true } and the gateway never restarts. Priming the loader
   // here pulls the lifecycle re-export graph into memory, immune to later disk
   // rotation.
@@ -113,6 +113,7 @@ export async function runGatewayLoop(params: {
     { includeLinuxOpenClawGatewayServiceMarker: true },
   );
   const supervisorMode = supervisor?.kind ?? null;
+  const restartDecision = eagerLifecycleRuntime.resolveGatewayRestartDecision();
   let lock = await acquireGatewayLock({
     port: params.lockPort,
     listenerMode: supervisorMode ? "supervised" : "foreground",
@@ -167,7 +168,7 @@ export async function runGatewayLoop(params: {
     releaseInstallationObserver();
     process.removeListener("SIGTERM", onSigterm);
     process.removeListener("SIGINT", onSigint);
-    process.removeListener("SIGUSR1", onSigusr1);
+    process.removeListener("SIGUSR2", onRestartSignal);
     processLifetime?.port1.close();
     processLifetime?.port2.close();
   };
@@ -443,6 +444,7 @@ export async function runGatewayLoop(params: {
     }
 
     const respawnOptions = {
+      decision: restartDecision,
       env: createGatewayRestartTraceHandoffEnv(captureGatewayRestartTraceHandoff()),
     };
     const isStandaloneUpdate = isUpdateRestart && !supervisorMode;
@@ -578,6 +580,7 @@ export async function runGatewayLoop(params: {
   };
   const {
     nativeStopBudget,
+    restartTimeoutMs,
     timeoutMs: acceptedShutdownTimeoutMs,
     reserveMs: RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS,
     cleanupDeadline,
@@ -686,6 +689,7 @@ export async function runGatewayLoop(params: {
     const { action, restartIntent } = acceptedRequest;
     logShutdownBudget("shutdown");
     const isRestart = action !== "stop";
+    const restartWithoutSupervisor = action === "restart" && restartDecision.mode === "disabled";
     const acceptedStartupOperations = startupOperations;
     if (acceptedRequest.action === "stop") {
       // A queued restart still needs startup's close handle. Only an effective
@@ -708,7 +712,7 @@ export async function runGatewayLoop(params: {
       }
       shutdownDeadline = performance.now() + forceExitMs;
       forceExitTimer = setTimeout(() => {
-        const cleanExit = nativeStopBudget && !shutdownFailure;
+        const cleanExit = nativeStopBudget && !restartWithoutSupervisor && !shutdownFailure;
         gatewayLog.warn(
           `shutdown deadline reached; abandoning unfinished cleanup and active work before ${action}; last observed: ${lastDrainCounts}; exiting ${cleanExit ? "cleanly" : "with incomplete cleanup"}`,
         );
@@ -769,12 +773,7 @@ export async function runGatewayLoop(params: {
       if (!isRestart) {
         armForceExitTimer(acceptedShutdownTimeoutMs);
       } else if (restartDrainTimeoutMs !== undefined && !getManagedUpdateOwner()) {
-        armForceExitTimer(
-          restartDrainTimeoutMs +
-            (nativeStopBudget
-              ? RESTART_CLOSE_REPLY_DRAIN_SHUTDOWN_RESERVE_MS
-              : SHUTDOWN_TIMEOUT_MS),
-        );
+        armForceExitTimer(restartTimeoutMs(restartDrainTimeoutMs, restartWithoutSupervisor));
       }
 
       const drainTimeoutMs = isRestart
@@ -824,27 +823,27 @@ export async function runGatewayLoop(params: {
               reportDrainSnapshot(initialSnapshot);
               if (restartIntent?.force) {
                 gatewayLog.warn("forced restart requested; skipping active work drain");
-                return;
-              }
-
-              const remainingDrainTimeoutMs =
-                restartDrainDeadlineAt === undefined
-                  ? undefined
-                  : Math.max(0, restartDrainDeadlineAt - Date.now());
-              const drain = await waitForGatewayActiveWork(remainingDrainTimeoutMs, {
-                onSnapshot: reportDrainSnapshot,
-              });
-              if (drain.drained) {
-                if (!initialSnapshot.idle) {
-                  gatewayLog.info("all active work drained");
+              } else {
+                const remainingDrainTimeoutMs =
+                  restartDrainDeadlineAt === undefined
+                    ? undefined
+                    : Math.max(0, restartDrainDeadlineAt - Date.now());
+                const drain = await waitForGatewayActiveWork(remainingDrainTimeoutMs, {
+                  onSnapshot: reportDrainSnapshot,
+                });
+                if (drain.drained) {
+                  if (!initialSnapshot.idle) {
+                    gatewayLog.info("all active work drained");
+                  }
+                  return;
                 }
-                return;
+                drainTimedOut = true;
+                gatewayLog.warn(
+                  `active-work drain timeout reached; proceeding with restart: ${formatDrainCounts(drain.snapshot)}`,
+                );
               }
-              drainTimedOut = true;
+              // Connection work can retain cron cleanup; cancel before close joins it.
               eagerLifecycleRuntime.abortActiveCronTaskRuns("Gateway restarting.");
-              gatewayLog.warn(
-                `active-work drain timeout reached; proceeding with restart: ${formatDrainCounts(drain.snapshot)}`,
-              );
             },
             () => [
               ["activeWork", activeWorkAtDrainStart],
@@ -1173,90 +1172,90 @@ export async function runGatewayLoop(params: {
     gatewayLog.debug("signal SIGINT received");
     request("stop", "SIGINT");
   };
-  const onSigusr1 = () => {
-    observeSignal("SIGUSR1");
-    gatewayLog.debug("signal SIGUSR1 received");
+  const onRestartSignal = () => {
+    observeSignal("SIGUSR2");
+    gatewayLog.debug("signal SIGUSR2 received");
     void (async () => {
       const {
         abortPendingChannelReloads,
         consumeGatewayRestartIntentPayloadSync,
-        consumeGatewaySigusr1RestartIntent,
-        consumeGatewaySigusr1RestartAuthorization,
-        isGatewaySigusr1RestartExternallyAllowed,
-        markGatewaySigusr1RestartHandled,
-        peekGatewaySigusr1RestartReason,
-        scheduleGatewaySigusr1Restart,
+        consumeGatewayRestartIntent,
+        consumeGatewayRestartAuthorization,
+        isGatewayRestartExternallyAllowed,
+        markGatewayRestartHandled,
+        peekGatewayRestartReason,
+        scheduleGatewayRestart,
       } = await gatewayLifecycleRuntimeLoader.load();
       const restartIntent = consumeGatewayRestartIntentPayloadSync();
       if (restartIntent) {
         abortPendingChannelReloads();
-        const authorized = consumeGatewaySigusr1RestartAuthorization();
-        const processLocalIntent = authorized ? consumeGatewaySigusr1RestartIntent() : null;
+        const authorized = consumeGatewayRestartAuthorization();
+        const processLocalIntent = authorized ? consumeGatewayRestartIntent() : null;
         if (processLocalIntent?.successorOwner) {
           Object.assign(restartIntent, processLocalIntent);
         }
         markRestartDraining(
           formatShutdownReason({
             action: "restart",
-            signal: "SIGUSR1",
+            signal: "SIGUSR2",
             restartReason: restartIntent.reason ?? "gateway.restart",
           }),
         );
         if (authorized) {
-          markGatewaySigusr1RestartHandled();
+          markGatewayRestartHandled();
         }
-        request("restart", "SIGUSR1", restartIntent.reason ?? "gateway.restart", restartIntent);
+        request("restart", "SIGUSR2", restartIntent.reason ?? "gateway.restart", restartIntent);
         return;
       }
-      const authorized = consumeGatewaySigusr1RestartAuthorization();
+      const authorized = consumeGatewayRestartAuthorization();
       if (!authorized) {
-        markGatewaySigusr1RestartHandled();
-        if (!isGatewaySigusr1RestartExternallyAllowed()) {
-          gatewayLog.warn("SIGUSR1 restart ignored (not authorized; commands.restart=false).");
+        markGatewayRestartHandled();
+        if (!isGatewayRestartExternallyAllowed()) {
+          gatewayLog.warn("SIGUSR2 restart ignored (not authorized; commands.restart=false).");
           gatewayLog.warn(
-            "An unauthorized SIGUSR1 restart signal was received and ignored. " +
+            "An unauthorized SIGUSR2 restart signal was received and ignored. " +
               "If a pending gateway restart needs to be applied, run `openclaw gateway restart` " +
               "or restart the gateway through your service manager.",
           );
           return;
         }
         if (shuttingDown) {
-          gatewayLog.info("received SIGUSR1 during shutdown; ignoring");
+          gatewayLog.info("received SIGUSR2 during shutdown; ignoring");
           return;
         }
-        // External SIGUSR1 requests should still reuse the in-process restart
+        // External SIGUSR2 requests should still reuse the in-process restart
         // scheduler so idle drain and restart coalescing stay consistent.
         abortPendingChannelReloads();
-        scheduleGatewaySigusr1Restart({ delayMs: 0, reason: "SIGUSR1" });
+        scheduleGatewayRestart({ delayMs: 0, reason: "SIGUSR2" });
         return;
       }
       abortPendingChannelReloads();
-      const sigusr1RestartIntent = consumeGatewaySigusr1RestartIntent();
-      const restartReason = peekGatewaySigusr1RestartReason();
+      const signalRestartIntent = consumeGatewayRestartIntent();
+      const restartReason = peekGatewayRestartReason();
       markRestartDraining(
         formatShutdownReason({
           action: "restart",
-          signal: "SIGUSR1",
-          restartReason: sigusr1RestartIntent?.reason ?? restartReason,
+          signal: "SIGUSR2",
+          restartReason: signalRestartIntent?.reason ?? restartReason,
         }),
       );
-      markGatewaySigusr1RestartHandled();
+      markGatewayRestartHandled();
       request(
         "restart",
-        "SIGUSR1",
-        sigusr1RestartIntent?.reason ?? restartReason,
-        sigusr1RestartIntent ?? undefined,
+        "SIGUSR2",
+        signalRestartIntent?.reason ?? restartReason,
+        signalRestartIntent ?? undefined,
       );
     })().catch((err: unknown) => {
       // Defense in depth: if anything in the listener body rejects, the
-      // SIGUSR1 emit has already advanced emittedRestartToken but no one
-      // called markGatewaySigusr1RestartHandled. Without unsticking the
-      // token here, every subsequent scheduleGatewaySigusr1Restart() would
+      // SIGUSR2 emit has already advanced emittedRestartToken but no one
+      // called markGatewayRestartHandled. Without unsticking the
+      // token here, every subsequent scheduleGatewayRestart() would
       // silently coalesce into the dead in-flight signal and the gateway
       // would never restart again until manually kickstarted.
-      gatewayLog.error(`SIGUSR1 handler failed: ${formatErrorMessage(err)}`);
+      gatewayLog.error(`SIGUSR2 handler failed: ${formatErrorMessage(err)}`);
       try {
-        eagerLifecycleRuntime.markGatewaySigusr1RestartHandled();
+        eagerLifecycleRuntime.markGatewayRestartHandled();
       } catch {
         // Best-effort: the eager reference itself is the recovery path.
       }
@@ -1273,7 +1272,8 @@ export async function runGatewayLoop(params: {
 
   process.on("SIGTERM", onSigterm);
   process.on("SIGINT", onSigint);
-  process.on("SIGUSR1", onSigusr1);
+  // SIGUSR1 belongs to Node's on-demand inspector; never register a listener for it.
+  process.on("SIGUSR2", onRestartSignal);
   const releaseInstallationObserver = registerGatewayInstallationReplacementHandler((fact) => {
     installationReplacement = fact;
     gatewayLog.warn(fact.message);
@@ -1282,11 +1282,11 @@ export async function runGatewayLoop(params: {
         `The foreground Gateway must stop after its installation was replaced. Restart it with: ${formatCliCommand("openclaw gateway run")}`,
       );
     }
-    request("restart", "SIGUSR1", fact.reason);
+    request("restart", "SIGUSR2", fact.reason);
   });
 
   try {
-    // Keep process alive; SIGUSR1 triggers an in-process restart (no supervisor required).
+    // Keep process alive; SIGUSR2 triggers an in-process restart (no supervisor required).
     // SIGTERM/SIGINT still exit after a graceful shutdown.
     let isFirstIteration = true;
     for (;;) {

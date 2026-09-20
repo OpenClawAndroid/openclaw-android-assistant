@@ -6,12 +6,16 @@ import type { MockInstance } from "vitest";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSkillsWatcherMock } from "./refresh.watcher.test-support.js";
 
-const { createdWatchers, watchMock, watchForSkillRoot } = createSkillsWatcherMock();
+const { createdWatchers, watchMock, nativeWatchMock, watchForSkillRoot } =
+  createSkillsWatcherMock();
 let refreshModule: typeof import("./refresh.js");
 let fixtureRoot: string;
 let fixtureWorkspaceDir: string;
 
 vi.mock("chokidar", () => ({ default: { watch: watchMock } }));
+vi.mock("./refresh-ancestor-native.js", () => ({
+  createNativeSkillsAncestorWatcher: nativeWatchMock,
+}));
 vi.mock("../loading/plugin-skills.js", () => ({
   resolvePluginSkillRoots: vi.fn(() => []),
   resolvePluginSkillRootsFromMetadata: vi.fn(() => []),

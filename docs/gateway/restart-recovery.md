@@ -158,8 +158,13 @@ shutdown deadline. A shorter supervisor timeout also caps requested restart wait
 The drained work, ordering, and interruption behavior stay the same.
 
 Service-child cleanup uses the remaining Gateway shutdown budget, leaving time
-for final exit bookkeeping. A forced restart skips active-work drain but retains
-the 10-second cleanup reserve; it does not start a fresh 85-second wait. Ordinary
+for final exit bookkeeping. A forced restart handed to a supervisor skips active-work
+drain but retains the 10-second cleanup reserve; it does not start a fresh
+85-second wait. A restart without a supervisor handoff uses the existing shutdown
+deadline for cleanup. This includes foreground Gateways inside another service's
+cgroup, restarts with `OPENCLAW_NO_RESPAWN=1`, and standalone updates that must
+launch their own replacement. Cgroup membership alone does not provide a supervisor
+that will replace the Gateway. Ordinary
 cancellation keeps its five-second grace before forced termination. During
 shutdown, a relay that needs forced termination after its owned processes are
 confirmed gone produces a warning. Completed cleanup leaves the Gateway's exit

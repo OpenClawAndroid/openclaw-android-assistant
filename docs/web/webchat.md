@@ -97,7 +97,7 @@ Delivery is best-effort. The Inbox and replay bookkeeping survive Gateway restar
 
 - The Control UI `/agents` Tools panel has an "Available Right Now" view backed by `tools.effective(sessionKey=...)`. That view is a server-derived, read-only projection of the current session's tool inventory. It includes core, plugin, channel-owned, and already-discovered MCP server tools.
 - A separate config-editing view (backed by `tools.catalog`) covers profiles, per-agent overrides, and catalog semantics.
-- Runtime availability is session-scoped. Switching sessions on the same agent can change the "Available Right Now" list. The panel shows a notice when configured MCP servers have not been connected or changed since the last discovery. It does not silently start MCP transports from the read path.
+- Runtime availability is session-scoped. Switching sessions on the same agent can change the "Available Right Now" list. Resetting a session refreshes its inventory too. The panel shows a notice when configured MCP servers have not been connected or changed since the last discovery. It does not silently start MCP transports from the read path.
 - The config editor does not imply runtime availability. Effective access still follows policy precedence (`allow`/`deny`, per-agent and provider/channel overrides).
 
 ## Remote use

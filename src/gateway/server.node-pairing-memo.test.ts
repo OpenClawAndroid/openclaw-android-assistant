@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { trackSqliteStatementExecutions } from "../../test/helpers/sqlite-statement-execution-counter.js";
 import { requestNodePairing } from "../infra/device-pairing-node.js";
+import { persistDeviceBootstrapTokenRecords } from "../infra/device-pairing-store.js";
 import { listDevicePairing } from "../infra/device-pairing.js";
 import { configureSqliteConnectionPragmas } from "../infra/sqlite-wal.js";
 import {
@@ -35,7 +36,7 @@ describe("gateway node pairing memoization", () => {
   });
 
   describeWithGatewayServer("node.list pairing snapshots", (getStarted) => {
-    test("scans pairing tables once across two node.list dispatches", async () => {
+    test("reuses pairing tables across node.list dispatches with unrelated state writes", async () => {
       const ws = await openTrackedWs(getStarted().port);
       try {
         await connectOk(ws, {
@@ -60,6 +61,9 @@ describe("gateway node pairing memoization", () => {
         );
         try {
           expect((await rpcReq(ws, "node.list", {})).ok).toBe(true);
+          persistDeviceBootstrapTokenRecords({
+            memo: { token: "synthetic-bootstrap", ts: Date.now(), issuedAtMs: Date.now() },
+          });
           expect((await rpcReq(ws, "node.list", {})).ok).toBe(true);
           expect(tableSelects).toEqual({ paired: 1, pending: 1 });
         } finally {

@@ -137,10 +137,8 @@ export async function withRetainedUpdateServiceAuthority<T>(
     }
     return result;
   };
-  return await withGatewayServiceUpdateAuthority(
-    assertCurrent,
-    () => operation(assertCurrent),
-    params.root,
+  return await withGatewayServiceUpdateAuthority(assertCurrent, () => operation(assertCurrent), {
+    originalRoot: params.root,
     nativeCommand,
-  );
+  });
 }

@@ -15,6 +15,7 @@ import {
 } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { isGraphqlQuotaExhausted } from "../../scripts/pr-lib/gh-api-preflight.mjs";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 import {
   REVIEWED_HEAD,
@@ -33,6 +34,87 @@ function readScript(path: string): string {
 const anchorSubstitutionNotice = (repo: string) =>
   `scripts/pr wrapper in this worktree differs from origin/main; running the canonical checkout's wrapper (matches the origin/main trust anchor): ${repo}`;
 const itPosix = process.platform === "win32" ? it.skip : it;
+
+describe("GraphQL primary quota fallback", () => {
+  const message = "API rate limit already exceeded for user ID 123.";
+  const errorBody = (type = "RATE_LIMITED", detail = message) =>
+    JSON.stringify({ errors: [{ type, message: detail }] });
+  const response = (body: string, headers = "", status = 200) =>
+    `HTTP/2.0 ${status} Response\r\nX-RateLimit-Resource: graphql\r\nX-RateLimit-Remaining: 0\r\n${headers}\r\n${body}`;
+
+  it.each(["RATE_LIMIT", "RATE_LIMITED"])(
+    "recognizes the original %s response with and without headers",
+    (type) => {
+      const body = errorBody(type);
+      for (const stdout of [body, response(body), Buffer.from(response(body))]) {
+        expect(isGraphqlQuotaExhausted({ status: 1, stdout })).toBe(true);
+      }
+    },
+  );
+  it.each([
+    { stdout: response(JSON.stringify({ message }), "", 403) },
+    { stderr: `gh: ${message}\n` },
+    { stderr: Buffer.from("gh: API rate limit exceeded for fixture-user (HTTP 403)\n") },
+  ])("recognizes native gh primary exhaustion: %j", (failure) => {
+    expect(isGraphqlQuotaExhausted({ status: 1, ...failure })).toBe(true);
+  });
+  it.each([
+    {
+      name: "secondary throttle",
+      stdout: errorBody("RATE_LIMITED", "You have exceeded a secondary rate limit."),
+    },
+    { name: "abuse detection", stderr: "gh: You have triggered an abuse detection mechanism." },
+    { name: "retry-after", stdout: response(errorBody(), "Retry-After: 60\r\n") },
+    { name: "malformed retry-after", stdout: response(errorBody(), "Retry-After: unknown\r\n") },
+    {
+      name: "remaining primary budget",
+      stdout: response(errorBody()).replace("Remaining: 0", "Remaining: 50"),
+    },
+    {
+      name: "core exhaustion",
+      stdout: response(errorBody()).replace("Resource: graphql", "Resource: core"),
+    },
+    ...[401, 407, 429, 500, 503].map((status) => ({
+      name: `HTTP ${status}`,
+      stdout: response(errorBody(), "", status),
+    })),
+    { name: "generic forbidden", stderr: "gh: Resource not accessible by integration (HTTP 403)" },
+    { name: "plain 429", stderr: `gh: ${message} (HTTP 429)` },
+    {
+      name: "plain proxy failure",
+      stderr: 'Post "https://api.github.com/graphql": Proxy Authentication Required',
+    },
+    { name: "transport failure", code: "ETIMEDOUT", stderr: `gh: ${message}` },
+    { name: "interrupted response", signal: "SIGTERM", stdout: errorBody() },
+    { name: "successful final unit", status: 0, stdout: response(errorBody()) },
+    { name: "malformed response", stdout: "{", stderr: `gh: ${message}` },
+    { name: "malformed framed response", stdout: response("{"), stderr: `gh: ${message}` },
+    {
+      name: "ambiguous typed error",
+      stdout: JSON.stringify({ errors: [{ type: "RATE_LIMITED" }] }),
+    },
+    {
+      name: "mixed GraphQL errors",
+      stdout: JSON.stringify({
+        errors: [
+          { type: "RATE_LIMITED", message },
+          { type: "FORBIDDEN", message: "Access denied" },
+        ],
+      }),
+    },
+    {
+      name: "data named after quota",
+      stdout: JSON.stringify({ data: { message, type: "RATE_LIMITED" } }),
+    },
+    {
+      name: "supplemental quota",
+      message: "Supplemental quota probe: graphql 0/5000",
+      stdout: JSON.stringify({ resources: { graphql: { remaining: 0 } } }),
+    },
+  ])("does not authorize fallback for $name", ({ name: _name, ...failure }) => {
+    expect(isGraphqlQuotaExhausted({ status: 1, ...failure })).toBe(false);
+  });
+});
 
 function isolatedWrapperEnv(root: string) {
   const home = join(root, "home");

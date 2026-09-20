@@ -17,7 +17,7 @@ import type { RestartAttempt } from "./restart.types.js";
 
 export { normalizeSystemdUnit } from "./restart-supervisor.js";
 
-const SIGUSR1_AUTH_GRACE_MS = 5000;
+const RESTART_AUTH_GRACE_MS = 5000;
 const DEFAULT_DEFERRAL_POLL_MS = 500;
 const DEFAULT_DEFERRAL_STILL_PENDING_WARN_MS = 30_000;
 const DEFAULT_RESTART_DEFERRAL_TIMEOUT_MS = 300_000;
@@ -25,14 +25,14 @@ const RESTART_COOLDOWN_MS = 30_000;
 
 const restartLog = createSubsystemLogger("restart");
 
-// Control-flow deadlines (SIGUSR1 grace, deferral caps, restart cooldown) run on
+// Control-flow deadlines (SIGUSR2 grace, deferral caps, restart cooldown) run on
 // the monotonic clock: a wall-clock step (NTP correction, VM suspend/resume)
 // would otherwise extend authorization grace or fire/skip deferral timeouts.
 const monotonicNow = () => performance.now();
 
-let sigusr1AuthorizedCount = 0;
-let sigusr1AuthorizedUntil = 0;
-let sigusr1ExternalAllowed = false;
+let restartAuthorizedCount = 0;
+let restartAuthorizedUntil = 0;
+let externalRestartAllowed = false;
 let preRestartCheck: (() => number) | null = null;
 let restartCycleToken = 0;
 let emittedRestartToken = 0;
@@ -129,8 +129,8 @@ function clearActiveDeferralPolls(): void {
 
 function clearGatewayRestartTransientState(): void {
   restartTransientGeneration += 1;
-  sigusr1AuthorizedCount = 0;
-  sigusr1AuthorizedUntil = 0;
+  restartAuthorizedCount = 0;
+  restartAuthorizedUntil = 0;
   restartCycleToken = 0;
   emittedRestartToken = 0;
   consumedRestartToken = 0;
@@ -183,19 +183,14 @@ function formatRestartAudit(audit: RestartAuditInfo | undefined): string {
 }
 
 /**
- * Register a callback that scheduleGatewaySigusr1Restart checks before emitting SIGUSR1.
+ * Register a callback that scheduleGatewayRestart checks before emitting SIGUSR2.
  * The callback should return the number of pending items (0 = safe to restart).
  */
 export function setPreRestartDeferralCheck(fn: () => number): void {
   preRestartCheck = fn;
 }
 
-/**
- * Emit an authorized SIGUSR1 gateway restart, guarded against duplicate emissions.
- * Returns true if SIGUSR1 was emitted, false if a restart was already emitted.
- * Runtime callers use emitGatewayRestartWithSignalAdmission so the signal-to-drain
- * handoff stays fenced; this lower-level primitive remains available to tests.
- */
+/** Emit one authorized restart per cycle; refuse unavailable or duplicate delivery. */
 function emitGatewayRestart(reasonOverride?: string, intent?: GatewayRestartIntent): boolean {
   if (hasUnconsumedRestartSignal()) {
     clearActiveDeferralPolls();
@@ -208,32 +203,31 @@ function emitGatewayRestart(reasonOverride?: string, intent?: GatewayRestartInte
   emittedRestartToken = cycleToken;
   emittedRestartReason = reasonOverride ?? intent?.reason ?? pendingRestartReason;
   emittedRestartIntent = intent;
-  authorizeGatewaySigusr1Restart();
+  authorizeGatewayRestart();
   try {
-    if (process.listenerCount("SIGUSR1") > 0) {
-      // Signal path: let the run-loop's SIGUSR1 handler drive restart.
+    if (process.listenerCount("SIGUSR2") > 0) {
+      // Signal path: let the run-loop's SIGUSR2 handler drive restart.
       // Works on all platforms including Windows when a listener is registered.
-      process.emit("SIGUSR1");
+      process.emit("SIGUSR2");
     } else if (process.platform === "win32") {
-      // On Windows with no SIGUSR1 listener, fall back to task-scheduler handoff.
+      // On Windows with no SIGUSR2 listener, fall back to task-scheduler handoff.
       // triggerOpenClawRestart() uses schtasks to restart the gateway.
       const result = triggerOpenClawRestart();
       if (!result.ok) {
         // Roll back the cycle marker so future restart requests can still proceed.
-        rollBackGatewayRestartEmission();
         restartLog.warn("Windows scheduled task restart failed, token rolled back");
-        return false;
+        return rollBackGatewayRestartEmission();
       }
-      consumeGatewaySigusr1RestartAuthorization();
-      markGatewaySigusr1RestartHandled();
+      consumeGatewayRestartAuthorization();
+      markGatewayRestartHandled();
     } else {
-      // Unix without listener: send signal directly.
-      process.kill(process.pid, "SIGUSR1");
+      // Embedded Gateways have no run loop; an unhandled SIGUSR2 would kill their host.
+      restartLog.warn("Gateway restart unavailable: no restart handler; restart through the host.");
+      return rollBackGatewayRestartEmission();
     }
   } catch {
     // Roll back the cycle marker so future restart requests can still proceed.
-    rollBackGatewayRestartEmission();
-    return false;
+    return rollBackGatewayRestartEmission();
   }
   lastRestartEmittedAt = monotonicNow();
   return true;
@@ -283,51 +277,51 @@ export function requestGatewayRestartWithSignalAdmission(
   return { status: hadUnconsumedRestartSignal ? "coalesced" : "failed" };
 }
 
-function resetSigusr1AuthorizationIfExpired(now = monotonicNow()) {
-  if (sigusr1AuthorizedCount <= 0 || now <= sigusr1AuthorizedUntil) {
+function resetRestartAuthorizationIfExpired(now = monotonicNow()) {
+  if (restartAuthorizedCount <= 0 || now <= restartAuthorizedUntil) {
     return;
   }
-  sigusr1AuthorizedCount = 0;
-  sigusr1AuthorizedUntil = 0;
+  restartAuthorizedCount = 0;
+  restartAuthorizedUntil = 0;
 }
 
-export function setGatewaySigusr1RestartPolicy(opts?: { allowExternal?: boolean }) {
-  sigusr1ExternalAllowed = opts?.allowExternal === true;
+export function setGatewayRestartPolicy(opts?: { allowExternal?: boolean }) {
+  externalRestartAllowed = opts?.allowExternal === true;
 }
 
-export function isGatewaySigusr1RestartExternallyAllowed() {
-  return sigusr1ExternalAllowed;
+export function isGatewayRestartExternallyAllowed() {
+  return externalRestartAllowed;
 }
 
-function authorizeGatewaySigusr1Restart() {
-  const expiresAt = monotonicNow() + SIGUSR1_AUTH_GRACE_MS;
-  sigusr1AuthorizedCount += 1;
-  if (expiresAt > sigusr1AuthorizedUntil) {
-    sigusr1AuthorizedUntil = expiresAt;
+function authorizeGatewayRestart() {
+  const expiresAt = monotonicNow() + RESTART_AUTH_GRACE_MS;
+  restartAuthorizedCount += 1;
+  if (expiresAt > restartAuthorizedUntil) {
+    restartAuthorizedUntil = expiresAt;
   }
 }
 
-export function consumeGatewaySigusr1RestartAuthorization(): boolean {
-  resetSigusr1AuthorizationIfExpired();
-  if (sigusr1AuthorizedCount <= 0) {
+export function consumeGatewayRestartAuthorization(): boolean {
+  resetRestartAuthorizationIfExpired();
+  if (restartAuthorizedCount <= 0) {
     return false;
   }
-  sigusr1AuthorizedCount -= 1;
-  if (sigusr1AuthorizedCount <= 0) {
-    sigusr1AuthorizedUntil = 0;
+  restartAuthorizedCount -= 1;
+  if (restartAuthorizedCount <= 0) {
+    restartAuthorizedUntil = 0;
   }
   return true;
 }
 
-export function peekGatewaySigusr1RestartReason(): string | undefined {
+export function peekGatewayRestartReason(): string | undefined {
   return hasUnconsumedRestartSignal() ? emittedRestartReason : undefined;
 }
 
 /**
- * Reads and clears only the in-memory intent for the current emitted SIGUSR1 cycle.
- * The restart reason and cycle token are advanced by markGatewaySigusr1RestartHandled().
+ * Reads and clears only the in-memory intent for the current emitted SIGUSR2 cycle.
+ * The restart reason and cycle token are advanced by markGatewayRestartHandled().
  */
-export function consumeGatewaySigusr1RestartIntent(): GatewayRestartIntent | null {
+export function consumeGatewayRestartIntent(): GatewayRestartIntent | null {
   if (!hasUnconsumedRestartSignal()) {
     return null;
   }
@@ -337,11 +331,11 @@ export function consumeGatewaySigusr1RestartIntent(): GatewayRestartIntent | nul
 }
 
 /**
- * Mark the currently emitted SIGUSR1 restart cycle as consumed by the run loop.
+ * Mark the currently emitted SIGUSR2 restart cycle as consumed by the run loop.
  * This explicitly advances the cycle state instead of resetting emit guards inside
- * consumeGatewaySigusr1RestartAuthorization().
+ * consumeGatewayRestartAuthorization().
  */
-export function markGatewaySigusr1RestartHandled(): void {
+export function markGatewayRestartHandled(): void {
   if (hasUnconsumedRestartSignal()) {
     consumedRestartToken = emittedRestartToken;
     emittedRestartReason = undefined;
@@ -353,11 +347,12 @@ export function markGatewaySigusr1RestartHandled(): void {
   clearPendingRestartSignalAdmission();
 }
 
-function rollBackGatewayRestartEmission(): void {
+function rollBackGatewayRestartEmission(): false {
   emittedRestartToken = consumedRestartToken;
   emittedRestartReason = undefined;
   emittedRestartIntent = undefined;
-  consumeGatewaySigusr1RestartAuthorization();
+  consumeGatewayRestartAuthorization();
+  return false;
 }
 
 type RestartDeferralHooks = {
@@ -596,7 +591,7 @@ async function emitPreparedGatewayRestart(
         if (signal?.aborted || transientGeneration !== restartTransientGeneration) {
           return false;
         }
-        // SIGUSR1 already queued: coalesce. Run loop owns reopen-or-drain.
+        // SIGUSR2 already queued: coalesce. Run loop owns reopen-or-drain.
         if (hasUnconsumedRestartSignal()) {
           return false;
         }
@@ -617,7 +612,7 @@ async function emitPreparedGatewayRestart(
         let fenceActive = true;
         let keepFenceForRunLoop = false;
         const rollbackFence = () => {
-          // A concurrent emitter may queue SIGUSR1 on this shared lease while we
+          // A concurrent emitter may queue SIGUSR2 on this shared lease while we
           // await beforeEmit. Cancel/finally must not reopen over an in-flight
           // signal — the run loop owns reopen-or-drain from here.
           if (keepFenceForRunLoop || hasUnconsumedRestartSignal()) {
@@ -848,7 +843,7 @@ export function triggerOpenClawRestart(): RestartAttempt {
 export type ScheduledRestart = {
   ok: boolean;
   pid: number;
-  signal: "SIGUSR1";
+  signal: "SIGUSR2";
   delayMs: number;
   reason?: string;
   mode: "emit" | "signal" | "supervisor";
@@ -866,7 +861,7 @@ export function normalizeGatewayRestartDelayMs(delayMs?: number): number {
     : 2000;
 }
 
-export function scheduleGatewaySigusr1Restart(opts?: {
+export function scheduleGatewayRestart(opts?: {
   delayMs?: number;
   reason?: string;
   audit?: RestartAuditInfo;
@@ -880,7 +875,7 @@ export function scheduleGatewaySigusr1Restart(opts?: {
   const delayMs = normalizeGatewayRestartDelayMs(opts?.delayMs);
   const reason = normalizeRestartIntentReason(opts?.reason);
   const mode: ScheduledRestart["mode"] =
-    process.listenerCount("SIGUSR1") > 0
+    process.listenerCount("SIGUSR2") > 0
       ? "emit"
       : process.platform === "win32"
         ? "supervisor"
@@ -893,7 +888,7 @@ export function scheduleGatewaySigusr1Restart(opts?: {
   const restartResultBase = {
     ok: true,
     pid: process.pid,
-    signal: "SIGUSR1" as const,
+    signal: "SIGUSR2" as const,
     reason,
     mode,
     cooldownMsApplied,
@@ -927,7 +922,7 @@ export function scheduleGatewaySigusr1Restart(opts?: {
       ...restartResultBase,
       delayMs: 0,
       coalesced: true,
-      // SIGUSR1 already emitted; the new caller's hooks cannot run for this cycle.
+      // SIGUSR2 already emitted; the new caller's hooks cannot run for this cycle.
       emitHooksQueued: false,
     };
   }

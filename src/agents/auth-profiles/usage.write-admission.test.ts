@@ -17,6 +17,7 @@ import {
   runOpenClawAgentWorkerWrite,
   runOpenClawAgentWriteAdmission,
 } from "../../state/openclaw-agent-write-admission.js";
+import { clearOpenClawAgentIntegrityVerification } from "../../state/openclaw-quarantine-store.js";
 import { runOpenClawStateWriteTransaction } from "../../state/openclaw-state-db.js";
 import { withEnvAsync } from "../../test-utils/env.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
@@ -81,6 +82,7 @@ it.each(["current", "relocated", "closed"] as const)(
         setRuntimeAuthProfileStoreSnapshot(store, agentDir);
         const pathname = openOpenClawAgentDatabase(options).path;
         closeOpenClawAgentDatabasesForTest(state.env.OPENCLAW_STATE_DIR);
+        clearOpenClawAgentIntegrityVerification(pathname, state.env);
         const entered = createDeferredCore();
         const release = createDeferredCore();
         const realIntegrity = integrity.assertSqliteIntegrityInWorker;

@@ -85,6 +85,7 @@ import {
   setRuntimeLocalProfileMetadata,
   stripRuntimeExternalProfileMetadata,
 } from "./runtime-snapshot-owner.js";
+import { publishPreparedRuntimeAuthProfileStoreSnapshot } from "./runtime-snapshot-publication.js";
 import {
   clearRuntimeAuthProfileStoreSnapshotCore,
   clearRuntimeAuthProfileStoreSnapshotAtDatabasePath,
@@ -181,17 +182,17 @@ export async function withAuthProfileStoreAgentDir<T>(
   );
 }
 
-function getScopedAuthProfileEnv(): NodeJS.ProcessEnv | undefined {
+export function getScopedAuthProfileEnv(): NodeJS.ProcessEnv | undefined {
   const mode = authProfileRuntimeMode.getStore();
   return mode?.kind === "agent-dir" ? mode.env : undefined;
 }
 
-function getScopedSharedAuthStore(): AuthProfileStore | undefined {
+export function getScopedSharedAuthStore(): AuthProfileStore | undefined {
   const mode = authProfileRuntimeMode.getStore();
   return mode?.kind === "agent-dir" ? mode.sharedStore : undefined;
 }
 
-function applyScopedAuthReadThrough(store: AuthProfileStore): AuthProfileStore {
+export function applyScopedAuthReadThrough(store: AuthProfileStore): AuthProfileStore {
   const shared = getScopedSharedAuthStore();
   if (!shared) {
     return store;
@@ -789,38 +790,10 @@ function rebuildRuntimeAuthProfileStoreSnapshot(
       { err },
     );
   }
-  if (!runtimeAuthProfileSnapshotSharesOwner(existing.owner, owner)) {
-    // Resolved secrets and external profiles belong to their producer, not just a matching ref.
-    setRuntimeAuthProfileStoreSnapshotAtDatabasePath(
-      refreshed,
-      owner.databasePath,
-      agentDir,
-      owner,
-      candidates,
-    );
-    return;
-  }
-  const currentMaterialized = preserveResolvedSecretBackedCredentials({
-    next: refreshed,
-    existing: existing.store,
-  });
-  const materialized = predecessor
-    ? preserveResolvedSecretBackedCredentials({
-        next: currentMaterialized,
-        existing: predecessor,
-      })
-    : currentMaterialized;
-  const rebuilt = mergeRuntimeExternalProfileReferences({
-    next: materialized,
-    existing: existing.store,
-  });
-  setRuntimeAuthProfileStoreSnapshotAtDatabasePath(
-    rebuilt,
-    owner.databasePath,
-    agentDir,
-    owner,
+  publishPreparedRuntimeAuthProfileStoreSnapshot(agentDir, existing, owner, refreshed, {
+    predecessor,
     candidates,
-  );
+  });
 }
 
 /** Capture both persisted auth rows under one database lock. */

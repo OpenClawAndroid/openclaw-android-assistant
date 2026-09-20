@@ -62,6 +62,7 @@ class ChatPositionRailDirective extends AsyncDirective {
     { id: string; messageId: string; visible: boolean }
   >();
   private visibleIds = new Set<string>();
+  private initialVisibilityPending = true;
   private targetsChanged = true;
   private followActive = false;
   private layoutVisible = false;
@@ -210,6 +211,7 @@ class ChatPositionRailDirective extends AsyncDirective {
       ?.querySelector('[aria-current="true"]')
       ?.setAttribute("aria-current", "false");
     this.visibleIds.clear();
+    this.initialVisibilityPending = true;
     this.activeId = undefined;
   }
 
@@ -337,13 +339,16 @@ class ChatPositionRailDirective extends AsyncDirective {
         if (this.followActive) {
           this.scheduleLayout();
         }
-        const atEnd = this.resizeScrollTarget?.atEnd ?? previous.anchorToEnd;
+        // A measured end supersedes startup's non-end estimate; smooth follow may still be pending.
+        const atEnd = this.resizeScrollTarget?.atEnd || previous.anchorToEnd;
         const maxOffset = Math.max(0, root.scrollHeight - viewport.height);
         this.resizeScrollTarget = {
           offset: atEnd ? maxOffset : Math.min(previous.scrollTop, maxOffset),
           atEnd,
         };
-      } else if (previous && viewport.scrollTop !== previous.scrollTop) {
+      }
+      // Navigation and a resize can arrive in the same observer delivery.
+      if (previous && viewport.scrollTop !== previous.scrollTop) {
         const target = this.resizeScrollTarget?.offset;
         // Smooth resize compensation crosses intermediate offsets before its target.
         // The transcript input owner above retires it when the reader takes over.
@@ -379,6 +384,12 @@ class ChatPositionRailDirective extends AsyncDirective {
       }
     }
     this.visibleIds = visible;
+    if (this.initialVisibilityPending && visible.size > 0) {
+      // Startup resizes can precede the first measured message. Anchor that
+      // initial position before preserving rail offsets through later resizes.
+      this.followActive = true;
+      this.scheduleLayout();
+    }
     const visibleMessageIds = new Set(
       Array.from(this.observedMessages.values())
         .filter((message) => message.visible)
@@ -440,6 +451,9 @@ class ChatPositionRailDirective extends AsyncDirective {
           : undefined) ?? this.activeId;
       if (current) {
         this.revealMarker(current);
+        if (this.visibleIds.size > 0) {
+          this.initialVisibilityPending = false;
+        }
       }
     }
     this.viewportHeight = scroller.clientHeight;

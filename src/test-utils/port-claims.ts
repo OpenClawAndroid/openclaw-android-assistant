@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { findVitestResourceOwner } from "../../scripts/lib/vitest-resource-ownership.mts";
 import { runQaGatewayFixture } from "../../test/helpers/qa-gateway-cleanup.js";
 import { hasErrnoCode } from "../infra/errno.js";
 import { createFileLockManager } from "../infra/file-lock-manager.js";
@@ -23,7 +24,12 @@ async function claimPortBlock(
   signal?: AbortSignal,
 ): Promise<TestPortClaim> {
   signal?.throwIfAborted();
-  const root = await fs.realpath(tmpdir());
+  let root = await fs.realpath(tmpdir());
+  // Vitest namespaces own disposable files, but sibling invocations share TCP
+  // ports. Keep claims outside every enclosing invocation's cleanup boundary.
+  for (let owner = findVitestResourceOwner(root); owner; owner = findVitestResourceOwner(root)) {
+    root = path.dirname(owner.root);
+  }
   const claims: Awaited<ReturnType<typeof portClaims.acquire>>[] = [];
   const release = () =>
     runQaGatewayFixture(async () => {}, ...claims.map((claim) => () => claim.release()));

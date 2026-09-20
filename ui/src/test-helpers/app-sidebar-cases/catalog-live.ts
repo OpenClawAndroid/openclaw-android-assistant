@@ -64,6 +64,7 @@ describe("AppSidebar session catalog pagination", () => {
         agentId: "main",
         limitPerHost: 40,
         progressId: expect.any(String),
+        allowPartialResults: true,
       });
     } finally {
       vi.useRealTimers();

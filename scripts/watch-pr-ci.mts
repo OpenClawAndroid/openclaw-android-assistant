@@ -4,6 +4,14 @@ import { parseArgs as parseNodeArgs } from "node:util";
 import { z } from "zod";
 import { isDirectRunUrl } from "./lib/direct-run.mjs";
 import { execGhJson, workflowRunsApiArgs } from "./lib/plain-gh.mjs";
+import {
+  createPrRollupReader,
+  FAILURE_CONCLUSIONS,
+  RollupPageSchema,
+  type RollupCheck,
+  type RollupPayload,
+  type RollupPage,
+} from "./lib/watch-pr-ci-rollup.mts";
 import { createPrMetadataReader } from "./pr-lib/github.mjs";
 
 const USAGE =
@@ -20,58 +28,6 @@ const validArray = <T,>(schema: z.ZodType<T>) =>
   );
 const optionalString = optional(z.string());
 const optionalNumber = optional(z.number());
-const RollupCountSchema = z.object({ state: z.string(), count: z.number().int().nonnegative() });
-const RollupCheckSchema = z.object({
-  kind: z.enum(["CheckRun", "StatusContext"]),
-  databaseId: optionalNumber,
-  name: optionalString,
-  context: optionalString,
-  status: optionalString,
-  conclusion: optionalNullable(z.string()),
-  state: optionalString,
-  checkSuite: optionalNullable(
-    z.object({
-      databaseId: optionalNumber,
-      workflowRun: optionalNullable(
-        z.object({
-          databaseId: optionalNumber,
-          event: optionalString,
-          workflow: optional(z.object({ databaseId: optionalNumber })),
-        }),
-      ),
-    }),
-  ),
-});
-const RollupPayloadSchema = z.object({
-  state: optionalString,
-  contexts: optional(
-    z.object({
-      totalCount: optionalNumber,
-      checkRunCountsByState: optional(z.array(RollupCountSchema)),
-      statusContextCountsByState: optional(z.array(RollupCountSchema)),
-      nodes: optional(validArray(RollupCheckSchema)),
-      pageInfo: optional(
-        z.object({
-          hasNextPage: optional(z.boolean()),
-          endCursor: optionalNullable(z.string()),
-        }),
-      ),
-    }),
-  ),
-});
-const RollupPageSchema = z
-  .object({
-    state: optionalString,
-    mergeable: optional(z.union([z.boolean(), z.string()])),
-    headRefOid: optionalString,
-    statusCheckRollup: optionalNullable(RollupPayloadSchema),
-  })
-  .catch({});
-const RollupResponseSchema = z.object({
-  data: z.object({
-    repository: z.object({ pullRequest: RollupPageSchema.nullish() }).nullish(),
-  }),
-});
 const RunListItemSchema = z.object({
   id: z.number(),
   workflow_id: optionalNumber,
@@ -131,23 +87,10 @@ const AttemptJobsPageSchema = z.object({
   jobs: z.array(AttemptJobSchema).max(100),
 });
 
-type RollupCheck = z.infer<typeof RollupCheckSchema>;
-type RollupPayload = z.infer<typeof RollupPayloadSchema>;
-type RollupPage = z.infer<typeof RollupPageSchema>;
 type RunListItem = z.infer<typeof RunListItemSchema>;
 type RunStatus = z.infer<typeof RunStatusSchema>;
 type JobIdentity = { runId: number; checkId: number };
 type PrRunReplacement = { workflowId: number; checkSuites: ReadonlyMap<number, number> };
-const FAILURE_CONCLUSIONS = new Set([
-  "ACTION_REQUIRED",
-  "CANCELLED",
-  "FAILURE",
-  "STARTUP_FAILURE",
-  "STALE",
-  "TIMED_OUT",
-]);
-const ROLLUP_QUERY = `query($owner:String!,$name:String!,$pr:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$pr){state mergeable headRefOid statusCheckRollup{state contexts(first:100,after:$cursor){totalCount pageInfo{hasNextPage endCursor} nodes{kind:__typename ... on CheckRun{name status conclusion databaseId checkSuite{databaseId workflowRun{databaseId event workflow{databaseId}}}} ... on StatusContext{context state}}}}}}}`;
-const SUMMARY_QUERY = `query($owner:String!,$name:String!,$pr:Int!){repository(owner:$owner,name:$name){pullRequest(number:$pr){state mergeable headRefOid statusCheckRollup{state contexts(first:1){checkRunCountsByState{state count} statusContextCountsByState{state count}}}}}}`;
 const MAX_EVIDENCE_READS_PER_POLL = 32;
 const GH_READ_OPTIONS = {
   stdio: ["ignore", "pipe", "pipe"],
@@ -618,77 +561,6 @@ export function classifyAttachedCiRun(run: RunStatus) {
     : { verdict: "FAILING", conclusion: run.conclusion ?? "unknown" };
 }
 
-export function collectRollupContexts(
-  fetchPage: (cursor: string | null) => RollupPage | null | undefined,
-) {
-  const firstPage = fetchPage(null);
-  const firstContexts = firstPage?.statusCheckRollup?.contexts;
-  if (!firstContexts) {
-    return firstPage;
-  }
-
-  const nodes = [...(firstContexts.nodes ?? [])];
-  let pageInfo = firstContexts.pageInfo;
-  let pageCount = 1;
-  // Polling work stays bounded at 1,000 contexts. Any truncation remains visible through
-  // totalCount and must classify conservatively rather than reading as success.
-  while (pageInfo?.hasNextPage && pageCount < 10) {
-    if (typeof pageInfo.endCursor !== "string") {
-      throw new Error("rollup page advertised a next page without a cursor");
-    }
-    const page = fetchPage(pageInfo.endCursor);
-    const contexts = page?.statusCheckRollup?.contexts;
-    pageCount += 1;
-    // Losing an advertised page (head moved, transient API gap) or reading a changed snapshot
-    // must not pass off the partial first page as complete; the watch loop catches this error
-    // and re-reads the rollup on its next bounded poll.
-    if (!contexts) {
-      throw new Error("rollup snapshot changed during pagination");
-    }
-    if (
-      page.headRefOid !== firstPage.headRefOid ||
-      page.statusCheckRollup?.state !== firstPage.statusCheckRollup?.state ||
-      contexts.totalCount !== firstContexts.totalCount
-    ) {
-      throw new Error("rollup snapshot changed during pagination");
-    }
-    nodes.push(...(contexts.nodes ?? []));
-    pageInfo = contexts.pageInfo;
-  }
-
-  return {
-    ...firstPage,
-    statusCheckRollup: {
-      ...firstPage.statusCheckRollup,
-      contexts: { ...firstContexts, nodes, pageInfo },
-    },
-  };
-}
-
-function readRollup(pr: number, repo: string, deadline: number, details = true) {
-  const [owner, name] = repo.split("/");
-  const fetchPage = (cursor: string | null) => {
-    const queryArgs = [
-      "api",
-      "graphql",
-      "-f",
-      `query=${details ? ROLLUP_QUERY : SUMMARY_QUERY}`,
-      "-f",
-      `owner=${owner}`,
-      "-f",
-      `name=${name}`,
-      "-F",
-      `pr=${pr}`,
-    ];
-    if (cursor !== null) {
-      queryArgs.push("-f", `cursor=${cursor}`);
-    }
-    const response = RollupResponseSchema.safeParse(execGhJson(queryArgs, ghReadOptions(deadline)));
-    return response.success ? response.data.data.repository?.pullRequest : undefined;
-  };
-  return (details ? collectRollupContexts(fetchPage) : fetchPage(null)) ?? {};
-}
-
 function githubPendingCount(rollup: RollupPayload | null | undefined) {
   const { checkRunCountsByState, statusContextCountsByState } = rollup?.contexts ?? {};
   if (!checkRunCountsByState || !statusContextCountsByState) {
@@ -706,6 +578,7 @@ function readPrRollup(
   attachment: NonNullable<ReturnType<typeof findRun>>,
   deadline: number,
   reads: { remaining: number },
+  readRollup: ReturnType<typeof createPrRollupReader>,
   reconciled?: ReadonlyMap<number, string>,
 ) {
   const { run, runs } = attachment;
@@ -722,7 +595,7 @@ function readPrRollup(
       ? { workflowId: run.workflow_id, checkSuites }
       : undefined;
   while (true) {
-    const pr = readRollup(args.pr, args.repo, deadline);
+    const pr = readRollup(deadline);
     const blocked = precheck(pr, args.headSha, true);
     if (blocked !== null) {
       return { exitCode: blocked };
@@ -849,6 +722,12 @@ function precheck(pr: RollupPage, sha: string, midWait = false) {
 async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   const readMetadata = createPrMetadataReader(args.repo);
+  const readRollup = createPrRollupReader(
+    args.pr,
+    args.repo,
+    (deadline) => readPr(args.pr, readMetadata, deadline),
+    ghReadOptions,
+  );
   const attachDeadline = Date.now() + args.attachTimeout * 1000;
   const attachment = await pollUntilDeadline({
     deadline: attachDeadline,
@@ -928,7 +807,7 @@ async function main(argv = process.argv.slice(2)) {
           }
           return undefined;
         }
-        const summary = readRollup(args.pr, args.repo, watchDeadline, false);
+        const summary = readRollup(watchDeadline, false);
         const blocked = precheck(summary, args.headSha, true);
         if (blocked !== null) {
           return blocked;
@@ -951,7 +830,7 @@ async function main(argv = process.argv.slice(2)) {
             );
             if (lastState === "SUCCESS" && run.status === "completed") {
               // The run read can span a push or newly published checks on the same head.
-              const current = readRollup(args.pr, args.repo, watchDeadline, false);
+              const current = readRollup(watchDeadline, false);
               const moved = precheck(current, args.headSha, true);
               if (moved !== null) {
                 return moved;
@@ -966,7 +845,7 @@ async function main(argv = process.argv.slice(2)) {
           }
         }
         const reads = { remaining: MAX_EVIDENCE_READS_PER_POLL };
-        let observed = readPrRollup(args, attachment, watchDeadline, reads);
+        let observed = readPrRollup(args, attachment, watchDeadline, reads, readRollup);
         if ("exitCode" in observed) {
           return observed.exitCode;
         }
@@ -993,7 +872,7 @@ async function main(argv = process.argv.slice(2)) {
           if (reconciled.size > 0) {
             // The evidence scan may span pushes or new checks. Reobserve the PR
             // before applying proof, then retain the ordinary final CI-run check.
-            observed = readPrRollup(args, attachment, watchDeadline, reads, reconciled);
+            observed = readPrRollup(args, attachment, watchDeadline, reads, readRollup, reconciled);
             if ("exitCode" in observed) {
               return observed.exitCode;
             }

@@ -109,16 +109,19 @@ suite.define(() => {
 
         // The Gateway owner test proves mention commit -> involvement. Here the real
         // client receives that owner's event while its filtered list is already open.
+        const involvingMeQuery = { involvingMe: true };
+        const beforeMention = (await gateway.getRequests("sessions.list", involvingMeQuery)).length;
         await gateway.setMethodResponse("sessions.list", list([home, mentioned]));
         await gateway.emitGatewayEvent("sessions.changed", {
           sessionKey,
           agentId: "main",
           reason: "involvement",
         });
-        await expectBrowser(target).toBeVisible();
-        expect((await gateway.getRequests("sessions.list")).at(-1)?.params).toMatchObject({
-          involvingMe: true,
+        await gateway.waitForRequest("sessions.list", {
+          match: involvingMeQuery,
+          after: beforeMention,
         });
+        await expectBrowser(target).toBeVisible();
         await captureUiProof(suite, page, "02-after-mention.png");
         await target.hover();
         await target.getByRole("button", { name: "Open session menu" }).click();

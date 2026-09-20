@@ -149,6 +149,8 @@ type PluginHostedMediaResolverRegistration = PluginRegistrationOwner & {
 
 export type PluginChannelRegistration = PluginRegistrationOwner & {
   plugin: ChannelPlugin;
+  /** Prepared views retain the exact transport donor in addition to their local admission. */
+  borrowedRuntimeRecord?: PluginRecord;
   /** Exact record-bound runtime resolver captured when the active plugin registered the channel. */
   resolveChannelRuntime?: () => PluginRuntime["channel"];
   /** Loader-owned provenance. Missing values are conservative legacy registrations. */

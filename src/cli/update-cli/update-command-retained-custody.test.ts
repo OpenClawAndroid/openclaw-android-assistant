@@ -288,10 +288,11 @@ it("never retries a refused scoped runner and leaves nested legacy native scopes
       expect(ordinary).toMatchObject({ code: 0, stdout: "ordinary-native", termination: "exit" });
       expect(calls).toBe(1);
     },
-    undefined,
-    async () => {
-      calls += 1;
-      throw Object.assign(new Error("fixture native refusal"), { code: "EACCES" });
+    {
+      nativeCommand: async () => {
+        calls += 1;
+        throw Object.assign(new Error("fixture native refusal"), { code: "EACCES" });
+      },
     },
   );
 });

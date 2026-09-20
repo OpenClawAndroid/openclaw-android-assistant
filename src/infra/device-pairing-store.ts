@@ -5,6 +5,7 @@ import {
   resolvePairingSetupAccess,
   type PairingSetupAccess,
 } from "../shared/device-bootstrap-profile.js";
+import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { isNodeHostStats } from "../shared/node-host-stats.js";
 import {
   ensureDevicePairSetupBootstrapSchema,
@@ -61,16 +62,11 @@ const DEVICE_BOOTSTRAP_TOKEN_COLUMNS_WITHOUT_SETUP = [
   "ts",
 ] as const satisfies readonly (keyof DeviceBootstrapTokens)[];
 
-type DevicePairingStoreValidityToken = {
-  dataVersion: number;
-  totalChanges: number;
-};
-
 type DevicePairingStoreCache = {
   connection: DatabaseSync;
   path: string;
   state: DevicePairingStoreState;
-  validityToken: DevicePairingStoreValidityToken;
+  dataVersion: number;
 };
 
 type DevicePairingStoreMutation<T> = {
@@ -92,45 +88,22 @@ type PairedDevicePresenceUpdate<T> =
     };
 
 // One materialized pairing snapshot avoids rescanning both tables for every node catalog read.
-// The connection token detects other-process writes, and store-owned writes clear it post-commit;
-// without both paths, Gateway and CLI pairing mutations could leave node.list serving stale rows.
-let devicePairingStoreCache: DevicePairingStoreCache | undefined;
+// Store-owned writes invalidate across module copies sharing the native connection.
+// data_version catches commits on other connections (including CLI pairing writes),
+// while unrelated writes on this connection leave the snapshot reusable.
+const devicePairingStoreCache = resolveGlobalSingleton<{
+  value: DevicePairingStoreCache | undefined;
+}>(Symbol.for("openclaw.devicePairingStoreCache"), () => ({ value: undefined }));
 
 /** Route an explicit pairing base dir (tests, alternate state roots) to that dir's DB. */
 function resolveDevicePairingStateDbOptions(baseDir?: string): OpenClawStateDatabaseOptions {
   return baseDir ? { env: { ...process.env, OPENCLAW_STATE_DIR: baseDir } } : {};
 }
 
-function readTotalChanges(database: DatabaseSync): number {
-  const row = database.prepare("SELECT total_changes() AS value").get() as { value?: unknown };
-  if (typeof row.value !== "number") {
-    throw new Error("SQLite did not return a numeric total_changes() value");
-  }
-  return row.value;
-}
-
-function readDevicePairingStoreValidityToken(
-  database: DatabaseSync,
-): DevicePairingStoreValidityToken {
-  return {
-    dataVersion: readSqliteDataVersion(database),
-    totalChanges: readTotalChanges(database),
-  };
-}
-
-function devicePairingStoreValidityTokensEqual(
-  left: DevicePairingStoreValidityToken,
-  right: DevicePairingStoreValidityToken,
-): boolean {
-  return left.dataVersion === right.dataVersion && left.totalChanges === right.totalChanges;
-}
-
 function invalidateDevicePairingStoreCache(database: OpenClawStateDatabase): void {
-  if (
-    devicePairingStoreCache?.connection === database.db &&
-    devicePairingStoreCache.path === database.path
-  ) {
-    devicePairingStoreCache = undefined;
+  const cached = devicePairingStoreCache.value;
+  if (cached?.connection === database.db && cached.path === database.path) {
+    devicePairingStoreCache.value = undefined;
   }
 }
 
@@ -140,11 +113,17 @@ function runDevicePairingStoreMutation<T>(
 ): T {
   const databaseOptions = resolveDevicePairingStateDbOptions(baseDir);
   const database = openOpenClawStateDatabase(databaseOptions);
-  const result = runOpenClawStateWriteTransaction(mutate, { ...databaseOptions, database });
-  if (result.mutated) {
-    invalidateDevicePairingStoreCache(database);
-  }
-  return result.value;
+  return runOpenClawStateWriteTransaction(
+    (transactionDatabase) => {
+      const result = mutate(transactionDatabase);
+      // Invalidate before commit observers or fallible post-commit cleanup can run.
+      if (result.mutated) {
+        invalidateDevicePairingStoreCache(transactionDatabase);
+      }
+      return result.value;
+    },
+    { ...databaseOptions, database },
+  );
 }
 
 // Read-back allowlist for the approved_via column. The Record type forces
@@ -376,20 +355,25 @@ export function readDevicePairingStoreStateFromDatabase(db: DatabaseSync): Devic
 export function loadDevicePairingStoreState(baseDir?: string): DevicePairingStoreState {
   const database = openOpenClawStateDatabase(resolveDevicePairingStateDbOptions(baseDir));
   const { db } = database;
-  const validityToken = readDevicePairingStoreValidityToken(db);
+  // A nested pairing write can still roll back with its outer transaction.
+  if (db.isTransaction) {
+    return readDevicePairingStoreStateFromDatabase(db);
+  }
+  const dataVersion = readSqliteDataVersion(db);
+  const cached = devicePairingStoreCache.value;
   if (
-    devicePairingStoreCache?.connection === db &&
-    devicePairingStoreCache.path === database.path &&
-    devicePairingStoreValidityTokensEqual(devicePairingStoreCache.validityToken, validityToken)
+    cached?.connection === db &&
+    cached.path === database.path &&
+    cached.dataVersion === dataVersion
   ) {
-    return structuredClone(devicePairingStoreCache.state);
+    return structuredClone(cached.state);
   }
   const state = readDevicePairingStoreStateFromDatabase(db);
-  devicePairingStoreCache = {
+  devicePairingStoreCache.value = {
     connection: db,
     path: database.path,
     state: structuredClone(state),
-    validityToken,
+    dataVersion,
   };
   return state;
 }

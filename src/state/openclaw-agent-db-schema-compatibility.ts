@@ -53,7 +53,11 @@ export const AGENT_SCHEMA_COMPATIBILITY = {
   allowedColumnDefinitions: {
     "conversations.delivery_target": ["delivery_target TEXT NOT NULL DEFAULT ''"],
   },
-  allowedMissingIndexes: ["idx_agent_transcript_context_pending", "idx_agent_session_nodes_label"],
+  allowedMissingIndexes: [
+    "idx_agent_transcript_context_pending",
+    "idx_agent_session_nodes_label",
+    "idx_agent_session_nodes_entry_not_valid",
+  ],
   optionalCanonicalTriggerGroups: [
     {
       tableName: MEMORY_INDEX_SOURCES_TABLE,

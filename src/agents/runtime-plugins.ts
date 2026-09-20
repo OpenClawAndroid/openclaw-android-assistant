@@ -8,6 +8,10 @@ import {
   listRuntimePluginIdsFromRegistry,
   registryContainsRuntimePluginIds,
 } from "../plugins/active-runtime-registry.js";
+import {
+  adoptRuntimeChannelRegistrations,
+  captureRuntimeChannelSource,
+} from "../plugins/channel-registry-adoption.js";
 import { withPluginMetadataSnapshotScope } from "../plugins/current-plugin-metadata-snapshot.js";
 import { extractPluginInstallRecordsFromInstalledPluginIndex } from "../plugins/installed-plugin-index-install-records.js";
 import {
@@ -156,21 +160,30 @@ function adoptAgentRuntimeRegistrations(
   pluginRegistry: PluginRegistry,
   params: AgentRuntimePluginRegistryParams,
   config: OpenClawConfig | undefined,
+  channelSource: ReturnType<typeof captureRuntimeChannelSource>,
 ): {
   registry: PluginRegistry;
   donor?: PluginRegistry;
 } {
   const activeRegistry = getActivePluginRegistry();
-  if (!activeRegistry || params.purpose === "model-catalog") {
+  if (params.purpose === "model-catalog") {
     return { registry: pluginRegistry };
+  }
+  const channelRegistry =
+    params.allowGatewaySubagentBinding === true &&
+    (params.env === undefined || params.env === process.env)
+      ? adoptRuntimeChannelRegistrations(pluginRegistry, channelSource)
+      : pluginRegistry;
+  if (!activeRegistry) {
+    return { registry: channelRegistry };
   }
   const memoryRegistry =
     params.metadataSnapshot &&
     params.workspaceDir &&
     config &&
     getActivePluginRegistryWorkspaceDir() === resolveUserPath(params.workspaceDir)
-      ? adoptRuntimeMemoryRegistrations(pluginRegistry, activeRegistry, config)
-      : pluginRegistry;
+      ? adoptRuntimeMemoryRegistrations(channelRegistry, activeRegistry, config)
+      : channelRegistry;
   const registry = bindPluginRegistryResourceOwner(
     adoptRuntimeWidgetPresenterRegistrations(
       adoptRuntimeContextEngineRegistrations(
@@ -208,6 +221,7 @@ export async function acquireAgentRuntimePluginRegistry(
     return { registry: reusable, primaryRegistry: reusable };
   }
   const acquire = () => acquirePluginRegistryForInspection(loadOptions);
+  const channelSource = captureRuntimeChannelSource(getActivePluginRegistry());
   const acquired = await (params.metadataSnapshot
     ? withPluginMetadataSnapshotScope(params.metadataSnapshot, acquire)
     : acquire());
@@ -217,6 +231,7 @@ export async function acquireAgentRuntimePluginRegistry(
       acquired.registry,
       params,
       loadOptions.config,
+      channelSource,
     );
     // Fence replacement before adopting donors, including the await back to the build owner.
     releaseWork = retainRuntimePluginWork([registry]);
@@ -266,12 +281,14 @@ export function loadAgentRuntimePluginRegistryHandle(
   // Adopt full-only runtime capabilities from the matching composition-root owners.
   // Prepared metadata outlives a transient caller's install or reload lease.
   const load = () => loadPluginRegistryHandle(loadOptions);
+  const channelSource = captureRuntimeChannelSource(getActivePluginRegistry());
   const pluginRegistry = params.metadataSnapshot
     ? withPluginMetadataSnapshotScope(params.metadataSnapshot, load)
     : load();
   // Media providers remain owned by this source when full-only donors require a copy.
   onPrimaryRegistry?.(pluginRegistry);
-  return adoptAgentRuntimeRegistrations(pluginRegistry, params, loadOptions.config).registry;
+  return adoptAgentRuntimeRegistrations(pluginRegistry, params, loadOptions.config, channelSource)
+    .registry;
 }
 
 /** Binds a scoped plugin generation when a direct host has no Gateway owner. */

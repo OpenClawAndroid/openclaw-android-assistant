@@ -3,13 +3,18 @@ import { resolveGatewayRestartProbeContext } from "../cli/daemon-cli/restart-hea
 import { verifyPreviousGatewayForUpdate } from "../cli/update-cli/update-command-verification.js";
 import type { TriageUpdateFailure } from "../commands/triage-update.js";
 import { runUtf8CommandWithTimeout } from "../process/exec.js";
+import { readDeferredPluginMigrations } from "./deferred-plugin-migrations.js";
 import { collectPackageDistContentInventoryErrors } from "./package-dist-inventory.js";
 import { readPackageVersion } from "./package-json.js";
 import { collectGitRuntimeErrors } from "./update-git-runtime.js";
 import { collectInstalledGlobalPackageErrors } from "./update-global.js";
 import { runUpdateRepairLoop } from "./update-repair-agent.js";
 import type { UpdateRepairValidation } from "./update-repair-protocol.js";
-import { findActiveUpdateRun, getUpdateRun, listUpdateRuns } from "./update-run-reader.js";
+import {
+  findActiveUpdateRun,
+  getUpdateRun,
+  readUpdateRunResolutionHistory,
+} from "./update-run-reader.js";
 import type { UpdateRunRecord } from "./update-run-record.js";
 import type { UpdateRunResult } from "./update-runner-types.js";
 import { validateTriageUpdateResolution } from "./update-triage-resolution.js";
@@ -25,12 +30,16 @@ vi.mock("./package-dist-inventory.js", () => ({
   collectPackageDistContentInventoryErrors: vi.fn(),
 }));
 vi.mock("./package-json.js", () => ({ readPackageVersion: vi.fn() }));
+vi.mock("./deferred-plugin-migrations.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./deferred-plugin-migrations.js")>()),
+  readDeferredPluginMigrations: vi.fn(),
+}));
 vi.mock("./update-git-runtime.js", () => ({ collectGitRuntimeErrors: vi.fn() }));
 vi.mock("./update-global.js", () => ({ collectInstalledGlobalPackageErrors: vi.fn() }));
 vi.mock("./update-run-reader.js", () => ({
   findActiveUpdateRun: vi.fn(),
   getUpdateRun: vi.fn(),
-  listUpdateRuns: vi.fn(),
+  readUpdateRunResolutionHistory: vi.fn(),
 }));
 const repairRuntime = vi.hoisted(() => ({
   prepareUpdateRepairInference: vi.fn(),
@@ -48,7 +57,7 @@ const BEFORE_SHA = "2222222222222222222222222222222222222222";
 const TARGET_VERSION = "2026.9.4";
 const BEFORE_VERSION = "2026.9.3";
 const MISSING_TARGET =
-  "Cannot establish the update target. Next step: run `openclaw update status --json`, then retry `openclaw update`.";
+  "Next step: run `openclaw update status --json`, then `openclaw update repair`. Cannot establish the update target.";
 
 function run(patch: Partial<UpdateRunRecord> = {}): UpdateRunRecord {
   return {
@@ -147,6 +156,7 @@ const successfulTurn = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(readDeferredPluginMigrations).mockReturnValue([]);
   validateDoctor.mockResolvedValue({
     ok: true,
     score: 0,
@@ -177,7 +187,10 @@ beforeEach(() => {
     runId === FAILED_RUN_ID ? failedRun : undefined,
   );
   vi.mocked(findActiveUpdateRun).mockReturnValue(undefined);
-  vi.mocked(listUpdateRuns).mockImplementation(() => [latestRun]);
+  vi.mocked(readUpdateRunResolutionHistory).mockImplementation(() => ({
+    failure: failedRun,
+    outcome: latestRun,
+  }));
   vi.mocked(collectInstalledGlobalPackageErrors).mockResolvedValue([]);
   vi.mocked(collectPackageDistContentInventoryErrors).mockResolvedValue([]);
   vi.mocked(collectGitRuntimeErrors).mockResolvedValue([]);
@@ -216,7 +229,7 @@ describe("saved update failure resolution", () => {
     "repair-requires-config-change",
     "post-plugin-doctor-invalid-config",
   ])(
-    "resolves the attributed %s Doctor blocker without rewriting its failed run",
+    "keeps an attributed %s Doctor failure unresolved until updater completion",
     async (reason) => {
       failedRun.reason = reason;
       failedRun.steps = [
@@ -228,8 +241,8 @@ describe("saved update failure resolution", () => {
       ];
       latestRun = failedRun;
       expect(await validate(failure(reason))).toMatchObject({
-        ok: true,
-        summary: expect.stringContaining("Doctor/config blocker resolved"),
+        ok: false,
+        summary: expect.stringContaining("The updater has not recorded a completed resolution"),
       });
       expect(failedRun.status).toBe("failed");
       expect(verifyPreviousGatewayForUpdate).not.toHaveBeenCalled();
@@ -249,98 +262,42 @@ describe("saved update failure resolution", () => {
     expect(validateDoctor).not.toHaveBeenCalled();
   });
 
-  it("resolves the attributed Doctor blocker after a later preview without rewriting either run", async () => {
+  it("does not treat a later preview as completion of a Doctor failure", async () => {
     failedRun.reason = "post-update-failed";
     failedRun.steps = [{ step: "finalize:doctor", status: "failed" }];
     latestRun.status = "skipped";
     latestRun.reason = "dry-run";
     expect(await validate(failure("post-update-failed"))).toMatchObject({
-      ok: true,
-      summary: expect.stringContaining("Doctor/config blocker resolved"),
+      ok: false,
+      summary: expect.stringContaining("The updater has not recorded a completed resolution"),
     });
     expect(failedRun.status).toBe("failed");
     expect(latestRun.status).toBe("skipped");
   });
 
-  it.each([
-    "wrapper-only",
-    "package step",
-    "package reason",
-    "unknown fact",
-    "revoked authority",
-    "wrong version",
-  ])("does not certify %s with a clean Doctor", async (blocker) => {
-    failedRun.reason = "post-update-failed";
-    failedRun.steps = [{ step: "finalize:doctor", status: "failed" }];
-    latestRun = failedRun;
-    if (blocker === "wrapper-only") {
-      failedRun.steps = [{ step: "post-update verification", status: "failed" }];
-    }
-    if (blocker === "package step") {
-      failedRun.steps.push({ step: "global install swap", status: "failed" });
-    }
-    if (blocker === "package reason") {
-      failedRun.reason = "global-install-failed";
-    }
-    if (blocker === "unknown fact") {
-      failedRun.steps = [
+  it.each(["before verification", "during verification"])(
+    "does not certify pending plugin migrations %s despite updater completion",
+    async (when) => {
+      const pending = [
         {
-          step: "finalize:doctor",
-          status: "failed",
-          failureFacts: [{ check: "doctor", code: "database-schema-preflight" }],
+          pluginId: "codex",
+          reason: "The plugin has not reported completion of its retained state migration.",
+          command: "openclaw doctor --fix",
+          requiresStateMigration: true as const,
         },
       ];
-    }
-    if (blocker === "revoked authority") {
-      failedRun.reason = "requester-revoked";
-    }
-    if (blocker === "wrong version") {
-      vi.mocked(readPackageVersion).mockResolvedValue(BEFORE_VERSION);
-    }
-    expect(await validate(failure("post-update-failed"))).toMatchObject({ ok: false });
-  });
-
-  it.each([false, true])(
-    "requires Doctor facts for config-convergence failure: %s",
-    async (attributed) => {
-      failedRun.reason = "finalize:targetConfigConvergence";
-      failedRun.steps = [
-        {
-          step: "finalize:targetConfigConvergence",
-          status: "failed",
-          ...(attributed
-            ? { failureFacts: [{ check: "core/doctor/config-readable", code: "doctor-failed" }] }
-            : {}),
-        },
-      ];
-      latestRun = failedRun;
-      expect(await validate(failure("finalize:targetConfigConvergence"))).toMatchObject({
-        ok: attributed,
+      if (when === "before verification") {
+        vi.mocked(readDeferredPluginMigrations).mockReturnValue(pending);
+      } else {
+        vi.mocked(verifyPreviousGatewayForUpdate).mockImplementationOnce(async () => {
+          vi.mocked(readDeferredPluginMigrations).mockReturnValue(pending);
+          return true;
+        });
+      }
+      expect(await validate()).toMatchObject({
+        ok: false,
+        summary: expect.stringContaining('Plugin "codex" state migration is pending'),
       });
-    },
-  );
-
-  it.each(["writer refusal", "package attribution"])(
-    "keeps %s with its owner despite a clean Doctor",
-    async (blocker) => {
-      failedRun.reason = "post-update-failed";
-      failedRun.steps = [
-        {
-          step: "finalize:doctor",
-          status: "failed",
-          ...(blocker === "writer refusal"
-            ? {
-                configWriteRefusal: {
-                  reason: "include-ownership",
-                  message: "Owned include must be repaired separately",
-                  keys: ["models"],
-                },
-              }
-            : { failureFacts: [{ check: "package-install", code: "doctor-failed" }] }),
-        },
-      ];
-      latestRun = failedRun;
-      expect(await validate(failure("post-update-failed"))).toMatchObject({ ok: false });
     },
   );
 
@@ -381,20 +338,6 @@ describe("saved update failure resolution", () => {
       expect(await validate(saved)).toMatchObject({ ok: false });
     },
   );
-
-  it("stops Doctor repair when an update takes ownership during diagnostics", async () => {
-    failedRun.reason = "post-update-failed";
-    failedRun.steps = [{ step: "doctor", status: "failed" }];
-    latestRun = failedRun;
-    validateDoctor.mockImplementation(async () => {
-      vi.mocked(findActiveUpdateRun).mockReturnValue(run({ status: "running" }));
-      return { ok: false, score: -1, summary: "Configuration error." };
-    });
-    expect(await validate(failure("post-update-failed"))).toMatchObject({
-      ok: false,
-      stopReason: expect.stringContaining("owner changed"),
-    });
-  });
 
   it.each(["version", "sha"] as const)(
     "verifies a Git target recorded with only its %s",
@@ -573,6 +516,7 @@ describe("saved update failure resolution", () => {
     ["plugin-errors", false],
     ["post-update-plugins", false],
   ])("requires plugin health when resolving %s", async (reason, resolved) => {
+    failedRun.reason = reason;
     vi.mocked(verifyPreviousGatewayForUpdate).mockImplementation(
       async ({ requirePluginHealth }) => !requirePluginHealth,
     );

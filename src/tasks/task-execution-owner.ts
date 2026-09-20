@@ -3,7 +3,7 @@ import { buildAgentRunTerminalOutcome } from "../agents/agent-run-terminal-outco
 import { AGENT_RUN_RESTART_ABORT_STOP_REASON } from "../agents/run-termination.js";
 import { getFileLockProcessStartTime, isPidDefinitelyDead } from "../shared/pid-alive.js";
 import { mapAgentRunTerminalOutcomeToTaskStatus } from "./task-registry-common.js";
-import { applyTaskRecordPatch, normalizeTaskTimestamps } from "./task-registry-records.js";
+import { applyTaskRecordPatch, normalizeTaskRecord } from "./task-registry-records.js";
 import type {
   TaskExecutionRestoreStore,
   TaskRegistryStoreSnapshot,
@@ -66,7 +66,7 @@ function readRestoreSnapshot(
 ): TaskRegistryStoreSnapshot {
   const snapshot = loadSnapshot();
   return {
-    tasks: new Map([...snapshot.tasks].map(([id, task]) => [id, normalizeTaskTimestamps(task)])),
+    tasks: new Map([...snapshot.tasks].map(([id, task]) => [id, normalizeTaskRecord(task)])),
     deliveryStates: snapshot.deliveryStates,
   };
 }
@@ -75,6 +75,8 @@ export function restoreTaskExecutionSnapshot(
   store: TaskExecutionRestoreStore,
   loadSnapshot: () => TaskRegistryStoreSnapshot = () => store.loadSnapshot(),
 ): TaskExecutionRestoreResult {
+  // Restore is generation-bound; ordinary scoped reads never scan retained history for repair.
+  store.repairLegacyIdentifiers?.();
   const snapshot = readRestoreSnapshot(loadSnapshot);
   if (![...snapshot.tasks.values()].some(hasOrphanedExecution)) {
     return { snapshot, settledTasks: [] };

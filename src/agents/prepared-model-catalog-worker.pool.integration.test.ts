@@ -7,6 +7,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { getPluginMetadataSnapshotCache, retirePluginCache } from "../plugins/plugin-cache.js";
+import { sweepPluginSourceCaptureDirectories } from "../plugins/plugin-source-capture-directory.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import * as agentAuthDiscovery from "./agent-auth-discovery.js";
 import { saveAuthProfileStore } from "./auth-profiles/store-runtime.js";
@@ -112,6 +113,15 @@ describe("Gateway catalog worker pool", () => {
       const filename = [...captures][0]!;
       const captureRoot = filename.slice(0, filename.indexOf(`${path.sep}openclaw-plugin-build-`));
       expect(path.basename(captureRoot)).toMatch(/^openclaw-model-catalog-/);
+      const instanceRoot = path.dirname(path.dirname(captureRoot));
+      expect(path.dirname(instanceRoot)).toBe(
+        path.join(fixture.env.OPENCLAW_STATE_DIR!, "tmp", "plugin-captures"),
+      );
+      expect(fs.existsSync(path.join(instanceRoot, "owner.sqlite"))).toBe(true);
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1_000);
+      fs.utimesSync(instanceRoot, old, old);
+      await sweepPluginSourceCaptureDirectories(fixture.env.OPENCLAW_STATE_DIR!);
+      expect(fs.existsSync(filename)).toBe(true);
       const inventory = () => fs.readdirSync(captureRoot).toSorted();
       const retained = inventory();
       for (const token of ["B", "C"]) {

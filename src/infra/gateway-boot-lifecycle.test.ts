@@ -164,7 +164,7 @@ describe("gateway crash-loop breaker", () => {
         startedAtMs: 1_500,
         completedAtMs: 2_000,
         outcome: "planned_restart",
-        reason: "restart (SIGUSR1)",
+        reason: "restart (SIGUSR2)",
       },
       { bootId: "recovery", startedAtMs: 3_001, completedAtMs: 4_000, outcome: "safe_mode_stable" },
       { bootId: "running", startedAtMs: 4_001 },

@@ -13,6 +13,12 @@ web UI's typography and light/dark palettes. They follow system appearance chang
 while open, preserving connection drafts, credential visibility, and Quick Chat
 replies. The connected dashboard retains its own web UI appearance setting.
 
+Quick Chat places the latest reply above a single bottom composer. Its disclosure
+button collapses the reply while retaining streamed text, widget contents, and
+the next draft. Return sends; Shift-Return adds a newline. The next draft remains
+editable while a reply streams, and sending becomes available when that turn
+finishes. **Open dashboard** opens the Primary Gateway's full interface.
+
 During remote setup or in Connection Settings, choose token or password under
 **Authentication**. **Show credential** reveals only what you entered; changing
 authentication types clears that draft and masks the new field. Press Enter or

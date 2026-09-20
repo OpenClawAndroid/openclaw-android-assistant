@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync, StatementSync } from "node:sqlite";
@@ -6,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRuntimeConfigSnapshot } from "../../config/runtime-snapshot.js";
 import "../../claws/tool-policy-runtime.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { SQLITE_READONLY_CHILD_ARG } from "../../infra/runtime-process-entrypoints.js";
+import { withSqliteReadOnlyWorkerScope } from "../../infra/sqlite-readonly-worker.js";
 import { withPluginMetadataSnapshotScope } from "../../plugins/current-plugin-metadata-snapshot.js";
 import { resolveInstalledPluginIndexPolicyHash } from "../../plugins/installed-plugin-index-policy.js";
 import { clearPluginMetadataLifecycleCaches } from "../../plugins/plugin-metadata-lifecycle.js";
@@ -20,6 +23,7 @@ import {
   type OpenClawTestState,
 } from "../../test-utils/openclaw-test-state.js";
 import { ensureAuthProfileStoreWithoutExternalProfiles } from "../auth-profiles/store-runtime.js";
+import { withAuthProfileStoreAgentDir } from "../auth-profiles/store.js";
 import { resolveModelPluginMetadataSnapshot } from "../model-discovery-context.js";
 import { AuthStorage, ModelRegistry } from "../sessions/index.js";
 import { resolveTieredModel } from "./model-resolution.js";
@@ -30,6 +34,11 @@ import {
   resetModelGenerationFixtureState,
 } from "./model.generation-scope.test-support.js";
 import { resolveModelAsync } from "./model.js";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 let state: OpenClawTestState;
 let auth: ReturnType<typeof guardModelFixtureAuth>;
@@ -563,6 +572,132 @@ describe("model runtime generation scope", () => {
     expect(resolution.error).toContain("openclaw doctor --fix");
     expect(resolution.error).toContain("current-model");
   });
+
+  it.each([
+    { ambientScope: false, invalidation: "none" },
+    { ambientScope: true, invalidation: "none" },
+    { ambientScope: false, invalidation: "abort" },
+    { ambientScope: false, invalidation: "authority" },
+  ] as const)(
+    "reuses fresh auth readers during fallback (ambient=$ambientScope, invalidation=$invalidation)",
+    async ({ ambientScope, invalidation }) => {
+      const missingProvider = "generation-missing";
+      const fallbackProvider = "generation-fallback";
+      const children: ChildProcess[] = [];
+      const closed = new Set<ChildProcess>();
+      let liveDuringFallback: ChildProcess[] = [];
+      let liveAfterSelection: ChildProcess[] = [];
+      let prepared = false;
+      let current = true;
+      const controller = new AbortController();
+      const stopped = new Error("Model selection stopped during reader close");
+      const generation = createModelGenerationFixture({
+        agentDir: state.agentDir(),
+        workspaceDir: state.workspaceDir,
+        config: {},
+        label: "readonly-reuse",
+        provider: fallbackProvider,
+        requestProvider: fallbackProvider,
+        prepareDynamicModel: async () => {
+          liveDuringFallback = children.filter((child) => child.exitCode === null);
+          prepared = true;
+        },
+      });
+      await state.writeAuthProfiles({
+        version: 1,
+        profiles: {
+          [`${missingProvider}:default`]: {
+            type: "api_key",
+            provider: missingProvider,
+            key: "synthetic-missing-provider-key",
+          },
+          [`${fallbackProvider}:default`]: {
+            type: "api_key",
+            provider: fallbackProvider,
+            key: "synthetic-fallback-provider-key",
+          },
+        },
+      });
+      const actual =
+        await vi.importActual<typeof import("node:child_process")>("node:child_process");
+      try {
+        const resolving = withAuthProfileStoreAgentDir(state.agentDir(), state.stateDir, () => {
+          auth.spy.mockClear();
+          vi.mocked(spawn).mockImplementation((...args) => {
+            const child = actual.spawn(...args);
+            if (
+              Array.isArray(args[1]) &&
+              args[1].includes(SQLITE_READONLY_CHILD_ARG) &&
+              args[1].includes("session")
+            ) {
+              children.push(child);
+              child.once("close", () => {
+                closed.add(child);
+                if (prepared && invalidation === "abort") {
+                  controller.abort(stopped);
+                }
+                if (prepared && invalidation === "authority") {
+                  current = false;
+                }
+              });
+            }
+            return child;
+          });
+          const select = async () => {
+            const selected = await resolveTieredModel({
+              abortSignal: controller.signal,
+              assertCurrent: () => {
+                if (!current) {
+                  throw stopped;
+                }
+              },
+              provider: missingProvider,
+              fallbackProvider,
+              modelId: generation.modelId,
+              agentDir: state.agentDir(),
+              config: generation.preparedModelRuntime.config,
+              workspaceDir: state.workspaceDir,
+              preparedModelRuntime: generation.preparedModelRuntime,
+            });
+            liveAfterSelection = children.filter((child) => child.exitCode === null);
+            return selected;
+          };
+          return ambientScope ? withSqliteReadOnlyWorkerScope(select) : select();
+        });
+        if (invalidation === "none") {
+          const result = await resolving;
+          expect(result.provider).toBe(fallbackProvider);
+          expect(result.resolution.model).toMatchObject({
+            id: generation.modelId,
+            provider: fallbackProvider,
+            name: "Runtime READONLY-REUSE",
+          });
+        } else {
+          await expect(resolving).rejects.toBe(stopped);
+        }
+        expect(auth.spy.mock.calls.map(([, options]) => options?.migrationProvider)).toEqual([
+          missingProvider,
+          fallbackProvider,
+        ]);
+        expect(generation.resolveDynamicModel).toHaveBeenCalledWith(
+          expect.objectContaining({
+            authProfileId: `${fallbackProvider}:default`,
+            authProfileMode: "api_key",
+          }),
+        );
+        expect(children).toHaveLength(1);
+        expect(liveDuringFallback).toEqual(children);
+        expect(liveAfterSelection).toEqual(ambientScope ? children : []);
+        for (const child of children) {
+          expect(closed.has(child)).toBe(true);
+          expect(child.exitCode).toBe(0);
+          expect(child.connected).toBe(false);
+        }
+      } finally {
+        vi.mocked(spawn).mockImplementation(actual.spawn);
+      }
+    },
+  );
 
   it("keeps concurrent prepared generations isolated across awaited runtime hooks", async () => {
     const config = {} satisfies OpenClawConfig;

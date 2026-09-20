@@ -22,7 +22,7 @@ import {
 import {
   normalizeGatewayRestartDelayMs,
   resolveGatewayRestartDeferralTimeoutMs,
-  scheduleGatewaySigusr1Restart,
+  scheduleGatewayRestart,
 } from "../../infra/restart.js";
 import { detectRespawnSupervisor } from "../../infra/supervisor-markers.js";
 import { gatewayUpdateCampaign } from "../../infra/update-campaign.js";
@@ -676,7 +676,7 @@ export const updateHandlers: GatewayRequestHandlers = {
     const updateWasPackageSwap = result.status === "ok" && result.mode !== "git";
     const restart =
       result.status === "ok"
-        ? scheduleGatewaySigusr1Restart({
+        ? scheduleGatewayRestart({
             delayMs: updateWasPackageSwap ? 0 : restartDelayMs,
             reason: "update.run",
             // Package swaps should restart without waiting for normal

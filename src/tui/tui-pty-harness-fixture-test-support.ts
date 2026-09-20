@@ -203,6 +203,8 @@ export async function writeTuiPtyFixtureScript(dir: string) {
         };
       }
 
+      ${TUI_PTY_STARTUP_SESSION_FIXTURE.sessionInventory}
+
       ${TUI_PTY_GAP_HISTORY_FIXTURE_SCRIPT}
       ${TUI_PTY_ASSISTANT_FIXTURE_SCRIPT}
       ${TUI_PTY_RENDERING_FIXTURE_SCRIPT}
@@ -522,37 +524,31 @@ export async function writeTuiPtyFixtureScript(dir: string) {
           };
         }
 
+        async describeSession(opts: Parameters<TuiBackend["describeSession"]>[0]) {
+          record("describeSession", opts);
+          ${TUI_PTY_STARTUP_SESSION_FIXTURE.describeSessionDelay}
+          const session = fixtureSessions().find(({ key }) =>
+            key === opts.sessionKey || ("agent:main:" + key) === opts.sessionKey,
+          );
+          return { session: session ?? null, defaults: sessionDefaults() };
+        }
+
         async listSessions(opts?: Parameters<TuiBackend["listSessions"]>[0]) {
-          ${TUI_PTY_STARTUP_SESSION_FIXTURE.listSessionsSetup}
           record("listSessions", {
             ...opts,
             purpose: opts?.includeDerivedTitles ? "picker" : "refresh",
           });
-          ${TUI_PTY_STARTUP_SESSION_FIXTURE.listSessionsDelay}
-          const sessions = enablePickerFixture
-            ? [
-                sessionEntry("main"),
-                {
-                  ...sessionEntry(pickerSessionKey),
-                  derivedTitle: pickerSessionTitle,
-                  lastMessagePreview: pickerSessionPreview,
-                },
-              ]
-            : [];
-          const visibleSessions = sessions.filter(
-            (session) => session.key !== "global" || opts?.includeGlobal === true,
-          );
+          const sessions = fixtureSessions().filter((session) =>
+            (session.key !== "global" || opts?.includeGlobal === true) &&
+            (session.key !== "unknown" || opts?.includeUnknown === true) &&
+            (!opts?.search || session.key.includes(opts.search) || session.label?.includes(opts.search)),
+          ).slice(0, opts?.limit);
           return {
             ts: Date.now(),
             path: "",
-            count: visibleSessions.length,
-            sessions: visibleSessions,
-            defaults: {
-              model: currentModel,
-              modelProvider: "fixture-provider",
-              contextTokens: 128,
-              thinkingLevels,
-            },
+            count: sessions.length,
+            sessions,
+            defaults: sessionDefaults(),
           };
         }
 

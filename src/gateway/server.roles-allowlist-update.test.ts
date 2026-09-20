@@ -559,8 +559,8 @@ describe("gateway update history", () => {
 describe("gateway update.run", () => {
   test("writes sentinel and schedules restart", async () => {
     await withoutSupervisorHints(async () => {
-      const sigusr1 = vi.fn();
-      process.on("SIGUSR1", sigusr1);
+      const restartSignal = vi.fn();
+      process.on("SIGUSR2", restartSignal);
 
       try {
         const id = "req-update";
@@ -579,23 +579,23 @@ describe("gateway update.run", () => {
         expect(res.ok).toBe(true);
 
         await vi.waitFor(() => {
-          expect(sigusr1.mock.calls.length).toBeGreaterThan(0);
+          expect(restartSignal.mock.calls.length).toBeGreaterThan(0);
         }, FAST_WAIT_OPTS);
-        expect(sigusr1).toHaveBeenCalled();
+        expect(restartSignal).toHaveBeenCalled();
 
         const sentinel = await readRestartSentinel();
         expect(sentinel?.payload.kind).toBe("update");
         expect(sentinel?.payload.stats?.mode).toBe("git");
       } finally {
-        process.off("SIGUSR1", sigusr1);
+        process.off("SIGUSR2", restartSignal);
       }
     });
   });
 
   test("uses configured update channel", async () => {
     await withoutSupervisorHints(async () => {
-      const sigusr1 = vi.fn();
-      process.on("SIGUSR1", sigusr1);
+      const restartSignal = vi.fn();
+      process.on("SIGUSR2", restartSignal);
 
       try {
         const configPath = getGatewayTestConfigPath();
@@ -621,10 +621,10 @@ describe("gateway update.run", () => {
           expect(updateMock).toHaveBeenCalledOnce();
         }, FAST_WAIT_OPTS);
         await vi.waitFor(() => {
-          expect(sigusr1).toHaveBeenCalled();
+          expect(restartSignal).toHaveBeenCalled();
         }, FAST_WAIT_OPTS);
       } finally {
-        process.off("SIGUSR1", sigusr1);
+        process.off("SIGUSR2", restartSignal);
       }
     });
   });

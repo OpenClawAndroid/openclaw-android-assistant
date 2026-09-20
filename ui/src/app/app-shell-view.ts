@@ -423,6 +423,7 @@ export function renderApplicationShell(host: ShellViewHost) {
                   agentId: selectedAgentId,
                   className: "shell-chrome-controls__button shell-chrome-controls__new-thread",
                   label: t("chat.runControls.newSession"),
+                  showShortcut: true,
                   disabledReason: newSessionAccess.allowed ? undefined : newSessionAccess.reason,
                   onOpen: openNewSession,
                 })}

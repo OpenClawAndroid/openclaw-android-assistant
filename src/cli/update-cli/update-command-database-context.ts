@@ -1,12 +1,21 @@
 import type { LegacyConfigUpdatePlan } from "../../commands/doctor/legacy-config-repair.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { withCommandProcessScope } from "../../process/exec-spawn.js";
-import { captureTargetDatabaseSchemaContext } from "./schema-preflight.js";
+import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
+import {
+  captureTargetDatabaseSchemaContext,
+  checkTargetDatabaseSchemasForContexts,
+  formatSchemaRefusalLines,
+  hasSchemaRefusal,
+} from "./schema-preflight.js";
 import { UpdatePreMutationError } from "./shared.js";
 import { formatUpdateAncestryBlockMessage } from "./update-command-handoff.js";
-import { captureOwnedManagedUpdatePreflightContext } from "./update-command-managed-context.js";
 import {
-  collectServiceInspectionFailureFacts,
+  captureOwnedManagedUpdatePreflightContext,
+  revalidateUpdateDatabaseContext,
+} from "./update-command-managed-context.js";
+import { collectServiceInspectionFailureFacts } from "./update-command-result.js";
+import {
   GatewayServiceUpdateOwnershipError,
   type ManagedServiceRootRedirect,
 } from "./update-command-service-plan.js";
@@ -100,4 +109,32 @@ export async function inspectUpdateDatabaseContexts(params: {
     }
     return { service, services, contexts, managedEnv: managed?.env };
   });
+}
+
+/** Recheck the admitted service and stores together before mutable update work. */
+export async function revalidateUpdateDatabaseContexts(
+  params: Omit<Parameters<typeof inspectUpdateDatabaseContexts>[0], "roots" | "expectedServices">,
+  admission: Awaited<ReturnType<typeof inspectUpdateDatabaseContexts>> | undefined,
+  versions: OpenClawSchemaVersions | undefined,
+) {
+  if (!admission) {
+    throw new UpdatePreMutationError(
+      "database-schema-preflight",
+      "Database admission was not inspected.",
+    );
+  }
+  await inspectUpdateDatabaseContexts({
+    ...params,
+    roots: [...admission.services.keys()],
+    expectedServices: admission.services,
+  });
+  admission.contexts = await Promise.all(admission.contexts.map(revalidateUpdateDatabaseContext));
+  const schemas = await checkTargetDatabaseSchemasForContexts(versions, admission.contexts);
+  if (hasSchemaRefusal(schemas)) {
+    throw new UpdatePreMutationError(
+      "database-schema-preflight",
+      formatSchemaRefusalLines(schemas).join("\n"),
+    );
+  }
+  return admission;
 }

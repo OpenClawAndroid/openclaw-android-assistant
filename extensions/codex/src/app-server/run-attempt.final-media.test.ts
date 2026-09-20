@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { buildContractReplyPayloads } from "openclaw/plugin-sdk/agent-runtime-test-contracts";
+import { collectReplyMediaEntries } from "openclaw/plugin-sdk/channel-outbound";
 import { loadOutboundMediaFromUrl } from "openclaw/plugin-sdk/outbound-media";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { readSessionTranscriptEvents } from "openclaw/plugin-sdk/session-transcript-runtime";
@@ -26,7 +27,17 @@ setupRunAttemptTestHooks();
 
 const execFileAsync = promisify(execFile);
 
-it.each(["relative", "absolute", "async", "denied", "missing", "too-large", "cancel"] as const)(
+it.each([
+  "relative",
+  "absolute",
+  "alias",
+  "partial",
+  "async",
+  "denied",
+  "missing",
+  "too-large",
+  "cancel",
+] as const)(
   "delivers remote reply media without reading stale Gateway files: %s",
   async (scenario) => {
     const workspaceDir = path.join(tempDir, "gateway-workspace");
@@ -88,8 +99,12 @@ it.each(["relative", "absolute", "async", "denied", "missing", "too-large", "can
     });
     await harness.waitForMethod("turn/start");
     const sourcePath =
-      scenario === "absolute" ? path.join(remoteWorkspaceRoot, artifactName) : `./${artifactName}`;
-    const sourceText = `Artifact ready\nMEDIA:${sourcePath}`;
+      scenario === "absolute"
+        ? path.join(remoteWorkspaceRoot, artifactName)
+        : scenario === "alias"
+          ? `${remoteWorkspaceRoot}/./${artifactName}`
+          : `./${artifactName}`;
+    const sourceText = `Artifact ready\n${scenario === "partial" ? "MEDIA:./missing-artifact.txt\n" : ""}MEDIA:${sourcePath}`;
     const item = {
       id: "final-artifact",
       type: "agentMessage",
@@ -115,6 +130,7 @@ it.each(["relative", "absolute", "async", "denied", "missing", "too-large", "can
     }
     await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
     const result = await run;
+    const remoteReadsAfterRun = remoteReads;
     if (scenario === "cancel") {
       expect(result.terminal).toMatchObject({ kind: "aborted" });
       expect(result.toolMetas).toEqual([]);
@@ -160,6 +176,7 @@ it.each(["relative", "absolute", "async", "denied", "missing", "too-large", "can
         model: params.modelId,
       },
     });
+    expect(remoteReads).toBe(remoteReadsAfterRun);
     const payloads =
       scenario === "async" ? onBlockReply.mock.calls.map(([payload]) => payload) : finalPayloads;
     const mediaUrls = payloads.flatMap(
@@ -181,6 +198,24 @@ it.each(["relative", "absolute", "async", "denied", "missing", "too-large", "can
       expect(finalPayloads.flatMap((payload) => payload.mediaUrls ?? [])).toEqual([]);
     }
     expect(mediaUrls).toHaveLength(1);
+    if (scenario === "alias" || scenario === "partial") {
+      expect(
+        payloads.flatMap((payload) =>
+          collectReplyMediaEntries(payload, resolveSendableOutboundReplyParts(payload).mediaUrls),
+        ),
+      ).toEqual([
+        {
+          url: mediaUrls[0],
+          attachment: { name: artifactName, mimeType: "text/plain", trustedLocalMedia: true },
+          sourceUrls: [sourcePath],
+        },
+      ]);
+      if (scenario === "partial") {
+        expect(payloads.map((payload) => payload.text).join("\n")).toContain(
+          "missing-artifact.txt",
+        );
+      }
+    }
     const delivered = await loadOutboundMediaFromUrl(mediaUrls[0]!, {
       workspaceDir,
       mediaLocalRoots: [workspaceDir, ...getDefaultLocalRoots()],

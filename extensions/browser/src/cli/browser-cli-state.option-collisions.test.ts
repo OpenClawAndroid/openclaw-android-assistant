@@ -103,6 +103,23 @@ describe("browser state option collisions", () => {
     );
   });
 
+  it("reads the exact quoted storage key", async () => {
+    const entries = [
+      ["account", "plain"],
+      [" account ", "padded"],
+    ];
+    gatewayMock.mockImplementationOnce(async (_method, _opts, request) => ({
+      values: Object.fromEntries(
+        entries.filter(([key]) => request.query?.key === undefined || key === request.query.key),
+      ),
+    }));
+
+    await runBrowserCommand(["storage", "local", "get", " account "]);
+
+    const { runtimeLogs } = getBrowserCliRuntimeCapture();
+    expect(runtimeLogs.map((line) => JSON.parse(line))).toEqual([{ " account ": "padded" }]);
+  });
+
   it("inherits the parent timeout for the viewport resize alias", async () => {
     await runBrowserCommand(["--timeout", "60000", "set", "viewport", "1024", "768"]);
 

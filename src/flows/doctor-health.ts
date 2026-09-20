@@ -4,6 +4,7 @@ import { intro as clackIntro, outro as clackOutro } from "@clack/prompts";
 import { stylePromptTitle } from "../../packages/terminal-core/src/prompt-style.js";
 import type { DoctorDatabasePreflight } from "../commands/doctor-database-preflight.js";
 import type { DoctorOptions } from "../commands/doctor-prompter.js";
+import { isUpdateDoctorLintPass } from "../commands/doctor/shared/update-phase.js";
 import { resolveConfigPath, resolveStateDir } from "../config/paths.js";
 import { formatUpdateDoctorConfigChange } from "../infra/update-doctor-config.js";
 import {
@@ -20,6 +21,8 @@ import {
 import { formatUpdateFailureFact } from "../infra/update-failure-facts-format.js";
 import { createUpdateFailureFact } from "../infra/update-failure-facts.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { withPluginLoadDiagnostics } from "../plugins/load-diagnostics.js";
+import type { PluginDiagnostic } from "../plugins/manifest-types.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import type { DoctorHealthFlowContext } from "./doctor-health-contributions.js";
@@ -46,23 +49,26 @@ export async function runDoctorHealthFlow(
   databasePreflight?: DoctorDatabasePreflight,
 ) {
   const resultPath = process.env[UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV]?.trim();
-  return resultPath
-    ? captureUpdateDoctorConfigWrites(
-        resolveConfigPath(),
-        (capture) =>
-          runDoctorHealthFlowWithResult(runtime, options, databasePreflight, {
-            resultPath,
-            capture,
-          }),
-        writeAuthority,
-      )
-    : runDoctorHealthFlowWithResult(runtime, options, databasePreflight);
+  return withPluginLoadDiagnostics((diagnostics) =>
+    resultPath
+      ? captureUpdateDoctorConfigWrites(
+          resolveConfigPath(),
+          (capture) =>
+            runDoctorHealthFlowWithResult(runtime, options, databasePreflight, diagnostics, {
+              resultPath,
+              capture,
+            }),
+          writeAuthority,
+        )
+      : runDoctorHealthFlowWithResult(runtime, options, databasePreflight, diagnostics),
+  );
 }
 
 async function runDoctorHealthFlowWithResult(
   runtime: RuntimeEnv | undefined,
   options: DoctorOptions,
   databasePreflight: DoctorDatabasePreflight | undefined,
+  diagnostics: readonly PluginDiagnostic[],
   updateResult?: { resultPath: string; capture: DoctorConfigCapture },
 ) {
   const effectiveRuntime = runtime ?? (await import("../runtime.js")).defaultRuntime;
@@ -270,7 +276,17 @@ async function runDoctorHealthFlowWithResult(
       return;
     }
     await maintenance?.finish(ctx.cfg);
+    const pluginWarnings: string[] = [];
+    if (diagnostics.length > 0) {
+      const { collectPluginLoadHealthFindings } =
+        await import("../commands/doctor-workspace-status.js");
+      const { renderStructuredHealthFindings } = await import("./doctor-health-contribution.js");
+      const findings = collectPluginLoadHealthFindings(diagnostics);
+      renderStructuredHealthFindings(ctx, findings);
+      pluginWarnings.push(...findings.map((finding) => `${finding.checkId}: ${finding.message}`));
+    }
     const warnings = normalizeUpdatePostInstallDoctorWarnings([
+      ...pluginWarnings,
       ...(maintenance?.warnings ?? []),
       ...(ctx.configResult.stateMigrationStepReceipts ?? []).flatMap((receipt) =>
         receipt.outcome === "warning" ||
@@ -284,9 +300,24 @@ async function runDoctorHealthFlowWithResult(
     doctorResult = {
       ...(ctx.postInstallDoctorResult ?? { status: "ok" }),
       ...(warnings.length ? { warnings } : {}),
+      ...(maintenance?.failureFacts?.length
+        ? {
+            failureFacts: [
+              ...maintenance.failureFacts,
+              ...(ctx.postInstallDoctorResult?.failureFacts ?? []),
+            ],
+          }
+        : {}),
     };
     if (updateResult && doctorResult.status === "advisory") {
       exitCode = UPDATE_POST_INSTALL_DOCTOR_ADVISORY_EXIT_CODE;
+      return;
+    }
+    if (pluginWarnings.length > 0) {
+      outro("Doctor finished with plugin load errors.");
+      if (options.nonInteractive && !isUpdateDoctorLintPass(process.env)) {
+        exitCode = 1;
+      }
       return;
     }
   } catch (error) {

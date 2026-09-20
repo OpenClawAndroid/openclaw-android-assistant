@@ -168,9 +168,10 @@ export function registerManagedRecoveryOutcomeTests(
   ) => Promise<ManagedServiceManagerBoundaryResult>,
   itUnix: ReturnType<typeof import("vitest").it.runIf>,
   expect: typeof import("vitest").expect,
+  kinds: readonly ("systemd" | "launchd")[],
 ): void {
   itUnix.each(
-    (["systemd", "launchd"] as const).flatMap((kind) =>
+    kinds.flatMap((kind) =>
       (["ready", "exited", "throw"] as const).map((gatewayHealth) => ({ kind, gatewayHealth })),
     ),
   )(
@@ -229,7 +230,7 @@ export function registerManagedRecoveryOutcomeTests(
   );
 
   itUnix.each(
-    (["systemd", "launchd"] as const).flatMap((kind) =>
+    kinds.flatMap((kind) =>
       (["none", "stdout-only", "ledger-only"] as const).map((proof) => ({ kind, proof })),
     ),
   )(
@@ -286,7 +287,7 @@ export function registerManagedRecoveryOutcomeTests(
     },
   );
 
-  itUnix.each(["systemd", "launchd"] as const)(
+  itUnix.each(kinds)(
     "%s never overrides a rejected or missing updater recovery result",
     async (kind) => {
       for (const updaterResult of [
@@ -320,7 +321,7 @@ export function registerManagedRecoveryOutcomeTests(
   );
 
   itUnix.each([
-    ...(["systemd", "launchd"] as const).flatMap((kind) =>
+    ...kinds.flatMap((kind) =>
       (["error", "skipped"] as const).flatMap((status) =>
         ([undefined, "published", "consumed"] as const).map((updaterNotification) => ({
           kind,
@@ -330,7 +331,7 @@ export function registerManagedRecoveryOutcomeTests(
         })),
       ),
     ),
-    ...(["systemd", "launchd"] as const).map((kind) => ({
+    ...kinds.map((kind) => ({
       kind,
       status: "error" as const,
       updaterNotification: "published" as const,
@@ -382,7 +383,7 @@ export function registerManagedRecoveryOutcomeTests(
   );
 
   itUnix.each(
-    (["systemd", "launchd"] as const).flatMap((kind) =>
+    kinds.flatMap((kind) =>
       (["error", "skipped"] as const).flatMap((status) =>
         [
           undefined,
@@ -429,7 +430,7 @@ export function registerManagedRecoveryOutcomeTests(
     },
   );
 
-  itUnix.each(["systemd", "launchd"] as const)(
+  itUnix.each(kinds)(
     "%s fails a zero-exit skip when restored Gateway readiness or identity fails",
     async (kind) => {
       for (const gatewayHealth of ["unready", "wrong-version", "wrong-build", "exited"] as const) {
@@ -467,7 +468,7 @@ export function registerManagedRecoveryOutcomeTests(
     },
   );
 
-  itUnix.each(["systemd", "launchd"] as const)(
+  itUnix.each(kinds)(
     "%s parks an updater with missing, malformed, oversized, interrupted, or rootless output",
     async (kind) => {
       for (const fault of [
@@ -509,7 +510,7 @@ export function registerManagedRecoveryOutcomeTests(
     },
   );
 
-  itUnix.each(["systemd", "launchd"] as const)(
+  itUnix.each(kinds)(
     "%s verifies readiness and expected version before claiming restored service health",
     async (kind) => {
       for (const gatewayHealth of [

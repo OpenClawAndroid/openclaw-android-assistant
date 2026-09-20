@@ -8,7 +8,7 @@ import {
   deferGatewayRestartUntilIdle,
   type RestartDeferralHandle,
   resolveGatewayRestartDeferralTimeoutMs,
-  setGatewaySigusr1RestartPolicy,
+  setGatewayRestartPolicy,
 } from "../infra/restart.js";
 import { runWithGatewayIndependentRootWorkAdmission } from "../process/gateway-work-admission.js";
 import { createAppliedConfigHashPublisher } from "./applied-config-hash-publisher.js";
@@ -419,7 +419,7 @@ class GatewayRestartTransaction {
           return false;
         }
         emissionPrepared = true;
-        setGatewaySigusr1RestartPolicy({ allowExternal: isRestartEnabled(preparedConfig) });
+        setGatewayRestartPolicy({ allowExternal: isRestartEnabled(preparedConfig) });
         return this.isCurrentRequest(requestGeneration);
       } catch (err) {
         emissionPrepared = false;
@@ -524,7 +524,7 @@ class GatewayRestartTransaction {
           },
         },
       });
-      setGatewaySigusr1RestartPolicy({ allowExternal: isRestartEnabled(nextConfig) });
+      setGatewayRestartPolicy({ allowExternal: isRestartEnabled(nextConfig) });
       return true;
     }
     // No active operations or pending replies, restart immediately
@@ -550,7 +550,7 @@ class GatewayRestartTransaction {
     if (emitResult.status === "coalesced") {
       params.logReload.info("gateway restart already scheduled; skipping duplicate signal");
     }
-    setGatewaySigusr1RestartPolicy({ allowExternal: isRestartEnabled(nextConfig) });
+    setGatewayRestartPolicy({ allowExternal: isRestartEnabled(nextConfig) });
     return true;
   }
 }

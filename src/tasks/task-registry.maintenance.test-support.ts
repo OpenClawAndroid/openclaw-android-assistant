@@ -3,12 +3,21 @@ import type { SessionEntry } from "../config/sessions.js";
 import type { SessionBindingRecord } from "../infra/outbound/session-binding-service.js";
 import type { ParsedAgentSessionKey } from "../routing/session-key.js";
 import { collectCronHistoryOverflowTaskIds } from "./cron-history-retention.js";
+import type { TaskRegistryMaintenanceRead } from "./task-registry-maintenance-snapshot.js";
 import { setTaskRegistryMaintenanceRuntimeForTests } from "./task-registry.maintenance.js";
 import type { TaskRecord } from "./task-registry.types.js";
 
 type TaskRegistryMaintenanceRuntime = Parameters<
   typeof setTaskRegistryMaintenanceRuntimeForTests
 >[0];
+
+export function createPreparedMaintenanceRead(): TaskRegistryMaintenanceRead {
+  return {
+    assertOwnerCurrent() {},
+    assertCurrent() {},
+    isTaskSettled: () => true,
+  };
+}
 
 export function createAcpSessionStoreEntry(params: {
   sessionKey: string;
@@ -120,7 +129,8 @@ export function createTaskRegistryMaintenanceHarness(params: {
     deleteTaskRecordById: (taskId: string) => currentTasks.delete(taskId),
     ensureTaskRegistryReady: () => {},
     getTaskById: (taskId: string) => currentTasks.get(taskId),
-    getTaskRegistryMaintenanceTask: (taskId: string) => currentTasks.get(taskId),
+    getTaskRegistryMaintenanceTask: (_read, taskId: string) => currentTasks.get(taskId),
+    prepareTaskRegistryRead: async () => createPreparedMaintenanceRead(),
     listTaskRecords: () => Array.from(currentTasks.values()),
     getTaskRegistryMaintenanceSnapshot: () => {
       const snapshotTasks = Array.from(currentTasks.values());
@@ -253,7 +263,8 @@ export function configureTaskRegistryMaintenanceRuntimeForTest(params: {
     deleteTaskRecordById: (taskId: string) => params.currentTasks.delete(taskId),
     ensureTaskRegistryReady: () => {},
     getTaskById: (taskId: string) => params.currentTasks.get(taskId),
-    getTaskRegistryMaintenanceTask: (taskId: string) => params.currentTasks.get(taskId),
+    getTaskRegistryMaintenanceTask: (_read, taskId: string) => params.currentTasks.get(taskId),
+    prepareTaskRegistryRead: async () => createPreparedMaintenanceRead(),
     listTaskRecords: listSnapshotTasks,
     getTaskRegistryMaintenanceSnapshot: () => {
       const snapshotTasks = listSnapshotTasks();

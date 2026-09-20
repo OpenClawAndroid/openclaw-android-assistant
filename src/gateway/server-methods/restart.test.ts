@@ -102,7 +102,7 @@ function mockScheduledRestart(preflight: { safe: boolean; summary: string }) {
     restart: {
       ok: true,
       pid: 0,
-      signal: "SIGUSR1",
+      signal: "SIGUSR2",
       delayMs: 0,
       mode: "emit",
       coalesced: false,

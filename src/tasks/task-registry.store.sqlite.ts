@@ -5,6 +5,7 @@ import {
   type ExecutionOwnerBindingResult,
 } from "../audit/execution-owner-binding.js";
 import { readSqliteBusyTimeout } from "../infra/sqlite-busy-timeout.js";
+import { repairLegacyTaskIdentifiers } from "../state/openclaw-state-db-legacy-backfills.js";
 import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import { withSharedStateWriteCoordinator } from "../state/openclaw-state-db-write-coordination.js";
 import {
@@ -60,6 +61,10 @@ export function loadTaskRegistryStateFromSqlite(): TaskRegistryStoreSnapshot {
   return readTaskRegistrySnapshot(openTaskRegistryDatabase());
 }
 
+export function repairLegacyTaskIdentifiersInSqlite(): void {
+  withWriteTransaction(({ db }) => repairLegacyTaskIdentifiers(db));
+}
+
 export function withTaskRegistrySqliteMutation<T>(operation: () => T): T {
   const database = openTaskRegistryDatabase();
   return withSharedStateWriteCoordinator(
@@ -76,9 +81,9 @@ export function settleTaskRegistrySqliteWrites(join: (deadlineMs: number) => voi
 }
 
 export function loadTaskRegistryMutationStateFromSqlite(
-  scope: TaskRegistryMutationScope,
+  scopes: readonly TaskRegistryMutationScope[],
 ): TaskRegistryStoreSnapshot {
-  return readTaskRegistryMutationSnapshotInDatabase(openTaskRegistryDatabase().db, scope);
+  return readTaskRegistryMutationSnapshotInDatabase(openTaskRegistryDatabase().db, scopes);
 }
 
 /** Loads task records without creating or migrating shared state. */

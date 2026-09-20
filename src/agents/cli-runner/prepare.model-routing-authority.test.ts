@@ -110,14 +110,14 @@ describe("CLI model-routing receipt authority", () => {
     fixture = createCliRunnerPrepareFixture(prepareCliRunContext);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     clearDecisionSink?.();
     clearAdmissionSink?.();
     clearDecisionSink = undefined;
     clearAdmissionSink = undefined;
     resetCliRunnerPrepareTestDeps();
     cliBackendsTesting.resetDepsForTest();
-    fixture.cleanup();
+    await fixture.cleanup();
   });
 
   it.each<{ kind: AuthorityLoss; producer: Producer }>([

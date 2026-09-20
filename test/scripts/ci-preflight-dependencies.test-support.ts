@@ -57,7 +57,8 @@ registerHooks({
       OPENCLAW_CI_RUNNER_PROFILE: "github",
       OPENCLAW_CI_RUN_NODE: "true",
       OPENCLAW_CI_RUN_WINDOWS: "true",
-      OPENCLAW_CI_CHANGED_PATHS_JSON: '["scripts/lib/managed-child-process.mts"]',
+      // Exercise the same import closure without unrelated source-impact graph walks.
+      OPENCLAW_CI_CHANGED_PATHS_JSON: '["test/scripts/managed-child-process.test.ts"]',
     },
   });
   return {

@@ -227,7 +227,6 @@ async function runExternalSupervisorRestart(opts: DaemonLifecycleOptions): Promi
       restartIntent,
       enforceRestartConfig: false,
       processLabel: "externally supervised",
-      requireLockIdentity: true,
       auditSource: "supervisor",
     });
   } catch (err) {
@@ -454,7 +453,6 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
             restartIntent,
             enforceRestartConfig: true,
             processLabel: "foreground",
-            requireLockIdentity: true,
             auditSource: "cli",
             ownerLease: owner,
             env: process.env,
@@ -527,8 +525,8 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
     postRestartCheck: async ({ warnings, fail, stdout, warn, activationAccepted: accepted }) => {
       let activationAccepted = accepted;
       if (restartedWithoutServiceManager) {
-        // Unmanaged restarts have no service-manager state to watch; use listener health and,
-        // when targeted delivery required it, prove the previous lock owner was replaced.
+        // Unmanaged restarts have no service-manager state to watch; prove
+        // listener health and replacement of the previous lock owner.
         const health = await waitForGatewayHealthyListener({
           port: unmanagedPort,
           env: process.env,

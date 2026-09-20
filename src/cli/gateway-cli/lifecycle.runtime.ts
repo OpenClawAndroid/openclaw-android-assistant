@@ -6,20 +6,21 @@ export { abortEmbeddedAgentRun } from "../../agents/embedded-agent-runner/runs.j
 export { listActiveEmbeddedRunSessionIds } from "../../agents/embedded-agent-runner/active-run-projections.js";
 export { getDiagnosticSessionActivitySnapshot } from "../../logging/diagnostic-run-activity.js";
 export {
+  resolveGatewayRestartDecision,
   respawnGatewayProcessForUpdate,
   restartGatewayProcessWithFreshPid,
 } from "../../infra/process-respawn.js";
 export {
   resolveGatewayRestartDeferralTimeoutMs,
-  consumeGatewaySigusr1RestartIntent,
-  consumeGatewaySigusr1RestartAuthorization,
-  isGatewaySigusr1RestartExternallyAllowed,
-  markGatewaySigusr1RestartHandled,
-  peekGatewaySigusr1RestartReason,
+  consumeGatewayRestartIntent,
+  consumeGatewayRestartAuthorization,
+  isGatewayRestartExternallyAllowed,
+  markGatewayRestartHandled,
+  peekGatewayRestartReason,
   resetGatewayRestartStateForInProcessRestart,
   requestGatewayRestartWithSignalAdmission,
   rollbackGatewayRestartSignalAdmission,
-  scheduleGatewaySigusr1Restart,
+  scheduleGatewayRestart,
 } from "../../infra/restart.js";
 export {
   consumeGatewayRestartIntentPayloadSync,

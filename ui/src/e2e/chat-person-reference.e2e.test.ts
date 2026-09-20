@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import type { UsersListResult } from "../../../packages/gateway-protocol/src/schema/users.js";
 import {
   captureUiProof,
+  chatSessionListResponse,
   createChatFlowE2eSuite,
   installMockGateway,
 } from "./chat-flow.test-support.ts";
@@ -39,6 +40,117 @@ const directory: UsersListResult = {
 };
 
 suite.define(() => {
+  it("shares live person details and visible sessions with the sidebar", async () => {
+    await suite.withPage(
+      { viewport: { width: 1280, height: 900 }, colorScheme: "light" },
+      async ({ page }) => {
+        const now = Date.now();
+        await page.clock.setFixedTime(now);
+        const watched = "agent:main:person-watching";
+        const recent = "agent:main:person-recent";
+        const person = {
+          id: "profile-ada",
+          identity: { type: "profile" as const, id: "profile-ada" },
+          name: "Ada Lovelace",
+          onlineSince: now - 900_000,
+          lastActivityAt: now - 60_000,
+          deviceFamily: "Mac",
+          platform: "macOS",
+          timeZone: "Europe/London",
+          watchedSessions: [watched, "agent:private:hidden"],
+        };
+        const gateway = await installMockGateway(page, {
+          historyMessages,
+          presenceUsers: [person],
+          methodResponses: {
+            "users.list": directory,
+            "sessions.list": chatSessionListResponse([
+              { key: "agent:main:main", kind: "direct", label: "Card comparison", updatedAt: now },
+              {
+                key: watched,
+                kind: "direct",
+                label: "Release checklist",
+                updatedAt: now - 60_000,
+                boardFace: "dashboard",
+              },
+              {
+                key: recent,
+                kind: "direct",
+                label: "Review launch notes",
+                updatedAt: now - 120_000,
+                createdActor: { type: "human", id: person.id, identity: person.identity },
+              },
+              {
+                key: "agent:main:raw-id",
+                kind: "direct",
+                label: "Unqualified identity must not match",
+                updatedAt: now,
+                createdActor: { type: "human", id: person.id },
+              },
+            ]),
+          },
+        });
+        await page.goto(suite.server.baseUrl + "chat");
+        const sidebarPerson = page.locator('[data-online-user-id="profile-ada"]');
+        await sidebarPerson.hover();
+        const card = page.locator(".person-activity-hovercard[role=dialog]");
+        await card.getByRole("link", { name: /Release checklist/ }).waitFor();
+        const sidebarText = (await card.textContent())?.replace(/\s+/gu, " ");
+        const sidebarLinks = await card
+          .locator("a")
+          .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
+        await captureUiProof(suite, page, "person-card-parity", "sidebar.png");
+        await page.keyboard.press("Escape");
+        const reference = page.locator(".markdown-person-reference");
+        await reference.focus();
+        await card.locator("h2").waitFor();
+        await captureUiProof(suite, page, "person-card-parity", "chat.png");
+        expect((await card.textContent())?.replace(/\s+/gu, " ")).toBe(sidebarText);
+        expect(
+          await card
+            .locator("a")
+            .evaluateAll((links) => links.map((link) => link.getAttribute("href"))),
+        ).toEqual(sidebarLinks);
+        expect(await card.textContent()).not.toContain("Unqualified identity");
+        expect(await card.textContent()).not.toContain("hidden");
+        await gateway.emitGatewayEvent("presence", {
+          presence: [
+            {
+              user: { id: person.id, identity: person.identity, name: person.name },
+              deviceFamily: "iPad",
+              platform: "iPadOS",
+              timeZone: "Europe/Paris",
+              onlineSince: person.onlineSince,
+              lastActivityAt: now,
+              watchedSessions: [watched],
+            },
+          ],
+        });
+        await expect.poll(() => card.textContent()).toContain("Europe/Paris");
+        expect(await card.textContent()).not.toContain("Europe/London");
+        await card.getByRole("link", { name: /Release checklist/ }).focus();
+        await gateway.emitGatewayEvent("presence", { presence: [] });
+        await expect.poll(() => card.textContent()).toContain("Offline");
+        expect(await card.textContent()).not.toContain("Viewing now");
+        expect(await card.textContent()).toContain("Review launch notes");
+        expect(await reference.evaluate((node) => node === document.activeElement)).toBe(true);
+        await gateway.emitGatewayEvent("presence", {
+          presence: [
+            {
+              user: { id: person.id, identity: person.identity, name: person.name },
+              watchedSessions: [watched],
+            },
+          ],
+        });
+        await card.getByRole("link", { name: /Release checklist/ }).click();
+        await expect
+          .poll(() => new URL(page.url()).pathname)
+          .toBe("/dashboard/main/person-watching");
+        await card.waitFor({ state: "detached" });
+      },
+    );
+  });
+
   it.each(["keyboard", "mouse", "touch"] as const)(
     "opens explicit person cards with %s and keeps the original label",
     async (input) => {

@@ -32,6 +32,7 @@ import {
   resolveWebchatPromptCacheKey,
   scheduleChatDashboardSessionTitle,
 } from "./chat-send-background.js";
+import { readChatSendReplyPayload } from "./chat-send-command-replies.js";
 import {
   createChatSendDispatchErrorLifecycle,
   formatReturnedAgentErrors,
@@ -539,17 +540,19 @@ export function startChatDispatch(params: StartChatDispatchParams): void {
           const runtimeFailed =
             runtimeClassification === "failure" || runtimeClassification === "timeout";
           const returnedAgentErrorPayloads = replyDispatch.deliveredReplies
-            .map((entryInner) => entryInner.payload)
+            .map((entryInner) => readChatSendReplyPayload(entryInner.input))
             .filter((payload) => payload.isError);
           // Native streams cannot publish a host-authored warning. Give a warning-only
           // turn the normal reply owner without reclassifying the runtime outcome.
           const hasOnlyFinalWarnings =
             returnedAgentErrorPayloads.length > 0 &&
-            replyDispatch.deliveredReplies.every(
-              ({ kind, payload }) =>
+            replyDispatch.deliveredReplies.every(({ kind, input }) => {
+              const payload = readChatSendReplyPayload(input);
+              return (
                 (kind === "final" && payload.isError === true) ||
-                isReplyPayloadStatusNotice(payload),
-            );
+                isReplyPayloadStatusNotice(payload)
+              );
+            });
           const hasReturnedAgentError = runtimeClassification
             ? runtimeFailed
             : returnedAgentErrorPayloads.length > 0 &&

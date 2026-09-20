@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { isDirectRunUrl } from "../lib/direct-run.mjs";
 import { execGhRead, execPlainGh } from "../lib/plain-gh.mjs";
-import { parseGithubResponse, rateLimitRetryGuidance } from "./gh-api-preflight.mjs";
+import {
+  isGraphqlQuotaExhausted,
+  parseGithubResponse,
+  rateLimitRetryGuidance,
+} from "./gh-api-preflight.mjs";
 
 function githubAccessFailure(error) {
   const limited = (text) =>
@@ -110,6 +114,7 @@ export function execPrGh(args, options = {}, route = "read") {
     }
     return run(args, captured);
   } catch (error) {
+    const graphqlQuotaExhausted = resourceFor(args) === "graphql" && isGraphqlQuotaExhausted(error);
     const reason = githubAccessFailure(error);
     if (!reason) {
       throw error;
@@ -123,6 +128,8 @@ export function execPrGh(args, options = {}, route = "read") {
         reason === "quota"
           ? ` ${rateLimitRetryGuidance(response)}`
           : " Check access policy before retrying.";
+    } else if (graphqlQuotaExhausted) {
+      diagnostic = "GraphQL primary quota is exhausted; the original reset time is unknown.";
     } else {
       const hostname = quotaHostname(args, inherited);
       const host = hostname ? ["--hostname", hostname] : [];
@@ -151,6 +158,7 @@ export function execPrGh(args, options = {}, route = "read") {
     );
     failure.code = "OPENCLAW_GH_ACCESS";
     failure.status = reason === "quota" ? 75 : 77;
+    failure.graphqlQuotaExhausted = graphqlQuotaExhausted;
     throw failure;
   } finally {
     if (gitPath) {
@@ -339,18 +347,19 @@ function assignReviewer(pr, reviewer) {
   }
 }
 
-function main([route, ...args]) {
-  if (!["plain", "read"].includes(route)) {
+function main([requestedRoute, ...args]) {
+  if (!["plain", "read", "plain-quota"].includes(requestedRoute)) {
     throw new Error("Expected a GitHub CLI route.");
   }
+  const route = requestedRoute === "plain-quota" ? "plain" : requestedRoute;
   if (route === "plain" && args[0] === "assign-reviewer" && args.length === 3) {
     assignReviewer(args[1], args[2]);
     return;
   }
   let result;
   // Keep the existing caller/artifact field contract while sourcing ordinary
-  // metadata through REST. Required-check app bindings and merge queue queries
-  // still use their explicit GraphQL owners; REST has no equivalent authority.
+  // metadata through REST. Native landing owns the narrower quota fallback for
+  // required checks and ordinary squash admission; special routes keep GraphQL.
   if (["pr", "repo"].includes(args[0]) && args[1] === "view") {
     const repo = repositoryLocator(option(args, "--repo") || option(args, "-R"), route);
     const fields = option(args, "--json")?.split(",");
@@ -383,15 +392,24 @@ if (isDirectRunUrl(process.argv[1], import.meta.url)) {
   try {
     main(process.argv.slice(2));
   } catch (error) {
-    // Quota errors contain only bounded numeric metadata, never raw response text.
-    if (error.code !== "OPENCLAW_GH_ACCESS" && error.stdout) {
-      process.stdout.write(error.stdout);
+    const args = process.argv.slice(3);
+    const query = args.find((arg) => arg.startsWith("query="));
+    const quotaRead =
+      (args[0] === "pr" && args[1] === "checks") ||
+      (args[0] === "api" && args.includes("graphql") && /^query=\s*query\b/.test(query ?? ""));
+    if (process.argv[2] === "plain-quota" && quotaRead && error.graphqlQuotaExhausted) {
+      process.stdout.write('{"graphqlQuotaExhausted":true}\n');
+    } else {
+      // Quota errors contain only bounded numeric metadata, never raw response text.
+      if (error.code !== "OPENCLAW_GH_ACCESS" && error.stdout) {
+        process.stdout.write(error.stdout);
+      }
+      console.error(
+        error.code === "OPENCLAW_GH_ACCESS"
+          ? error.message
+          : String(error.stderr || error.message).trim(),
+      );
+      process.exitCode = Number.isInteger(error.status) && error.status > 0 ? error.status : 1;
     }
-    console.error(
-      error.code === "OPENCLAW_GH_ACCESS"
-        ? error.message
-        : String(error.stderr || error.message).trim(),
-    );
-    process.exitCode = Number.isInteger(error.status) && error.status > 0 ? error.status : 1;
   }
 }

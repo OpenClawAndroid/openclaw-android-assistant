@@ -533,6 +533,24 @@
       }
     },
     {
+      "name": "@openclaw/onnx",
+      "description": "Local ONNX decision models for OpenClaw",
+      "source": "official",
+      "kind": "plugin",
+      "openclaw": {
+        "plugin": {
+          "id": "onnx",
+          "label": "ONNX"
+        },
+        "install": {
+          "clawhubSpec": "clawhub:@openclaw/onnx",
+          "npmSpec": "@openclaw/onnx",
+          "defaultChoice": "npm",
+          "minHostVersion": ">=2026.9.6"
+        }
+      }
+    },
+    {
       "name": "@openclaw/openshell-sandbox",
       "description": "OpenClaw OpenShell sandbox backend",
       "source": "official",

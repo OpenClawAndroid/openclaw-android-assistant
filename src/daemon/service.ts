@@ -65,7 +65,10 @@ import type {
   GatewayServiceStageArgs,
   GatewayServiceState,
 } from "./service-types.js";
-import { getGatewayServiceUpdateNativeCommand } from "./service-update-authority.js";
+import {
+  getGatewayServiceUpdateNativeCommand,
+  withGatewayServiceUpdateAuthority,
+} from "./service-update-authority.js";
 import { readSystemdDefinitionMutationCapability } from "./systemd-definition-mutation.js";
 import { admitSystemdServiceReadBinding } from "./systemd-peer.js";
 import { findSystemdGatewayInstallation, isSystemdServiceAbsent } from "./systemd-scope.js";
@@ -593,31 +596,36 @@ function guardGatewayServiceMutation<
     }
     const assertCaller = args.assertCurrent;
     return await withGatewayServiceOperationLock(args.env ?? process.env, async (assertNative) => {
-      const assertCurrent = () => {
-        assertNative();
-        assertCaller?.();
-      };
       await assertFutureConfigActionAllowed(action);
-      assertCurrent();
-      await args.beforeMutation?.();
-      assertCurrent();
-      const result = readCommand
-        ? await captureGatewayServiceRebind(
-            () => readCommand(args.env ?? process.env, { requireEffective: true }),
-            assertCurrent,
-            (preserveAutoStart) =>
-              mutate({
-                ...args,
+      return await withGatewayServiceUpdateAuthority(
+        assertCaller,
+        async (assertCurrent) => {
+          await args.beforeMutation?.();
+          assertCurrent();
+          const result = readCommand
+            ? await captureGatewayServiceRebind(
+                () => readCommand(args.env ?? process.env, { requireEffective: true }),
                 assertCurrent,
-                ...(preserveAutoStart ? { preserveAutoStart: true } : {}),
-              }),
-            readRuntimePinRevision
-              ? () => readRuntimePinRevision(args.env ?? process.env)
-              : undefined,
-          )
-        : await mutate({ ...args, assertCurrent });
-      assertCurrent();
-      return result;
+                (preserveAutoStart) =>
+                  mutate({
+                    ...args,
+                    assertCurrent,
+                    ...(preserveAutoStart ? { preserveAutoStart: true } : {}),
+                  }),
+                readRuntimePinRevision
+                  ? () => readRuntimePinRevision(args.env ?? process.env)
+                  : undefined,
+              )
+            : await mutate({ ...args, assertCurrent });
+          assertCurrent();
+          return result;
+        },
+        {
+          updateOwned: false,
+          assertRecoveryCurrent: assertNative,
+          nativeCommand: getGatewayServiceUpdateNativeCommand(),
+        },
+      );
     });
   };
 }
@@ -633,7 +641,7 @@ function withGatewayServiceMutationGuards(
   ) =>
     guardGatewayServiceMutation(
       action,
-      async (args: GatewayServiceInstallArgs & { assertCurrent?: () => void }) => {
+      async (args: GatewayServiceInstallArgs) => {
         const scope = { kind, env: { ...args.env } };
         const update = args.runtimePinUpdate ?? {
           expected: readDaemonRuntimePinForInstall(scope, null, true),

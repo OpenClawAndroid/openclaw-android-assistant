@@ -28,6 +28,7 @@ import {
 } from "../infra/installation-target-context.js";
 import { resolveOpenClawPackageRoot } from "../infra/openclaw-root.js";
 import { acceptTriageContinuation } from "../infra/triage-continuation.js";
+import { writeTriageUpdateFailure } from "../infra/update-failure-report-artifact.js";
 import type { UpdateRepairValidation } from "../infra/update-repair-protocol.js";
 import {
   redactSupportString,
@@ -49,7 +50,6 @@ import {
   readTriageUpdateFailure,
   readPendingTriageUpdateFailure,
   sanitizeTriageUpdateFailure,
-  writeTriageUpdateFailure,
   type TriageUpdateFailure,
 } from "./triage-update.js";
 
@@ -223,16 +223,7 @@ export async function triageCommand(
     ? sanitizeTriageUpdateFailure(options.recovery.updateFailure, redaction)
     : options.updateResult
       ? await readTriageUpdateFailure(options.updateResult, redaction)
-      : options.run && !pendingUpdate?.correlated
-        ? undefined
-        : pendingUpdate?.failure;
-  if (options.run && !options.json && pendingUpdate && !pendingUpdate.correlated) {
-    const time = new Date(pendingUpdate.recordedAtMs);
-    const when = Number.isFinite(time.getTime()) ? time.toISOString() : "an unknown time";
-    runtime.log(
-      `A saved update failure from ${when} could not be correlated; run \`openclaw update status --json\`.`,
-    );
-  }
+      : pendingUpdate;
   // Captured interactive recovery must reach the repair agent before fresh checks
   // or exports can block on the broken installation. Unattended runs still collect.
   const bundle: TriageBundle = deferDiagnostics
@@ -612,28 +603,26 @@ export async function triageCommand(
           const { validateTriageDoctor } = await import("./triage-doctor.js");
           return validateTriageDoctor({ installRoot, env: targetEnv, signal, redaction });
         };
-        if (updateFailure) {
-          const { validateTriageUpdateResolution } =
-            await import("../infra/update-triage-resolution.js");
-          const resolution = await validateTriageUpdateResolution({
-            failure: updateFailure,
-            installRoot,
-            env: targetEnv,
-            signal,
-            validateDoctor,
-          });
-          return {
-            ...resolution,
-            summary: triageCollectionError(resolution.summary, redaction),
-            ...(resolution.stopReason
-              ? { stopReason: triageCollectionError(resolution.stopReason, redaction) }
-              : {}),
-          };
-        }
-        return await validateDoctor();
+        const { validateTriageUpdateResolution } =
+          await import("../infra/update-triage-resolution.js");
+        const resolution = await validateTriageUpdateResolution({
+          failure: updateFailure,
+          implicit: !options.updateResult && !options.recovery,
+          installRoot,
+          env: targetEnv,
+          signal,
+          validateDoctor,
+        });
+        return {
+          ...resolution,
+          summary: triageCollectionError(resolution.summary, redaction),
+          ...(resolution.stopReason
+            ? { stopReason: triageCollectionError(resolution.stopReason, redaction) }
+            : {}),
+        };
       } catch (error) {
         signal.throwIfAborted();
-        const summary = `${updateFailure ? "Update resolution checks" : "Doctor checks"} unavailable: ${triageCollectionError(error, redaction)}${updateFailure ? " Next step: run `openclaw update status --json`, then retry `openclaw update`." : ""}`;
+        const summary = `${updateFailure ? "Update resolution checks" : "Doctor checks"} unavailable: ${triageCollectionError(error, redaction)}${updateFailure ? " Next step: run `openclaw update status --json`, then `openclaw update repair`." : ""}`;
         return {
           ok: false,
           // An unavailable oracle must never appear better than known Doctor errors.

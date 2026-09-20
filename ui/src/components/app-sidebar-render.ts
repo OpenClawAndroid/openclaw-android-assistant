@@ -235,6 +235,7 @@ export function renderAppSidebarBrand(
                 className:
                   "sidebar-brand__icon sidebar-brand__header-control sidebar-brand__new-thread",
                 label: t("agentChip.newConversation"),
+                showShortcut: true,
                 disabledReason: newSessionAccess.allowed ? undefined : newSessionAccess.reason,
                 onOpen: (agentId, target) => host.requestOpenNewSession(agentId, target),
               })
@@ -253,7 +254,7 @@ export function renderAppSidebarHomeRow(host: AppSidebarRenderHost) {
   const mainKey = host.selectedAgentMainSessionKey(agentId);
   const mainRow = host.mainSessionRow(agentId);
   const session = mainRow ? host.projectHomeSession(mainRow, agentId) : null;
-  const attention = session?.attention ?? host.resolveHomeSessionAttention(mainKey, mainRow);
+  const attention = session?.attention ?? host.resolveSessionAttention({ key: mainKey, agentId });
   const attentionLabel = sessionAttentionTooltipLabel(attention);
   const outboxAttentionCount = host.outboxAttentionCountForSession(mainKey);
   const active =

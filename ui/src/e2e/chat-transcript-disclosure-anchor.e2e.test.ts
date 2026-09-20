@@ -745,6 +745,7 @@ suite.define(() => {
         path.join(artifactDir, "disclosure-geometry.json"),
         `${JSON.stringify(traces, null, 2)}\n`,
       );
+      await middleWorkSummary.focus();
       await captureDisclosureThemes(artifactDir, "disclosure-geometry", middleWorkSummary);
     }
     await context.close();

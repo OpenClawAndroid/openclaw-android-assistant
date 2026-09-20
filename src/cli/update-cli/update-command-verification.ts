@@ -1,11 +1,16 @@
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { resolveGatewayRestartLogPath } from "../../daemon/restart-logs.js";
+import { resolveGatewayService } from "../../daemon/service.js";
 import {
   normalizeUpdateFailureFacts,
   type UpdateFailureFact,
 } from "../../infra/update-failure-facts.js";
 import type { UpdateRepairValidation } from "../../infra/update-repair-protocol.js";
-import { recordUpdateRunStep, recordUpdateRunVerification } from "../../infra/update-run-ledger.js";
+import {
+  getUpdateRun,
+  recordUpdateRunStep,
+  recordUpdateRunVerification,
+} from "../../infra/update-run-ledger.js";
 import { updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
 import type { UpdateRunResult, UpdateStepResult } from "../../infra/update-runner.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -23,11 +28,84 @@ import {
   captureUpdateGatewayReadinessOwner,
   gatewayReadinessPending,
   observeUpdateGatewayReadiness,
+  verifyPreviousGatewayForUpdate,
   type UpdateGatewayReadinessParams,
 } from "./update-command-readiness.js";
+import type { PreManagedServiceStop } from "./update-command-service-context-types.js";
 import { formatPostUpdateGatewayRecoveryInstructions } from "./update-command-service-recovery.js";
 
-export function recordPreviousGatewayVerification(
+/** A restart command can throw before health probes; replace pre-activation facts at that boundary. */
+export async function recordFailedUpdateGatewayState(
+  run: UpdateCommandOptions["run"],
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  if (!run) {
+    return;
+  }
+  const executor = run.executorFence;
+  executor?.assertCurrent();
+  const runtime = await resolveGatewayService()
+    .readRuntime(env)
+    .catch(() => undefined);
+  executor?.assertCurrent();
+  const verified = getUpdateRun(run.runId, { env: run.env })?.verification;
+  // A failed readiness check does not invalidate health/version facts for the same process.
+  if (
+    runtime?.status === "running" &&
+    typeof runtime.pid === "number" &&
+    verified?.serviceRunning === true &&
+    verified.pid === runtime.pid
+  ) {
+    return;
+  }
+  recordUpdateRunVerification(
+    run.runId,
+    {
+      serviceRunning:
+        runtime?.status === "running" ? true : runtime?.status === "stopped" ? false : undefined,
+      pid: typeof runtime?.pid === "number" ? runtime.pid : undefined,
+      runningVersion: undefined,
+      runningBuildId: undefined,
+      versionMatch: undefined,
+      readyz: false,
+      settled: false,
+      channelsReady: false,
+    },
+    { env: run.env },
+  );
+}
+
+export async function verifyPreviousManagedGatewayForUpdate(
+  params: Parameters<typeof verifyPreviousGatewayForUpdate>[0] & {
+    service: PreManagedServiceStop;
+    onVerification: (verified: boolean) => void;
+  },
+): Promise<void> {
+  const verdict = params.service.serviceUpdateVerdict;
+  const installationDrift = verdict?.kind === "owned" && verdict.requiresInstallRootRefresh;
+  const identity = installationDrift
+    ? await (await import("./update-command-package.js")).readPackageUpdateIdentity(params.root)
+    : undefined;
+  params.assertCurrent?.();
+  let verified = false;
+  params.onVerification(false);
+  if (!installationDrift || identity?.version) {
+    verified = await verifyPreviousGatewayForUpdate({
+      ...params,
+      expectedVersion: identity?.version ?? undefined,
+      gatewayPort: params.service.servicePort,
+    });
+    params.onVerification(verified);
+    if (verified && identity?.version) {
+      params.service.serviceIdentity = { ...identity, version: identity.version };
+    }
+  }
+  // Recovery retains the observed verdict even if its receipt cannot be written.
+  params.assertCurrent?.();
+  recordPreviousGatewayVerification(params.opts.run, verified);
+}
+
+function recordPreviousGatewayVerification(
   run: UpdateCommandOptions["run"],
   verified: boolean,
 ): void {

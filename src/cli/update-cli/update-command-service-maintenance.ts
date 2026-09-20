@@ -9,6 +9,7 @@ import {
   ServiceInspectionError,
   findServiceOwnershipRefusal,
 } from "../../daemon/service-inspection-error.js";
+import { resolveManagedServiceNodeRunner } from "../../daemon/service-layout.js";
 import { withGatewayServiceOperationLock } from "../../daemon/service-operation-lock.js";
 import {
   resolveManagedGatewayServiceCommand,
@@ -20,6 +21,7 @@ import {
   resolveSystemdServiceName,
 } from "../../daemon/systemd-service-files.js";
 import { captureSystemdServiceIdentity } from "../../daemon/systemd-service-identity.js";
+import { parseTcpPortFromArgs } from "../../infra/tcp-port.js";
 import { isCurrentManagedServiceUpdateHandoffProcess } from "../../infra/update-managed-service-handoff.js";
 import { getUpdateRun, recordUpdateRunPhase } from "../../infra/update-run-ledger.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
@@ -40,7 +42,6 @@ import {
   inspectManagedGatewayServiceBeforeUpdate,
   observedSystemdManagerUid,
   resolveGatewayServiceManagementBlockMessageForUpdate,
-  resolveManagedServiceNodeRunner,
 } from "./update-command-service-plan.js";
 import { isManagedGatewayServiceOffline } from "./update-command-service-publication.js";
 import {
@@ -123,9 +124,11 @@ export async function revalidateManagedGatewayServiceAfterUpdate(params: {
   const inspection = await inspectManagedGatewayServiceBeforeUpdate({
     ...params,
     retainedCommand: verdict?.kind === "owned" || verdict?.kind === "unresolved",
+    allowInstallRootChange: params.allowInstallRootChange && !verdict,
   });
   if (
-    params.allowInstallRootChange &&
+    (params.allowInstallRootChange ||
+      (verdict?.kind === "owned" && verdict.requiresInstallRootRefresh)) &&
     before &&
     verdict?.kind === "owned" &&
     verdict.refreshDefinition &&
@@ -136,6 +139,7 @@ export async function revalidateManagedGatewayServiceAfterUpdate(params: {
       state: params.state,
       root: verdict.root,
       retainedCommand: true,
+      allowIncompleteInspection: params.allowIncompleteInspection,
     });
     // A verified core install can replace its root before rewriting the launcher.
     // Pin the original command even when pnpm has removed its old package directory.
@@ -144,6 +148,7 @@ export async function revalidateManagedGatewayServiceAfterUpdate(params: {
         { ...before, serviceUpdateVerdict: { ...verdict, refreshDefinition: false } },
         params.state,
         retained,
+        params.allowIncompleteInspection,
       )
     ) {
       return { ...verdict, requiresInstallRootRefresh: true };
@@ -439,7 +444,8 @@ async function stopManagedServiceBeforeMutableUpdate(
       root: params.root,
       state: serviceState,
       preManagedServiceStop: params.expectedService,
-      allowInstallRootChange: params.allowInstallRootChange,
+      allowInstallRootChange:
+        params.allowInstallRootChange ?? params.updateInstallKind === "package",
     }),
   );
   assertCurrent();
@@ -465,6 +471,7 @@ async function stopManagedServiceBeforeMutableUpdate(
     serviceDefinitionEnv:
       resolveManagedGatewayServiceCommand(serviceState.command)?.environment ?? {},
     serviceNodeRunner: resolveManagedServiceNodeRunner(serviceState.command),
+    servicePort: parseTcpPortFromArgs(serviceState.command?.programArguments) ?? undefined,
     ...(process.platform === "linux"
       ? { serviceManagerUid: observedSystemdManagerUid(serviceState) }
       : {}),

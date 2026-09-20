@@ -7,14 +7,21 @@ import {
   createNpmTarget,
   writePackageRoot,
 } from "../../infra/package-update-steps.test-support.js";
+import { resolveRuntimeWorkerUrl } from "../../infra/runtime-worker-url.js";
 import * as repairAgent from "../../infra/update-repair-agent.js";
 import { createUpdateRun, getUpdateRun } from "../../infra/update-run-ledger.js";
 import * as processRunner from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import { updateCandidateExitEntrypoints } from "../cli-entrypoint.test-support.js";
 import { executeMutableUpdate } from "./update-command-execution.js";
 import { finishUpdate } from "./update-command-post-update.js";
 import { withUpdateFailureTriage } from "./update-command-triage.js";
+
+const exitFinalizationUrl = resolveRuntimeWorkerUrl(updateCandidateExitEntrypoints.oneShotExit);
+const sourceImportArgs = exitFinalizationUrl.pathname.endsWith(".ts")
+  ? ["--import", path.resolve("scripts/tsx.mjs")]
+  : [];
 
 const mocks = vi.hoisted(() => ({
   captureManagedPreflight:
@@ -220,9 +227,9 @@ it("keeps successful candidate repair separate from a failed update and its proc
     childSource,
     `
       import fs from "node:fs/promises";
-      import { runCliWithExitFinalization } from ${JSON.stringify(new URL("../one-shot-exit.ts", import.meta.url).href)};
-      import { withUpdateFailureTriage } from ${JSON.stringify(new URL("./update-command-triage.ts", import.meta.url).href)};
-      import { UpdateCommandFailure } from ${JSON.stringify(new URL("./update-command-result.ts", import.meta.url).href)};
+      import { runCliWithExitFinalization } from ${JSON.stringify(exitFinalizationUrl.href)};
+      import { withUpdateFailureTriage } from ${JSON.stringify(resolveRuntimeWorkerUrl(updateCandidateExitEntrypoints.failureTriage).href)};
+      import { UpdateCommandFailure } from ${JSON.stringify(resolveRuntimeWorkerUrl(updateCandidateExitEntrypoints.commandResult).href)};
       const result = JSON.parse(await fs.readFile(process.argv[2], "utf8"));
       await runCliWithExitFinalization({
         run: () => withUpdateFailureTriage({ yes: true, json: true, dryRun: true }, { env: process.env }, async () => {
@@ -236,7 +243,7 @@ it("keeps successful candidate repair separate from a failed update and its proc
   const childResultPath = path.join(base, "failed-result.json");
   await fs.writeFile(childResultPath, JSON.stringify(execution.result));
   const child = await processRunner.runCommandBuffered(
-    [process.execPath, "--import", path.resolve("scripts/tsx.mjs"), childSource, childResultPath],
+    [process.execPath, ...sourceImportArgs, childSource, childResultPath],
     { baseEnv: env, timeoutMs: 30_000 },
   );
   expect(child.stdout.toString()).toContain("observed-failed-update:runtime-verification-failed");

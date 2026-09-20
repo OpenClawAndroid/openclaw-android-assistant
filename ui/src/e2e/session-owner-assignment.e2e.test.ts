@@ -194,6 +194,8 @@ suite.define(() => {
         }
         const assignTo = page.getByRole("menuitem", { name: "Assign to…", exact: true });
         const sibling = page.getByRole("menuitem", { name: "Fork conversation", exact: true });
+        // Settle the opening animation before freezing raw pointer coordinates.
+        await assignTo.click({ trial: true });
         const anchor = await assignTo.boundingBox();
         const target = await sibling.boundingBox();
         const inactiveBackground = await sibling.evaluate(

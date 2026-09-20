@@ -985,9 +985,9 @@ import ast, contextlib, errno, io, json, os, pathlib, re, signal, subprocess, sy
 
 # Load only the actual boundary functions; never execute checkout or real Git.
 functions = [node for node in ast.parse(sys.stdin.read()).body
-             if isinstance(node, ast.FunctionDef) and node.name in ("group_alive", "group_signal")]
-assert len(functions) == 2
+             if isinstance(node, ast.FunctionDef) and node.name in ("group_alive", "group_signal", "group_states", "drain")]
 exec(compile(ast.Module(body=functions, type_ignores=[]), "checkout-owner.py", "exec"))
+cleanup_seconds = 10
 
 # Retain the Popen handle without polling, so the owned zombie cannot be reaped or reused.
 with subprocess.Popen([sys.executable, "-I", "-S", "-c", "pass"], start_new_session=True) as child:
@@ -1124,6 +1124,48 @@ with subprocess.Popen([sys.executable, "-I", "-S", "-c",
         assert not group_alive(child.pid, time.monotonic() + 2)
     finally:
         subprocess.run = actual_run
+if sys.platform == "darwin":
+    # Replay the native EPERM + ?E exit window while retaining a real owned child.
+    # Exiting is still pending: only the subsequent native census permits drain to return.
+    with subprocess.Popen([sys.executable, "-I", "-S", "-c",
+                           "import sys; print('ready', flush=True); sys.stdin.read()"],
+                          start_new_session=True, stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE, text=True) as child:
+        assert child.stdout.readline().strip() == "ready"
+        exiting = False
+        observed_exiting = 0
+        native_probes = 0
+        actual_killpg = os.killpg
+        actual_run = subprocess.run
+        def terminating_signal(pgid, signum):
+            global exiting, native_probes
+            assert pgid == child.pid
+            if signum == signal.SIGTERM:
+                actual_killpg(pgid, signal.SIGKILL)
+                exiting = True
+            if exiting:
+                raise PermissionError(errno.EPERM, "owned group is exiting")
+            if signum == 0:
+                native_probes += 1
+            return actual_killpg(pgid, signum)
+        def exiting_census(command, **options):
+            global exiting, observed_exiting
+            if exiting:
+                observed_exiting += 1
+                exiting = observed_exiting < 2
+                return subprocess.CompletedProcess(command, 0, f"{child.pid} ?E  \n", "")
+            return actual_run(command, **options)
+        try:
+            os.killpg = terminating_signal
+            subprocess.run = exiting_census
+            drain(child, None)
+            assert observed_exiting == 2, "drain did not wait through the exiting process window"
+            assert native_probes, "drain accepted exiting as proof of termination"
+            assert child.returncode is not None, "drain returned before the owned child settled"
+            assert not group_alive(child.pid, time.monotonic() + 2)
+        finally:
+            os.killpg = actual_killpg
+            subprocess.run = actual_run
 print("group contract passed")
 `,
         process.execPath,

@@ -29,8 +29,15 @@ export async function resolveGatewayShutdownBudget(
     Math.min(GATEWAY_SHUTDOWN_TIMEOUT_MS, stop.timeoutMs - GATEWAY_SUPERVISOR_EXIT_MARGIN_MS),
   );
   const reserveMs = Math.min(GATEWAY_SHUTDOWN_RESERVE_MS, timeoutMs);
+  const nativeStopBudget = systemdStop !== null || supervisor === "launchd";
   return {
-    nativeStopBudget: systemdStop !== null || supervisor === "launchd",
+    nativeStopBudget,
+    restartTimeoutMs: (drainTimeoutMs: number, withoutSupervisor: boolean) =>
+      // A containing service can bound this process without owning its restart.
+      // Locally owned restarts retain that deadline, not just a handoff reserve.
+      nativeStopBudget && withoutSupervisor
+        ? timeoutMs
+        : drainTimeoutMs + (nativeStopBudget ? reserveMs : GATEWAY_SHUTDOWN_TIMEOUT_MS),
     timeoutMs,
     reserveMs,
     // Let cleanup failures reach the run loop before its native exit timer wins.

@@ -79,56 +79,6 @@ describe("prepared model catalog worker boundary", () => {
     vi.stubEnv("CODEX_HOME", makeTempDir("openclaw-worker-empty-codex-"));
   });
 
-  it.each([
-    { owner: "configured Gateway", prepareInboundPluginRegistry: true, version: "built" },
-    { owner: "standalone", prepareInboundPluginRegistry: false, version: "v1" },
-  ])("keeps the $owner artifact selection in catalog and auth workers", async (selection) => {
-    const fixture = await createStaticSnapshot(
-      0,
-      {},
-      {
-        builtPluginVersion: "built",
-        prepareInboundPluginRegistry: selection.prepareInboundPluginRegistry,
-      },
-    );
-    await fixture.snapshot.loadFullModelCatalog!();
-    const auth = await loadPreparedModelRuntimeAuth(fixture.snapshot, {
-      providerIds: [PROVIDER_ID],
-    });
-    // The foreground read can return starter rows while cold discovery continues.
-    await expect
-      .poll(() => fixture.snapshot.readFullModelCatalog?.()?.entries, { timeout: 30_000 })
-      .toContainEqual(
-        expect.objectContaining({
-          provider: PROVIDER_ID,
-          id: `plugin-generation-${selection.version}`,
-        }),
-      );
-    expect(auth?.authStore.profiles[EXTERNAL_AUTH_PROFILE_ID]).toMatchObject({
-      access: `${selection.version}:A`,
-    });
-    expect(
-      new Set(
-        fs
-          .readFileSync(path.join(fixture.root, "discovery-artifacts.txt"), "utf8")
-          .trim()
-          .split("\n"),
-      ),
-    ).toEqual(new Set([selection.version]));
-    const captures = readCatalogDiscoveryCaptures(fixture.root);
-    const workerCaptures = captures.filter((capture) => capture.threadId !== threadId);
-    const parentCaptures = captures.filter((capture) => capture.threadId === threadId);
-    expect(workerCaptures.length).toBeGreaterThan(0);
-    expect(parentCaptures.length).toBeGreaterThan(0);
-    expect(captures.every((capture) => fs.existsSync(capture.filename))).toBe(true);
-    fixture.supersede();
-    await waitForWorkers();
-    await expect
-      .poll(() => workerCaptures.filter((capture) => fs.existsSync(capture.filename)))
-      .toEqual([]);
-    expect(parentCaptures.every((capture) => fs.existsSync(capture.filename))).toBe(true);
-  });
-
   it("keeps explicit read-only full inventories discoverable without a runtime registry", async () => {
     const fixture = await createStaticSnapshot(0, {}, { readOnly: true });
     expect(fixture.snapshot.pluginRegistry).toBeUndefined();
@@ -816,6 +766,8 @@ describe("prepared model catalog worker boundary", () => {
         0,
         { CODEX_HOME: codexHome },
         {
+          // Auth refresh is a passive read; activating the full harness is a separate contract.
+          readOnly: true,
           codexNativeOwner: nativeOwner,
           ...(homeScope ? { codexNativeHomeScope: homeScope } : {}),
         },

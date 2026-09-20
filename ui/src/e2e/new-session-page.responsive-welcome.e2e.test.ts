@@ -78,8 +78,10 @@ suite.define(() => {
           const layout = await selectors.evaluateAll((buttons) =>
             buttons.map((button) => {
               const box = button.getBoundingClientRect();
+              // Flex/grid aligns the wrapper; inline button baselines can differ within one row.
+              const item = button.closest(".new-session-page__select")!.getBoundingClientRect();
               return {
-                row: Math.round(box.top + box.height / 2),
+                row: Math.round(item.top + item.height / 2),
                 left: box.left,
                 right: box.right,
                 height: box.height,

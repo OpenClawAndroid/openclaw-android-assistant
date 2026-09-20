@@ -71,8 +71,8 @@ vi.mock("../agents/openai-routing.js", async (importOriginal) => ({
 vi.mock("../plugins/plugin-registry.js", () => ({
   loadPluginManifestRegistryForPluginRegistry: mocks.loadPluginManifestRegistryForPluginRegistry,
 }));
-vi.mock("../plugins/manifest-registry.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../plugins/manifest-registry.js")>()),
+vi.mock("../plugins/manifest-registry-build.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/manifest-registry-build.js")>()),
   loadBundledPluginManifestRegistry: mocks.loadBundledPluginManifestRegistry,
 }));
 vi.mock("../plugins/provider-public-artifacts.js", () => ({

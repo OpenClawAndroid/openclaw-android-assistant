@@ -5,6 +5,7 @@ import { resolveAgentEffectiveModelPrimary } from "../agents/agent-scope.js";
 import { splitTrailingAuthProfile } from "../agents/model-ref-profile.js";
 import { resolveSessionModelRef } from "../agents/session-model-ref.js";
 import { resolveSessionRuntimeOverrideForProvider } from "../agents/session-runtime-compat.js";
+import { createCrustaceanSlug } from "../agents/session-slug.js";
 import { resolveUtilityModelRefForAgent } from "../agents/utility-model.js";
 import type { WorktreeSourceStage } from "../agents/worktrees/types.js";
 import { stripInboundMetadata } from "../auto-reply/reply/strip-inbound-meta.js";
@@ -16,7 +17,6 @@ import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import { runWithAsyncWorkResources } from "../shared/async-work-resources.js";
 import { AsyncWorkScope, getAsyncWorkSignal } from "../shared/async-work-scope.js";
 import type { ChatAttachment } from "./chat-attachments.js";
-import { deriveGoalSessionTitle } from "./derive-goal-session-title.js";
 import { resolveStoredSessionKeyForAgentStore } from "./session-store-key.js";
 import {
   hasExplicitSessionName,
@@ -218,17 +218,15 @@ async function generateDashboardSessionTitle(params: {
     if (params.utilityOnly) {
       return null;
     }
-    // Fall through to the deterministic goal title; keep provider errors private.
+    // Fall through to the two-word name; keep provider errors private.
   }
   // Speculative utility-only naming must not persist a provisional title that
   // would skip the healthy primary-model pass after send.
   if (params.utilityOnly) {
     return null;
   }
-  // No model (or a failed isolated completion): persist a readable topic from the
-  // first real user task so phone/Control UI sidebars are not first-bubble leftovers.
-  const fallback = deriveGoalSessionTitle(boundedSource, DASHBOARD_SESSION_TITLE_MAX_CHARS);
-  return fallback ? normalizeDashboardSessionTitle(fallback) : null;
+  // Saved titles also name Git branches; never persist raw prompt text as a fallback.
+  return createCrustaceanSlug();
 }
 
 /** Prepares a creation draft's title without creating or updating a session. */

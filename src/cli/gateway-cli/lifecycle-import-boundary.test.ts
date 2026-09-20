@@ -66,7 +66,7 @@ describe("gateway lifecycle hub import boundaries", () => {
     );
   });
 
-  it.each(["SIGTERM", "SIGUSR1"] as const)(
+  it.each(["SIGTERM", "SIGUSR2"] as const)(
     "finishes priming before installing signals and handles %s after dist chunk rotation",
     async (signal) => {
       vi.resetModules();
@@ -76,16 +76,17 @@ describe("gateway lifecycle hub import boundaries", () => {
       const idle = createActiveWorkSnapshot();
       const hub = {
         detectGatewayRespawnSupervisorIdentity: () => ({ kind: "systemd" as const, name: "test" }),
+        resolveGatewayRestartDecision: () => ({ mode: "supervised", supervisor: "systemd" }),
         requestGatewayRestartWithSignalAdmission:
           vi.fn<LifecycleRuntime["requestGatewayRestartWithSignalAdmission"]>(),
-        isGatewaySigusr1RestartExternallyAllowed: () => false,
-        scheduleGatewaySigusr1Restart: vi.fn<LifecycleRuntime["scheduleGatewaySigusr1Restart"]>(),
+        isGatewayRestartExternallyAllowed: () => false,
+        scheduleGatewayRestart: vi.fn<LifecycleRuntime["scheduleGatewayRestart"]>(),
         abortEmbeddedAgentRun: () => false,
         consumeGatewayRestartIntentPayloadSync: vi.fn(() => null),
-        consumeGatewaySigusr1RestartAuthorization: () => true,
-        consumeGatewaySigusr1RestartIntent: () => null,
-        peekGatewaySigusr1RestartReason: () => undefined,
-        markGatewaySigusr1RestartHandled: vi.fn(),
+        consumeGatewayRestartAuthorization: () => true,
+        consumeGatewayRestartIntent: () => null,
+        peekGatewayRestartReason: () => undefined,
+        markGatewayRestartHandled: vi.fn(),
         abortPendingChannelReloads: vi.fn(),
         markGatewayDraining: vi.fn(),
         createGatewayActiveWorkSnapshot: () => idle,
@@ -105,7 +106,7 @@ describe("gateway lifecycle hub import boundaries", () => {
         const originalOn = process.on.bind(process);
         const installed: string[] = [];
         vi.spyOn(process, "on").mockImplementation((event, listener) => {
-          if (event === "SIGTERM" || event === "SIGINT" || event === "SIGUSR1") {
+          if (event === "SIGTERM" || event === "SIGINT" || event === "SIGUSR2") {
             expect(primed, `lifecycle import must finish before installing ${event}`).toBe(true);
             installed.push(event);
           }
@@ -126,7 +127,7 @@ describe("gateway lifecycle hub import boundaries", () => {
           expect(start).not.toHaveBeenCalled();
           finishImport.resolve();
           await Promise.race([waitForStart(started), loop]);
-          expect(installed).toEqual(["SIGTERM", "SIGINT", "SIGUSR1"]);
+          expect(installed).toEqual(["SIGTERM", "SIGINT", "SIGUSR2"]);
 
           const missingChunk = vi.fn(() => {
             throw Object.assign(new Error("rotated lifecycle chunk"), {
@@ -150,10 +151,10 @@ describe("gateway lifecycle hub import boundaries", () => {
           expect(fixture.error).not.toHaveBeenCalled();
           expect(completeBoot).toHaveBeenCalledWith(
             expect.objectContaining({
-              outcome: signal === "SIGUSR1" ? "planned_restart" : "clean_stop",
+              outcome: signal === "SIGUSR2" ? "planned_restart" : "clean_stop",
             }),
           );
-          if (signal === "SIGUSR1") {
+          if (signal === "SIGUSR2") {
             expect(hub.restartGatewayProcessWithFreshPid).toHaveBeenCalledOnce();
             expect(hub.writeGatewayRestartHandoffSync).toHaveBeenCalledOnce();
           }

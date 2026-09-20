@@ -7,6 +7,7 @@ import {
   runWithAgentDatabaseMaintenanceAuthority,
 } from "./openclaw-agent-db-lease.js";
 import { closeOpenClawAgentDatabasesAsync } from "./openclaw-agent-db-lifecycle.js";
+import { clearOpenClawAgentDatabaseValidationCache } from "./openclaw-agent-db-validation-cache.js";
 import type { OpenClawStateDatabaseOptions } from "./openclaw-state-db-contract.js";
 import { resolveOpenClawStateSqlitePath } from "./openclaw-state-db.paths.js";
 import type { OpenClawStateMutationOperation } from "./openclaw-state-lease-context.js";
@@ -199,6 +200,7 @@ export function withAgentDatabaseMaintenanceLease<T>(
       runMaintenanceScope(databasePath, maintenance, async (lease) => {
         await closeOpenClawAgentDatabasesAsync();
         assertNoOpenClawAgentDatabaseLeases(lease, options);
+        clearOpenClawAgentDatabaseValidationCache();
         return run(lease);
       }),
   );

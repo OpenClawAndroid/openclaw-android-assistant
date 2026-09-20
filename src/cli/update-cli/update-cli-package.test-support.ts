@@ -363,11 +363,21 @@ export function createUpdateCliPackageFixtures({
     });
   };
 
-  const mockGatewayInstallFailure = (entrypoint: string) => {
+  const mockGatewayInstallFailure = (entrypoint: string, stderr = "launchctl bootstrap failed") => {
+    const message =
+      "Service definition refresh failed; the previous definition was restored: Error: launchctl bootstrap failed";
     vi.mocked(runCommandWithTimeout).mockImplementation(async (argv) => {
       const failed = argv[1] === entrypoint && argv[2] === "gateway" && argv[3] === "install";
       return commandResult({
-        stderr: failed ? "launchctl bootstrap failed" : "",
+        stdout: failed
+          ? JSON.stringify({
+              action: "install",
+              ok: false,
+              error: `Gateway install failed: Error: SERVICE_DEFINITION_UNKNOWN: ${message}`,
+              warnings: [message],
+            })
+          : "",
+        stderr: failed ? stderr : "",
         code: failed ? 1 : 0,
       });
     });

@@ -19,6 +19,16 @@ const SIDEBAR_ATTENTION_PRIORITY: Record<SidebarAttentionItem["kind"], number> =
   cronOverdue: 2,
 };
 
+export type CronAttentionJob = Pick<
+  CronJob,
+  "id" | "name" | "agentId" | "enabled" | "updatedAtMs"
+> & {
+  state: Pick<
+    CronJob["state"],
+    "lastRunStatus" | "lastStatus" | "lastRunAtMs" | "nextRunAtMs" | "runningAtMs" | "autoDisabled"
+  >;
+};
+
 export function compareSidebarAttentionEntries(
   left: SidebarAttentionItem,
   right: SidebarAttentionItem,
@@ -32,7 +42,7 @@ type SidebarAttentionContent = Omit<
 >;
 
 export function buildSidebarAttentionEntries(params: {
-  cronJobs: readonly CronJob[];
+  cronJobs: readonly CronAttentionJob[];
   cronSchedulerEnabled: boolean | null;
   cronOwnerByJobId?: ReadonlyMap<string, string>;
   modelAuthStatus: ModelAuthStatusResult | null;
@@ -40,8 +50,8 @@ export function buildSidebarAttentionEntries(params: {
   now: number;
 }): SidebarAttentionItem[] {
   const entries: SidebarAttentionItem[] = [];
-  const cronJobName = (job: CronJob) => job.name?.trim() || job.id;
-  const cronMeta = (job: CronJob, status: string, time: string) => {
+  const cronJobName = (job: CronAttentionJob) => job.name?.trim() || job.id;
+  const cronMeta = (job: CronAttentionJob, status: string, time: string) => {
     const context = params.cronOwnerByJobId?.get(job.id);
     return { ...(context ? { context } : {}), status, time };
   };

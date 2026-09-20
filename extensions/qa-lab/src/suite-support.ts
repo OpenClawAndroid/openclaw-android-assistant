@@ -126,7 +126,7 @@ export function buildQaGatewayHeapCheckpointRuntimeEnvPatch(
     return undefined;
   }
   return {
-    NODE_OPTIONS: appendNodeOption(env.NODE_OPTIONS, "--heapsnapshot-signal=SIGUSR2"),
+    NODE_OPTIONS: appendNodeOption(env.NODE_OPTIONS, "--heapsnapshot-signal=SIGQUIT"),
   };
 }
 

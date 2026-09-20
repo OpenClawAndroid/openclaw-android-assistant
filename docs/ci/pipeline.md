@@ -80,17 +80,27 @@ Page deletions and renames preserve this targeting. Explicit Node owners for
 Markdown inputs remain selected; workspace templates under
 `docs/reference/templates/` and unowned source inputs retain the full fallback.
 
+When `docker-seed-e2e` selects the published upgrade survivor, it uploads
+`docker-seed-upgrade-survivor-proof` even after a failure. The artifact contains
+scheduler summaries and sanitized survivor reports. Failed reports include
+bounded, redacted baseline and candidate agent-turn output; private scenario
+state and raw logs remain outside the upload.
+
 Full canonical `main` pushes run the operator config and prior-release state
 startup corpora once through the Node `runtime-config` owner. Canonical pull
 requests also omit the duplicate **Check startup corpus** step when preflight
-certifies both complete files in the required Node matrix on the exact same
+certifies every corpus file in the required Node matrix on the exact same
 checkout revision. Partial, filtered or unknown plans retain the explicit step;
 release-gate dispatches retain their separate merge-tree proof. Both state
 repair passes, all static baseline ratchets and required Node failure aggregation
 remain unchanged.
-The explicit step prepares the runtime once with `pnpm build qaRuntime` before
-forking the config process and four state processes. A failed preparation stops
-the step before those launchers consume memory or attempt their own builds.
+Eight state test files share one matrix inventory so the executor can distribute
+all release/config pairs across workers. Each pair still runs both Doctor and
+Gateway startup checks. The explicit step prepares the runtime once with
+`pnpm build qaRuntime`, then runs the config corpus and all eight state files in
+one Vitest process with at most four workers. A failed preparation stops the step
+before workers consume memory or attempt their own builds. Frozen targets from
+before the file split retain their config process and four state processes.
 The corpus uses the normal bundled-plugin resolver to select the prepared
 runtime from this checkout instead of forcing TypeScript plugin entrypoints.
 Plugins whose Doctor contracts require source loading retain that behavior;

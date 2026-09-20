@@ -1,4 +1,5 @@
 import { isProviderRefusalAssistantError } from "@openclaw/llm-core/diagnostics";
+import { applyAssistantDeliveryDirectives } from "../config/sessions/transcript-assistant-delivery.js";
 import {
   emitAgentEvent,
   emitAgentEventForRunContext,
@@ -199,7 +200,7 @@ export function createEmbeddedModelState(
           });
           pending = undefined;
           // Context-engine projection can later mutate transcript objects; retain this run's result.
-          completed = structuredClone(message);
+          completed = applyAssistantDeliveryDirectives(structuredClone(message));
           lastUsage ??= message.stopReason === "error" ? retryUsage : undefined;
           retryUsage = undefined;
           params.onContextAccountingEvent?.({

@@ -300,6 +300,49 @@ raw callback string. Actor and source-message checks remain channel-owned.
       Send contexts also include `replyToIdSource` (`implicit` or `explicit`)
       when a native reply target was resolved, so payload helpers can preserve
       explicit reply tags without consuming an implicit single-use reply slot.
+
+      For payload planning, `openclaw/plugin-sdk/channel-outbound` exports
+      `createOutboundPayloadPlan(payloads, context)` for raw reply text, including
+      legacy reply/audio tags, `MEDIA:` directives, and optional Markdown-image
+      extraction. Use `createStructuredOutboundPayloadPlan(payloads)` only after
+      the producer has resolved those controls into explicit payload fields.
+      The structured planner does not reinterpret remaining text as delivery
+      directives or silence tokens. Downstream automatic-reply silence policy
+      still applies, and channels retain their opted-in presentation transforms,
+      including Markdown-image extraction. Both operations use
+      `projectOutboundPayloadPlanForDelivery(plan)` for their delivery projection.
+
+      When cloning a host-supplied reply, use `copyReplyPayloadMetadata(source, clone)`
+      from `openclaw/plugin-sdk/reply-payload` to preserve its non-serialized runtime
+      metadata. Persisted transcript delivery facts cannot replace that metadata.
+      When recovering a payload from earlier source text, apply
+      `preserveReplyPayloadMediaSelection(current, recovered)` from
+      `openclaw/plugin-sdk/channel-outbound`.
+      This retains media and attachment choices changed by delivery modifiers, while
+      allowing text and reply intent to recover independently. Unchanged empty media
+      does not prevent transcript recovery. With unchanged media, the operation prefers
+      current prepared references over their recorded source aliases and retains distinct
+      recovered media. It preserves the candidate’s other runtime metadata.
+      After recovering or projecting fields on a normalized reply, finish with
+      `createStructuredOutboundPayloadPlan` from `openclaw/plugin-sdk/channel-outbound`.
+      This preserves literal text and the host's recorded single-use target policy.
+      Before filtering media, use `collectReplyMediaEntries(payload, projectedMediaUrls?)`
+      from `openclaw/plugin-sdk/channel-outbound` to retain each URL's attachment metadata. Filter those
+      entries together so positional names and referenced records stay with their media.
+      Entries can also carry `sourceUrls` for references staged by the host. When recording
+      delivered media, request entries for only the URLs confirmed accepted by the transport;
+      source aliases for removed or unsent media are not delivery evidence.
+
+      Streaming delivery can carry one `OutboundPayloadPlan` through the optional
+      `onPreparedBlockReply(plan, context)`, dispatcher `sendPreparedReply(kind, plan)`,
+      and adapter `deliverPrepared(plan, info)` operations. Modifiers rebuild that
+      plan from the changed payload fields without reinterpreting literal text.
+      Channel turn adapters can forward the same plan through
+      `deliverPreparedWithProviderMessageSending`, and durable inbound delivery uses
+      `deliverStructuredInboundReplyWithMessageSendContext({ ...context, plan })`.
+      Existing raw callbacks remain supported. An older adapter receives the
+      payload through its original callback; it must adopt the prepared operation
+      to avoid reparsing literal text in its own normalization code.
     </Accordion>
 
     ### Group tool-policy adapters

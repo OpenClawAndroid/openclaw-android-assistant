@@ -41,7 +41,7 @@ import { resetGatewaySuspendCoordinatorForLifecycleRestart } from "../infra/gate
 import { writeJsonAtomic } from "../infra/json-files.js";
 import {
   resetGatewayRestartStateForInProcessRestart,
-  setGatewaySigusr1RestartPolicy,
+  setGatewayRestartPolicy,
   setPreRestartDeferralCheck,
 } from "../infra/restart.js";
 import { normalizeLegacySessionEntryDelivery } from "../infra/state-migrations.legacy-session-store.js";
@@ -373,7 +373,7 @@ function resetGatewayLifecycleTestState(options: { preserveRuntimeBindings: bool
   resetGatewaySuspendCoordinatorForLifecycleRestart();
   resetGatewayRestartStateForInProcessRestart();
   if (!options.preserveRuntimeBindings) {
-    setGatewaySigusr1RestartPolicy({ allowExternal: false });
+    setGatewayRestartPolicy({ allowExternal: false });
     setPreRestartDeferralCheck(() => 0);
   }
   resetGatewayWorkAdmission();

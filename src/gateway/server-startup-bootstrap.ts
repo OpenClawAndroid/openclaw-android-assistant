@@ -34,7 +34,7 @@ import { isVitestRuntimeEnv, logAcceptedEnvOption } from "../infra/env.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { prepareGatewayAgentCliShim } from "../infra/openclaw-cli-shim.js";
 import { readGatewayRestartHandoffSync } from "../infra/restart-handoff.js";
-import { setGatewaySigusr1RestartPolicy, setPreRestartDeferralCheck } from "../infra/restart.js";
+import { setGatewayRestartPolicy, setPreRestartDeferralCheck } from "../infra/restart.js";
 import { withSqliteReadOnlyWorkerScope } from "../infra/sqlite-readonly-worker.js";
 import { withSystemEventOwner } from "../infra/system-event-ownership.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
@@ -347,7 +347,7 @@ export async function prepareGatewayServerBootstrap(input: {
     ? mergeGatewayAuthConfig(resolvedStartupAuthOverride, { token: authBootstrap.generatedToken })
     : resolvedStartupAuthOverride;
   setDiagnosticsEnabledForProcess(isDiagnosticsEnabled(cfgAtStart));
-  setGatewaySigusr1RestartPolicy({ allowExternal: isRestartEnabled(cfgAtStart) });
+  setGatewayRestartPolicy({ allowExternal: isRestartEnabled(cfgAtStart) });
   const activeTaskCount = { get: () => 0 };
   setPreRestartDeferralCheck(
     () =>

@@ -116,6 +116,10 @@ cannot preserve input ordering across a larger source-wide job.
 
 ## Decision models (contract version 1)
 
+Start with [Decision models](/concepts/decision-models) for model choices,
+configuration, and Choice/Score/Boolean rubric examples. This section defines
+the provider and consumer SDK contract.
+
 `api.registerDecisionProvider({ id, contractVersion: 1, isReady, evaluate })` registers
 an optional decision provider, separate from conversational model providers and
 agent tools. Declare the ID in manifest `contracts.decisionProviders`; duplicate
@@ -147,8 +151,9 @@ sent to the selected provider may incur its normal usage charges. Plugin disable
 wins; installing a tool or credential alone does not select a provider. Vendor adapters
 own transport and model-specific translation; no vendor is a core dependency.
 
-The bundled [TypeSafe AI plugin](/plugins/typesafe) supplies a Jev adapter. It remains
-disabled until explicitly configured.
+The [ONNX plugin](/plugins/onnx) supplies local classifiers; the bundled
+[TypeSafe AI plugin](/plugins/typesafe) supplies a Jev adapter. Both require
+explicit setup and role selection.
 
 ### Calling from a third-party plugin
 
@@ -176,6 +181,10 @@ const outcome = await api.runtime.decisions.evaluate(
       respond: {
         type: "boolean",
         instructions: "Is this message asking the assistant to respond?",
+        criteria: {
+          true: "The message asks the assistant to respond",
+          false: "The message does not ask the assistant to respond",
+        },
       },
     },
   },

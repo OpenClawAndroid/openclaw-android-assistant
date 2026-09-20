@@ -446,14 +446,14 @@ function createChangedExtensionConfigShards(
     );
     const chunks = testFiles.length > 0 ? splitExtensionTestJobTargets(config, testFiles) : [roots];
     const partitionSeconds = Math.ceil(
-      estimateExtensionTestCost(config, testFiles.length) / chunks.length,
+      estimateExtensionTestCost(config, testFiles.length, testFiles) / chunks.length,
     );
     return chunks.map((includePatterns, index) =>
       Object.assign(
         {
           config,
           predictedSeconds: splitProcesses
-            ? estimateExtensionTestCost(config, includePatterns.length)
+            ? estimateExtensionTestCost(config, includePatterns.length, includePatterns)
             : partitionSeconds,
         },
         splitProcesses

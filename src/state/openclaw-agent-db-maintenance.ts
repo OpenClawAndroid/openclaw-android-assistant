@@ -8,7 +8,10 @@ import {
 } from "../infra/sqlite-user-version.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { OPENCLAW_AGENT_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
-import { assertAgentDatabaseMaintenanceAuthority } from "./openclaw-agent-db-lease.js";
+import {
+  assertAgentDatabaseMaintenanceAuthority,
+  invalidateOpenClawAgentDatabaseIntegrityBeforeMutation,
+} from "./openclaw-agent-db-lease.js";
 import {
   assertExistingAgentSchemaOwner,
   assertOpenClawAgentSchemaContains,
@@ -89,6 +92,7 @@ export async function migrateOpenClawAgentDatabaseForMaintenance(
     assertAgentDatabaseMaintenanceAuthority(maintenance);
   };
   assertOwned();
+  invalidateOpenClawAgentDatabaseIntegrityBeforeMutation(pathname, env);
   const database = openNodeSqliteDatabase(pathname);
   try {
     database.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);

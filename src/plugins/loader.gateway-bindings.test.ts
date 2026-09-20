@@ -15,9 +15,13 @@ import {
   useNoBundledPlugins,
   writePlugin,
 } from "./loader.test-fixtures.js";
-import { bindPluginRegistryRuntime } from "./registry-runtime-binding.js";
+import { bindPluginRegistryRuntime, getPluginRegistryRuntime } from "./registry-runtime-binding.js";
 import { createEmptyPluginRegistry } from "./registry.js";
 import { getActivePluginRegistry, setActivePluginRegistry } from "./runtime.js";
+import {
+  bindGatewayContextResolver,
+  getGatewayContextResolver,
+} from "./runtime/gateway-request-scope.js";
 import type { PluginRuntime } from "./runtime/types.js";
 
 afterEach(() => {
@@ -62,20 +66,24 @@ it.each([
       contracts: { tools: ["runtime_owner_probe"] },
     }),
   );
-  const createFacets = (owner: string): Pick<PluginRuntime, "nodes" | "subagent"> => ({
-    nodes: {
-      list: async () => ({ nodes: [{ nodeId: owner }] }),
-      invoke: vi.fn<PluginRuntime["nodes"]["invoke"]>(),
-      openDuplex: vi.fn<PluginRuntime["nodes"]["openDuplex"]>(),
-    },
-    subagent: {
-      complete: vi.fn<PluginRuntime["subagent"]["complete"]>(),
-      run: vi.fn<PluginRuntime["subagent"]["run"]>(),
-      waitForRun: vi.fn<PluginRuntime["subagent"]["waitForRun"]>(),
-      getSessionMessages: async () => ({ messages: [owner] }),
-      deleteSession: vi.fn<PluginRuntime["subagent"]["deleteSession"]>(),
-    },
-  });
+  const createFacets = (owner: string): Pick<PluginRuntime, "nodes" | "subagent"> => {
+    const facets: Pick<PluginRuntime, "nodes" | "subagent"> = {
+      nodes: {
+        list: async () => ({ nodes: [{ nodeId: owner }] }),
+        invoke: vi.fn<PluginRuntime["nodes"]["invoke"]>(),
+        openDuplex: vi.fn<PluginRuntime["nodes"]["openDuplex"]>(),
+      },
+      subagent: {
+        complete: vi.fn<PluginRuntime["subagent"]["complete"]>(),
+        run: vi.fn<PluginRuntime["subagent"]["run"]>(),
+        waitForRun: vi.fn<PluginRuntime["subagent"]["waitForRun"]>(),
+        getSessionMessages: async () => ({ messages: [owner] }),
+        deleteSession: vi.fn<PluginRuntime["subagent"]["deleteSession"]>(),
+      },
+    };
+    bindGatewayContextResolver(facets.subagent, () => undefined);
+    return facets;
+  };
   const loadPluginModule = vi.fn((_modulePath: string): unknown => {
     throw new Error("borrowed facets must not load the broad runtime");
   });
@@ -86,21 +94,21 @@ it.each([
       subagent: vi.fn(() => facets.subagent),
     };
     const registry = createEmptyPluginRegistry();
-    bindPluginRegistryRuntime(
-      registry,
-      createLazyPluginRuntime({
-        loadPluginModule,
-        runtimeOptions: {
-          get nodes() {
-            return reads.nodes();
-          },
-          get subagent() {
-            return reads.subagent();
-          },
+    const runtime = createLazyPluginRuntime({
+      loadPluginModule,
+      runtimeOptions: {
+        get nodes() {
+          return reads.nodes();
         },
-      }),
-    );
-    return { registry, reads };
+        get subagent() {
+          return reads.subagent();
+        },
+      },
+    });
+    const resolveGatewayContext = getGatewayContextResolver(facets.subagent);
+    bindGatewayContextResolver(runtime, resolveGatewayContext);
+    bindPluginRegistryRuntime(registry, runtime);
+    return { registry, reads, resolveGatewayContext };
   };
   const supplied = createFacets("explicit");
   const options = {
@@ -144,6 +152,11 @@ it.each([
     const registry = loadPluginRegistryHandle(options);
     expect(donor.reads.nodes).not.toHaveBeenCalled();
     expect(donor.reads.subagent).not.toHaveBeenCalled();
+    expect(getGatewayContextResolver(getPluginRegistryRuntime(registry)!)).toBe(
+      explicit.subagent
+        ? getGatewayContextResolver(supplied.subagent)
+        : donor.resolveGatewayContext,
+    );
     expect(await read(registry)).toMatchObject({
       details: {
         nodes: [explicit.nodes ? "explicit" : owner],

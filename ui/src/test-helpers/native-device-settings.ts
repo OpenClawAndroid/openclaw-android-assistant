@@ -65,7 +65,6 @@ export function createNativeDeviceSettingsSnapshot(): MacDeviceSettingsSnapshot 
         { id: "camera", status: "notDetermined" },
         { id: "speechRecognition", status: "granted" },
         { id: "location", status: "denied" },
-        { id: "automation", status: "unavailable" },
       ],
       location: { mode: "off", precise: false },
     },

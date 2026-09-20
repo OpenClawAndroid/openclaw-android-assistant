@@ -134,8 +134,10 @@ scripts/lib/vitest-runtime-selection.mts
 scripts/lib/vitest-shard-metadata.mts
 scripts/lib/vitest-unhandled-errors.mts
 scripts/lib/vitest-worker-artifacts.mts
+scripts/lib/vitest-worker-cache-policy.mts
 scripts/lib/vitest-worker-declarations.mts
 scripts/lib/vitest-worker-run.mts
+scripts/lib/watch-pr-ci-rollup.mts
 scripts/lib/windows-taskkill.mjs
 scripts/pnpm-runner.mts
 scripts/pr-crabbox-gate-publisher.mjs
@@ -331,12 +333,14 @@ src/config/config-write-guard.ts
 src/config/config.ts
 src/config/defaults.ts
 src/config/deferred-plugin-migration-config.ts
+src/config/env-preserve-authored.ts
 src/config/env-preserve.ts
 src/config/env-substitution.ts
 src/config/env-vars.ts
 src/config/future-version-guard.ts
 src/config/gateway-control-ui-origins.ts
 src/config/gateway-env-selection.ts
+src/config/gateway-portal-ingress.ts
 src/config/github-identity-profile-id.ts
 src/config/include-write-boundary.ts
 src/config/includes.ts
@@ -629,6 +633,7 @@ src/infra/net/undici-family-policy.ts
 src/infra/net/undici-global-dispatcher.ts
 src/infra/net/undici-runtime.ts
 src/infra/node-compile-cache-env.ts
+src/infra/node-options.ts
 src/infra/node-runner-inventory.ts
 src/infra/node-sqlite.ts
 src/infra/non-fatal-cleanup.ts
@@ -893,6 +898,7 @@ src/plugins/manifest-model-provider-normalizers.ts
 src/plugins/manifest-owner-policy.ts
 src/plugins/manifest-platforms.ts
 src/plugins/manifest-record.ts
+src/plugins/manifest-registry-build.ts
 src/plugins/manifest-registry-installed.ts
 src/plugins/manifest-registry.ts
 src/plugins/manifest-setup-normalizers.ts
@@ -1218,6 +1224,7 @@ test/vitest/vitest.package-contract-paths.mjs
 test/vitest/vitest.pattern-file.ts
 test/vitest/vitest.performance-config.ts
 test/vitest/vitest.plugin-sdk-paths.mjs
+test/vitest/vitest.startup-corpus-paths.mjs
 test/vitest/vitest.test-shards.mjs
 test/vitest/vitest.tooling-isolated-paths.mjs
 test/vitest/vitest.ui-isolated-paths.mjs

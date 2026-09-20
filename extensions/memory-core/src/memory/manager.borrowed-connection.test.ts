@@ -124,6 +124,10 @@ describe("memory manager shared agent connection", () => {
     } finally {
       damaged.close();
     }
+    // Replaced files cannot reuse the original connection's clean integrity receipt.
+    const replacementPath = `${shared.path}.replacement`;
+    await fs.copyFile(shared.path, replacementPath);
+    await fs.rename(replacementPath, shared.path);
 
     expect(() => sqliteRuntime.openOpenClawAgentDatabase({ agentId: "main" })).toThrow(
       /foreign_key_check/,

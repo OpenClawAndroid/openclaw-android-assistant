@@ -25,7 +25,7 @@ import { readTaskFlowViewRecordInDatabase } from "./task-flow-registry.store.ker
 import {
   compareTasksForRunIdLookup,
   getTaskRelatedSessionIndexKeys,
-  normalizeTaskTimestamps,
+  normalizeTaskRecord,
 } from "./task-registry-records.js";
 import { parseDeliveryContextJson, parseSqliteJsonValue } from "./task-registry.sqlite.shared.js";
 import type {
@@ -158,7 +158,7 @@ function rowToTaskRecord(row: TaskRegistryRow): TaskRecord {
   // System tasks intentionally have no requester session; ownerKey is the lookup anchor.
   const requesterSessionKey =
     scopeKind === "system" ? "" : row.requester_session_key?.trim() || row.owner_key;
-  return normalizeTaskTimestamps({
+  return normalizeTaskRecord({
     taskId: row.task_id,
     runtime: parseTaskRuntime(row.runtime),
     ...(row.task_kind ? { taskKind: row.task_kind } : {}),
@@ -207,7 +207,7 @@ type BoundTaskRecord = Insertable<TaskRunsTable>;
 
 /** Canonically serializes a task before an outer transaction acquires the write lock. */
 export function bindTaskRecord(record: TaskRecord): BoundTaskRecord {
-  const normalized = normalizeTaskTimestamps(record);
+  const normalized = normalizeTaskRecord(record);
   return {
     task_id: normalized.taskId,
     runtime: normalized.runtime,
@@ -604,37 +604,46 @@ export function readTaskRegistrySnapshot({
 /** The caller holds shared writer custody across this snapshot and its mutation. */
 export function readTaskRegistryMutationSnapshotInDatabase(
   db: DatabaseSync,
-  scope: TaskRegistryMutationScope,
+  scope: TaskRegistryMutationScope | readonly TaskRegistryMutationScope[],
 ): TaskRegistryStoreSnapshot {
+  const scopes = "taskId" in scope ? [scope] : scope;
+  const taskIds = [...new Set(scopes.map((entry) => entry.taskId))];
+  const runIds = [...new Set(scopes.flatMap((entry) => entry.runId?.trim() || []))];
+  const childSessionKeys = [
+    ...new Set(scopes.flatMap((entry) => entry.childSessionKey?.trim() || [])),
+  ];
   return runSqliteDeferredTransactionSync(db, () => {
     const kysely = getTaskRegistryKysely(db);
-    const runId = scope.runId?.trim();
-    const childSessionKey = scope.childSessionKey?.trim();
     const selected = kysely.selectFrom("task_runs").where((eb) => {
-      // Null-bound trim predicates would force even a task-ID-only lookup to scan all rows.
-      const matches = [eb("task_id", "=", scope.taskId)];
-      if (runId) {
-        matches.push(eb(eb.fn<string>("trim", [eb.ref("run_id")]), "=", runId));
+      // Restore repairs legacy identifiers before scoped reads; every selector stays indexed.
+      // Bound sets keep the parameter count fixed even for large refreshes.
+      const matches = [eb("task_runs.task_id", "in", sqliteStringSet(taskIds))];
+      if (runIds.length) {
+        matches.push(eb("run_id", "in", sqliteStringSet(runIds)));
       }
-      if (childSessionKey) {
-        matches.push(
-          eb(eb.fn<string>("trim", [eb.ref("child_session_key")]), "=", childSessionKey),
-        );
+      if (childSessionKeys.length) {
+        matches.push(eb("child_session_key", "in", sqliteStringSet(childSessionKeys)));
       }
       return eb.or(matches);
     });
     const taskRows = executeSqliteQuerySync(
       db,
-      selected.selectAll().orderBy("created_at", "asc").orderBy("task_id", "asc"),
+      selected
+        .leftJoin("task_delivery_state", "task_delivery_state.task_id", "task_runs.task_id")
+        .selectAll("task_runs")
+        .select([
+          "task_delivery_state.task_id as delivery_task_id",
+          "requester_origin_json",
+          "last_notified_event_at",
+        ])
+        .orderBy("created_at", "asc")
+        .orderBy("task_runs.task_id", "asc"),
     ).rows;
-    const deliveryRows = executeSqliteQuerySync(
-      db,
-      kysely
-        .selectFrom("task_delivery_state")
-        .select(TASK_DELIVERY_STATE_SELECT_COLUMNS)
-        .where("task_id", "in", sqliteStringSet(taskRows.map((row) => row.task_id)))
-        .orderBy("task_id", "asc"),
-    ).rows;
+    const deliveryRows = taskRows
+      .filter((row) => row.delivery_task_id !== null)
+      .toSorted((left, right) =>
+        Buffer.compare(Buffer.from(left.task_id), Buffer.from(right.task_id)),
+      );
     return {
       tasks: new Map(taskRows.map((row) => [row.task_id, rowToTaskRecord(row)])),
       deliveryStates: new Map(

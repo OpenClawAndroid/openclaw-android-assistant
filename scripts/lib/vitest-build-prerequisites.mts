@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { startupCorpusTestFiles } from "../../test/vitest/vitest.startup-corpus-paths.mjs";
 import { fullSuiteVitestShards } from "../../test/vitest/vitest.test-shards.mjs";
 import { runManagedCommand } from "./managed-child-process.mts";
 import { resolveRepoRoot } from "./repo-root.mjs";
@@ -110,6 +111,7 @@ const runtimeConsumers = [
   ...[
     "src/agents/agent-command-local.test.ts",
     "src/agents/simple-completion-runtime.plugin-scope.test.ts",
+    "src/agents/prepared-model-catalog-worker.custody.integration.test.ts",
     "src/agents/prepared-model-catalog-worker.integration.test.ts",
     "src/agents/runtime-plugins.context-engine.integration.test.ts",
   ].map((file) => ({
@@ -151,14 +153,12 @@ const runtimeConsumers = [
     mode: "runtime",
     dir: "",
   },
-  ...["src/config/config-startup-corpus.test.ts", "src/config/state-startup-corpus.test.ts"].map(
-    (file) => ({
-      file,
-      configs: ["test/vitest/vitest.runtime-config.config.ts"],
-      mode: "runtime" as const,
-      dir: "src",
-    }),
-  ),
+  ...startupCorpusTestFiles.map((file) => ({
+    file,
+    configs: ["test/vitest/vitest.runtime-config.config.ts"],
+    mode: "runtime" as const,
+    dir: "src",
+  })),
   {
     file: "test/agent-exec-code-mode.live.test.ts",
     configs: ["test/vitest/vitest.live.config.ts"],
@@ -212,6 +212,8 @@ const runtimeConsumers = [
   ...[
     "src/infra/update-candidate-canary.integration.test.ts",
     "src/infra/update-managed-service-handoff-lifecycle.test.ts",
+    "src/infra/update-managed-service-handoff-repair-validating.test.ts",
+    "src/infra/update-managed-service-handoff-repair-verifying.test.ts",
   ].map((file) => ({
     file,
     configs: ["test/vitest/vitest.infra.config.ts"],

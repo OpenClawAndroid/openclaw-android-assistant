@@ -40,6 +40,12 @@
           - "extensions/typesafe/**"
           - "docs/plugins/typesafe.md"
           - "docs/plugins/reference/typesafe.md"
+"plugin: onnx":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/onnx/**"
+          - "docs/plugins/onnx.md"
+          - "docs/plugins/reference/onnx.md"
 "channel: a2a":
   - changed-files:
       - any-glob-to-any-file:

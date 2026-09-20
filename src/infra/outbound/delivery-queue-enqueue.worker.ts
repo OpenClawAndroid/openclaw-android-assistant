@@ -25,13 +25,6 @@ export function executeDeliveryQueueEnqueue(
 ): DeliveryQueueWorkerOperations["deliveryQueue.enqueue"]["output"] {
   // SAFETY: Only the host enqueue owner supplies this canonical, typed queue-entry JSON.
   const entry = JSON.parse(input.entryJson) as DeliveryQueueEntryState;
-  if (input.kind === "random" && !input.mediaStageId) {
-    upsertDeliveryQueueEntryInDatabase(
-      { queueName: OUTBOUND_DELIVERY_QUEUE_NAME, entry },
-      writeOptions.database,
-    );
-    return "created";
-  }
   const conflictQueueNames = [
     OUTBOUND_DELIVERY_MIGRATION_QUEUE_NAME,
     OUTBOUND_LEGACY_PREPARATION_QUEUE_NAME,
@@ -54,6 +47,14 @@ export function executeDeliveryQueueEnqueue(
             transaction.outcome = "rolled-back";
           },
         });
+        // Random inserts need the same rollback evidence as staged enqueues.
+        if (input.kind === "random" && !input.mediaStageId) {
+          upsertDeliveryQueueEntryInDatabase(
+            { queueName: OUTBOUND_DELIVERY_QUEUE_NAME, entry },
+            database,
+          );
+          return "created";
+        }
         if (input.kind === "prepared") {
           return movePendingDeliveryQueueEntryNamespaceInDatabase(database, {
             sourceQueueName: OUTBOUND_DELIVERY_PREPARATION_QUEUE_NAME,

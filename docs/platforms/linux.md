@@ -319,8 +319,13 @@ On X11, use the gear in Quick Chat to record or reset a custom shortcut. The
 plain **Quick Chat** tray item. Global shortcuts are not available on Wayland, so
 the shortcut settings are hidden and the tray item remains the entry point.
 After an accepted send, Quick Chat stays open and streams the selected agent's
-plain-text reply below the composer. Press `Esc` to dismiss the bar and its reply;
-`Ctrl+Enter` still opens the dashboard.
+plain-text reply above one bottom composer, with your submitted message alongside
+the reply. Collapse the reply to keep a compact composer; expanding it restores
+the live text and any widget contents. You can prepare the next draft while a
+reply streams, then send it when the turn finishes. Return sends, Shift-Return
+adds a newline, and `Ctrl+Enter` sends and opens the dashboard. **Open dashboard**
+is also available beside the composer controls. Press `Esc` to dismiss the bar
+and its reply.
 
 ## CLI and SSH alternative
 

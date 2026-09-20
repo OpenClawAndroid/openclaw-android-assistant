@@ -80,7 +80,7 @@ describe("CLI durable session context", () => {
       vi.restoreAllMocks();
       resetCliRunnerPrepareTestDeps();
       cliBackendsTesting.resetDepsForTest();
-      fixture.cleanup();
+      await fixture.cleanup();
     }
   });
 

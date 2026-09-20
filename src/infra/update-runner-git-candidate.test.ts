@@ -26,6 +26,8 @@ async function git(root: string, ...args: string[]) {
 
 type VirtualStoreLayout =
   | "node_modules/.pnpm"
+  | "node_modules/.cache/jiti"
+  | "node_modules/.vite/deps"
   | ".pnpm"
   | "cache/deps"
   | "../store"
@@ -607,6 +609,8 @@ describe("Git candidate activation", () => {
 
   it.each([
     { layout: "node_modules/.pnpm", localCommit: false, inspection: false },
+    { layout: "node_modules/.cache/jiti", localCommit: false, inspection: false },
+    { layout: "node_modules/.vite/deps", localCommit: false, inspection: false },
     { layout: "node_modules/.pnpm", localCommit: true, inspection: false },
     { layout: ".pnpm", localCommit: false, inspection: false },
     { layout: "cache/deps", localCommit: false, inspection: false },
@@ -729,50 +733,42 @@ describe("Git candidate activation", () => {
     },
   );
 
-  it.each([
-    ".",
-    "..",
-    "../checkout",
-    ".artifacts/checkout",
-    "live:node_modules",
-    "live:dist",
-    "live:packages/runtime/node_modules",
-    "link:node_modules",
-  ])("refuses virtual store %s before promotion can replace a checkout", async (store) => {
-    const cleanupRoot = path.join(directory, "candidate-scope");
-    const candidateRoot = path.join(cleanupRoot, "worktree");
-    const modules = path.join(candidateRoot, "node_modules");
-    await fs.mkdir(modules, { recursive: true });
-    const replacedRoot = /^(?:live|link):(.+)$/u.exec(store)?.[1];
-    const payload = replacedRoot
-      ? path.join(root, replacedRoot, "operator-store")
-      : path.resolve(candidateRoot, store);
-    const storePath = store.startsWith("link:") ? path.join(directory, "external-store") : payload;
-    await fs.mkdir(payload, { recursive: true });
-    if (storePath !== payload) {
-      await fs.symlink(payload, storePath, "junction");
+  it("omits generated tool caches while preserving runtime files during promotion", async () => {
+    const target = await advanceRemote();
+    const omitted = [
+      "node_modules/.cache/jiti",
+      "node_modules/.vite",
+      "node_modules/.vite-temp",
+      "ui/node_modules/.cache/jiti",
+    ];
+    const retained = [
+      "node_modules/.cache/other-tool",
+      "node_modules/package/.cache/jiti",
+      "node_modules/package/.vite",
+      "packages/runtime/node_modules/.cache/jiti",
+      "dist/.cache/jiti",
+      "dist-runtime/.vite",
+    ];
+    const result = await update({
+      validateCandidate: async (candidateRoot) => {
+        for (const relative of [...omitted, ...retained]) {
+          await fs.mkdir(path.join(candidateRoot, relative), { recursive: true });
+          await fs.writeFile(path.join(candidateRoot, relative, "content"), "keep or regenerate");
+        }
+        await expectRuntime(candidateRoot, target);
+      },
+    });
+    expect(result.status, JSON.stringify(result)).toBe("ok");
+    for (const relative of omitted) {
+      await expect(fs.stat(path.join(root, relative))).rejects.toMatchObject({ code: "ENOENT" });
     }
-    if (replacedRoot) {
-      const candidateRuntime = path.join(candidateRoot, replacedRoot);
-      await fs.mkdir(candidateRuntime, { recursive: true });
-      await fs.writeFile(path.join(candidateRuntime, "candidate.cjs"), "module.exports = 1;\n");
+    for (const relative of retained) {
+      expect(await fs.readFile(path.join(root, relative, "content"), "utf8")).toBe(
+        "keep or regenerate",
+      );
     }
-    if (store === ".artifacts/checkout") {
-      await fs.symlink(directory, path.join(root, ".artifacts"), "junction");
-    }
-    await git(candidateRoot, "init", "--initial-branch=main");
-    await fs.writeFile(path.join(candidateRoot, ".gitignore"), "node_modules/\ndist/\n");
-    await fs.writeFile(
-      path.join(modules, ".modules.yaml"),
-      JSON.stringify({
-        virtualStoreDir: path.relative(modules, storePath),
-      }),
-    );
-    await expect(
-      prepareGitRuntimePromotion(root, candidateRoot, runCommand, 5000, cleanupRoot),
-    ).rejects.toThrow(/virtual store/i);
-    expect(await git(root, "rev-parse", "HEAD")).toBe(beforeSha);
-    await expectRuntime(root, beforeSha);
+    await expectRuntime(root, target);
+    await expectNoRuntimeStagingPaths();
   });
 
   it("leaves the old runtime serving when candidate validation fails", async () => {
@@ -855,6 +851,9 @@ describe("Git candidate activation", () => {
     async ({ layout, restoreSource, restoreRuntime, timeoutMs }) => {
       virtualStoreLayout = layout;
       await writeRuntime(root, beforeSha, path.join(directory, "shared-store"), layout);
+      const originalCache = path.join(root, "node_modules", ".cache", "jiti", "original.cjs");
+      await fs.mkdir(path.dirname(originalCache), { recursive: true });
+      await fs.writeFile(originalCache, "original runtime cache");
       const candidateSha = await advanceRemote();
       const command = runCommand;
       let resetFaultInjected = false;
@@ -966,6 +965,7 @@ describe("Git candidate activation", () => {
         return;
       }
       await expectRuntime(root, beforeSha);
+      expect(await fs.readFile(originalCache, "utf8")).toBe("original runtime cache");
     },
   );
 

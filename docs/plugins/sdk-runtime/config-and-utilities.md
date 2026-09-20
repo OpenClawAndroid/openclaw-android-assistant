@@ -106,6 +106,35 @@ It may return `void` or `Promise<void>`; observer throws and rejections do not
 replace the termination error or release custody, and closure does not wait for
 the observer.
 
+`prepareWorker()` can return `temporaryDirectory` for disposable scratch files
+and an optional asynchronous `releaseResources()` callback for producer-owned
+resources. Both remain retained until Worker exit is confirmed; cleanup also
+runs if construction fails before a Worker exists. When both are supplied,
+the pool attempts temporary-directory removal first, then calls
+`releaseResources()` even if that removal fails. Cleanup failures become warnings.
+Resource cleanup itself does not hold execution capacity after Worker exit;
+pending input preparation can still retain it as described below. `close()`
+joins the cleanup callback before it completes. A failed termination runs neither
+cleanup step; retry `close()` on the same pool to confirm exit and release them.
+
+Cancellation can reject `run()` before an asynchronous input factory settles.
+The pool retains its inputs and capacity until preparation and required worker
+retirement both finish, then invokes `onInputConsumed`. When cancellation's initial
+retirement succeeds, the native execution receipt precedes result rejection. A
+failed stop can reject earlier while retaining native custody and the pending
+receipt for retry.
+
+Input factories must settle independently of the same pool’s `close()`: awaiting
+closure inside a pending factory creates a cycle because closure joins that
+factory. Cancel any awaited work owned by the factory before awaiting `close()`,
+then await closure before disposing resources the factory still captures. The
+`run()` signal cancels the task; it does not interrupt arbitrary work awaited by
+the factory.
+
+Handle errors from `close()` even when `run()` already rejected. For canceled
+pending preparation, input and execution-receipt callback failures are reported
+by `close()`; admission remains held until closure observes the cleanup failure.
+
 When launching an isolated Gateway child that your plugin owns, remove
 `SUPERVISOR_HINT_ENV_VARS` from its environment after applying caller overrides.
 This list is exported from `openclaw/plugin-sdk/process-runtime`; inherited parent

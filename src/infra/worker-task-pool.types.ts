@@ -7,10 +7,12 @@ import type { WorkerNativeSectionState } from "./worker-task-native-sections.js"
 export type WorkerTaskPoolOptions<Output> = {
   workerUrl: URL;
   workerOptions?: Omit<WorkerOptions, "eval">;
-  /** Shallow per-Worker overrides; returned scratch stays owned until Worker exit. */
+  /** Shallow per-Worker overrides; resources stay owned until confirmed Worker exit. */
   prepareWorker?: () => {
     options: Omit<WorkerOptions, "eval">;
     temporaryDirectory?: string;
+    /** Runs after temporary-directory cleanup; terminal close joins completion. */
+    releaseResources?: () => Promise<void>;
   };
   maxWorkers?: number;
   /** Share CPU admission with other stateless compute pools in this isolate. */
@@ -98,7 +100,7 @@ export type Task<Input, Output> = Deferred<Output> & {
   done: boolean;
   slot?: Slot<Input, Output>;
   admitted: boolean;
-  preparing: boolean;
+  /** Present only while the input factory is pending. */
   preparation?: Deferred;
   owner?: TaskOwner;
   inputBytes: number;
@@ -111,7 +113,7 @@ export type Task<Input, Output> = Deferred<Output> & {
 export type Slot<Input, Output> = {
   nativeSections: WorkerNativeSectionState;
   worker?: Worker;
-  temporaryDirectory?: string;
+  releaseResources?: () => Promise<void>;
   task?: Task<Input, Output>;
   idleTimer?: NodeJS.Timeout;
   retiring?: Promise<void>;

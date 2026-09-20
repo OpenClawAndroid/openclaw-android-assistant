@@ -179,11 +179,11 @@ export function buildTtsSupplementMediaPayload(payload: ReplyPayload): ReplyPayl
     btw: _btw,
     ...mediaPayload
   } = payload;
-  return {
+  return copyReplyPayloadMetadata(payload, {
     ...mediaPayload,
     spokenText: supplement.spokenText,
     ttsSupplement: supplement,
-  };
+  });
 }
 
 /** WeakMap-backed metadata attached to payload objects without changing wire shape. */
@@ -199,6 +199,8 @@ export type SessionWriterDeliveryAuthority = {
 };
 
 export type ReplyPayloadMetadata = {
+  /** Raw parsing classified the text as silent before removing its control token. */
+  silentReply?: true;
   /** The model failed after a committed recovery compaction in the same turn. */
   postCompactionModelFailure?: true;
   assistantMessageIndex?: number;
@@ -214,6 +216,10 @@ export type ReplyPayloadMetadata = {
   ttsExplicit?: true;
   /** Original runtime MEDIA references used to identify the persisted assistant row. */
   assistantTranscriptMediaUrls?: string[];
+  /** Original references associated with each successfully normalized media URL. */
+  replyMediaSourceUrls?: ReadonlyMap<string, readonly string[]>;
+  /** A delivery modifier selected the current payload media for this operation. */
+  replyMediaSelectionChanged?: true;
   /** Ordered per-source failures retained until transcript/display projection. */
   assistantMediaFailures?: ReplyMediaFailure[];
   /** The runtime owns the transcript decision for this assistant payload. */
@@ -251,6 +257,8 @@ export type ReplyPayloadMetadata = {
   };
   /** replyToId existed before reply threading could inject an implicit target. */
   replyToIdExplicit?: boolean;
+  /** The host's single-use reply policy already consumed its target. */
+  replyTargetSuppressed?: true;
   /** Canonical reply policy used by both message-tool dedupe and final delivery routing. */
   replyDelivery?: ReplyDeliveryContext;
   /** Route identity that produced replyDelivery, used to reject stale cross-route policy. */
@@ -316,6 +324,28 @@ export function setReplyPayloadMetadata<T extends object>(
 /** Reads internal metadata attached to a reply payload object. */
 export function getReplyPayloadMetadata(payload: object): ReplyPayloadMetadata | undefined {
   return replyPayloadMetadata.get(payload);
+}
+
+/** Explicit speech remains content while the payload waits for TTS admission. */
+export function hasReplyPayloadSpeechContent(payload: object): boolean {
+  return Boolean(readNonBlankString(getReplyPayloadMetadata(payload)?.tts?.text));
+}
+
+export function isReplyPayloadTargetSuppressed(payload: object): boolean {
+  return getReplyPayloadMetadata(payload)?.replyTargetSuppressed === true;
+}
+
+/** Keep derived reply fields consistent with the host's recorded target decision. */
+export function applyReplyPayloadTargetPolicy(payload: ReplyPayload): ReplyPayload {
+  if (!isReplyPayloadTargetSuppressed(payload)) {
+    return payload;
+  }
+  return copyReplyPayloadMetadata(payload, {
+    ...payload,
+    replyToId: undefined,
+    replyToCurrent: false,
+    replyToTag: false,
+  });
 }
 
 /** Revalidates an authority-bearing payload against a freshly loaded session row. */
@@ -396,9 +426,15 @@ export function isReplyPayloadStatusNotice(
 }
 
 /** Returns whether a payload carries a terminal answer or command result, not a supplemental lane. */
-export const isReplyPayloadTerminalContent = (payload: ReplyPayload): boolean =>
-  payload.isReasoning !== true &&
-  payload.isCommentary !== true &&
-  (!isReplyPayloadStatusNotice(payload) ||
-    getReplyPayloadMetadata(payload)?.commandReply === true) &&
-  !isReplyPayloadTtsSupplement(payload);
+export const isReplyPayloadTerminalContent = (payload: ReplyPayload): boolean => {
+  const supplement = getReplyPayloadTtsSupplement(payload);
+  return (
+    payload.isReasoning !== true &&
+    payload.isCommentary !== true &&
+    (!isReplyPayloadStatusNotice(payload) ||
+      getReplyPayloadMetadata(payload)?.commandReply === true) &&
+    (!supplement ||
+      (supplement.visibleTextAlreadyDelivered !== true &&
+        Boolean(readNonBlankString(payload.text))))
+  );
+};

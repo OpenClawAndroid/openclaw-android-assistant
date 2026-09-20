@@ -420,7 +420,7 @@ listener. It does not attach to or modify an existing operator Gateway.
 
 <Accordion title="Gateway restart (scripts/bench-gateway-restart.ts)">
 
-macOS and Linux only (uses SIGUSR1 for in-process restarts; fails immediately on Windows). Same built-entry default and `--entry scripts/run-node.mjs` override as gateway startup above.
+macOS and Linux only (uses SIGUSR2 for in-process restarts; fails immediately on Windows). Same built-entry default and `--entry scripts/run-node.mjs` override as gateway startup above.
 
 ```bash
 pnpm test:restart:gateway -- --case skipChannels --runs 1 --restarts 5

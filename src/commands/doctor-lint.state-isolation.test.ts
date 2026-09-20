@@ -20,6 +20,7 @@ import { resolveCronJobsStorePathFromConfig, saveCronStore } from "../cron/store
 import { clearHealthChecksForTest } from "../flows/health-check-registry.js";
 import type { HealthCheckContext } from "../flows/health-checks.js";
 import { requestDevicePairing } from "../infra/device-pairing.js";
+import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { createSkillProposalEvent } from "../skills/workshop/plugin-hooks.js";
 import { appendSkillProposalEvent } from "../skills/workshop/store-sqlite-event.js";
 import { importLegacySkillProposal } from "../skills/workshop/store.js";
@@ -75,6 +76,13 @@ vi.mock("../infra/node-sqlite.js", async (importOriginal) => {
   };
 });
 
+// Resolve the real descriptor during collection so cold module loading is not timed as behavior.
+const actualContributions = await vi.importActual<
+  typeof import("../flows/doctor-health-contributions.js")
+>("../flows/doctor-health-contributions.js");
+const workshopCheck = (await actualContributions.resolveDoctorContributionHealthChecks()).find(
+  (entry) => entry.id === "core/doctor/skill-workshop-relocation",
+);
 const runtime = createTestRuntime();
 
 const originalEnv = {
@@ -134,7 +142,7 @@ describe("doctor lint state isolation", () => {
         const skillContents = targets.map(({ id, root }) =>
           fs.readFileSync(path.join(root, "workshop-skills", id, "SKILL.md"), "utf8"),
         );
-        const check = await selectWorkshopCheckWithUnavailableSource(databasePath);
+        const check = selectWorkshopCheckWithUnavailableSource(databasePath);
         mocks.sqliteOpen.mockClear();
         const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
         try {
@@ -243,7 +251,7 @@ describe("doctor lint state isolation", () => {
           await closeOpenClawStateDatabaseByPathAsync(databasePath);
           const before = snapshotDoctorLintSqliteFamily(databasePath);
           const backupBefore = fs.readFileSync(backup, "utf8");
-          await selectWorkshopCheckWithUnavailableSource(databasePath);
+          selectWorkshopCheckWithUnavailableSource(databasePath);
           mocks.sqliteOpen.mockClear();
           const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
           try {
@@ -820,7 +828,7 @@ describe("doctor lint state isolation", () => {
   );
 
   it.each(["lint", "advisory"])(
-    "preserves source WAL artifacts during %s source reads",
+    "shares private bytes within each %s report and refreshes the next report",
     async (entrypoint) => {
       await withOpenClawTestState({ prefix: "openclaw-doctor-lint-source-wal-" }, async (state) => {
         await state.writeConfig({ memory: { search: { enabled: false } } });
@@ -830,31 +838,54 @@ describe("doctor lint state isolation", () => {
         writer.exec(
           "PRAGMA journal_mode = WAL; CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES ('committed');",
         );
-        const before = snapshotDoctorLintSqliteFamily(databasePath);
-        let observed: unknown;
+        const locations: string[] = [];
+        const observed: unknown[] = [];
         mocks.resolveDoctorContributionHealthChecks.mockResolvedValue([
           {
             id: "core/doctor/source-state-read",
             kind: "core",
             description: "reads source state through the shared read-only owner",
             async detect(ctx: HealthCheckContext) {
-              observed = withExistingOpenClawStateDatabaseReadOnly(
-                ({ db }) => db.prepare("SELECT value FROM marker").all(),
-                { env: ctx.env },
-              );
+              for (let read = 0; read < 3; read++) {
+                observed.push(
+                  withExistingOpenClawStateDatabaseReadOnly(
+                    ({ db }) => {
+                      locations.push(db.location()!);
+                      return db.prepare("SELECT value FROM marker").all();
+                    },
+                    { env: ctx.env },
+                  ),
+                );
+                await Promise.resolve();
+              }
               return [];
             },
           },
         ]);
         const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
         try {
-          if (entrypoint === "lint") {
-            await runDoctorLintCli(runtime, { json: true, includeAllChecks: true });
-          } else {
-            await collectDoctorFindings(runtime);
+          const previousLocations = new Set<string>();
+          for (const value of ["committed", "updated"]) {
+            writer.prepare("UPDATE marker SET value = ?").run(value);
+            const before = snapshotDoctorLintSqliteFamily(databasePath);
+            locations.length = 0;
+            observed.length = 0;
+            if (entrypoint === "lint") {
+              await runDoctorLintCli(runtime, { json: true, includeAllChecks: true });
+            } else {
+              await collectDoctorFindings(runtime);
+            }
+            expect(observed).toEqual(Array.from({ length: 3 }, () => [{ value }]));
+            const uniqueLocations = new Set(locations);
+            expect(uniqueLocations.size).toBe(1);
+            for (const location of uniqueLocations) {
+              expect(location).not.toBe(databasePath);
+              expect(previousLocations.has(location)).toBe(false);
+              expect(fs.existsSync(location)).toBe(false);
+              previousLocations.add(location);
+            }
+            expect(snapshotDoctorLintSqliteFamily(databasePath)).toEqual(before);
           }
-          expect(observed).toEqual([{ value: "committed" }]);
-          expect(snapshotDoctorLintSqliteFamily(databasePath)).toEqual(before);
         } finally {
           stdout.mockRestore();
           writer.close();
@@ -882,7 +913,8 @@ describe("doctor lint state isolation", () => {
     const databasePath = resolveOpenClawStateSqlitePath(process.env);
     await closeOpenClawStateDatabaseByPathAsync(databasePath);
     const lock = new DatabaseSync(databasePath);
-    lock.exec("BEGIN IMMEDIATE");
+    // Initialize WAL artifacts before hashing; Windows rejects raw reads under a write lock.
+    lock.exec("BEGIN IMMEDIATE; ROLLBACK");
     const before = snapshotDoctorLintSqliteFamily(databasePath);
     let resolvedToken: string | undefined;
     mocks.resolveDoctorContributionHealthChecks.mockResolvedValue([
@@ -893,7 +925,7 @@ describe("doctor lint state isolation", () => {
         async detect() {
           const privateDatabasePath = resolveOpenClawStateSqlitePath(process.env);
           expect(privateDatabasePath).not.toBe(databasePath);
-          const competingWriter = new DatabaseSync(privateDatabasePath);
+          const competingWriter = openNodeSqliteDatabase(privateDatabasePath);
           competingWriter.exec("BEGIN IMMEDIATE");
           const signal = AbortSignal.timeout(250);
           const releaseWriter = () => {
@@ -920,6 +952,7 @@ describe("doctor lint state isolation", () => {
 
     const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     try {
+      lock.exec("BEGIN IMMEDIATE");
       const exitCode = await runDoctorLintCli(runtime, {
         json: true,
         onlyIds: ["core/doctor/runtime-tool-schemas"],
@@ -939,12 +972,15 @@ describe("doctor lint state isolation", () => {
           },
         ],
       });
+      lock.exec("ROLLBACK");
       expect(exitCode).toBe(0);
       expect(resolvedToken).toBeUndefined();
       expect(snapshotDoctorLintSqliteFamily(databasePath)).toEqual(before);
     } finally {
       stdout.mockRestore();
-      lock.exec("ROLLBACK");
+      if (lock.isTransaction) {
+        lock.exec("ROLLBACK");
+      }
       lock.close();
       await closeOpenClawStateDatabaseByPathAsync(databasePath);
       fs.rmSync(rootDir, { recursive: true, force: true });
@@ -952,13 +988,8 @@ describe("doctor lint state isolation", () => {
   });
 });
 
-async function selectWorkshopCheckWithUnavailableSource(databasePath: string) {
-  const actual = await vi.importActual<typeof import("../flows/doctor-health-contributions.js")>(
-    "../flows/doctor-health-contributions.js",
-  );
-  const check = (await actual.resolveDoctorContributionHealthChecks()).find(
-    (entry) => entry.id === "core/doctor/skill-workshop-relocation",
-  );
+function selectWorkshopCheckWithUnavailableSource(databasePath: string) {
+  const check = workshopCheck;
   if (!check) {
     throw new Error("skill-workshop-relocation contribution is missing");
   }

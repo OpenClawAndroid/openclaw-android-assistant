@@ -85,7 +85,6 @@ import {
   type SessionRowProjection,
 } from "../gateway/session-row-projection.js";
 import { capArrayByJsonBytes } from "../gateway/session-transcript-readers.js";
-import { listProjectedSessions } from "../gateway/session-utils-list.js";
 import { projectSessionPatchResult } from "../gateway/session-utils-model.js";
 import { buildGatewaySessionRow } from "../gateway/session-utils-row.js";
 import { createGatewaySessionEntryReader } from "../gateway/session-utils-store-lookup.js";
@@ -131,6 +130,7 @@ import {
   type QueuedSessionRun,
 } from "./embedded-local-run.js";
 import { EmbeddedPreparedModelRuntimeHost } from "./embedded-prepared-runtime.js";
+import { createEmbeddedSessionReader } from "./embedded-session-reader.js";
 import type {
   ChatSendOptions,
   TuiAgentsList,
@@ -139,7 +139,6 @@ import type {
   TuiChatSendResult,
   TuiEvent,
   TuiModelChoice,
-  TuiSessionList,
   TuiSessionCreateOptions,
   TuiImageRequest,
   TuiImageData,
@@ -231,6 +230,10 @@ export class EmbeddedTuiBackend implements TuiBackend {
   private unbindSessionProjection?: () => void;
   // Store methods await migration and the shared resident session rows.
   private ready: Promise<void> = Promise.resolve();
+  private readonly sessionReader = createEmbeddedSessionReader({
+    ready: () => this.ready,
+    projection: () => this.sessionProjection,
+  });
 
   start() {
     if (this.unsubscribe) {
@@ -311,10 +314,7 @@ export class EmbeddedTuiBackend implements TuiBackend {
     this.unbindSessionProjection = undefined;
     const projection = this.sessionProjection;
     this.sessionProjection = undefined;
-    await projection?.then(
-      (value) => value.dispose(),
-      () => {},
-    );
+    await projection?.catch(() => undefined).then((value) => value?.dispose());
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.pendingLifecycleErrors.forEach(clearTimeout);
@@ -329,6 +329,7 @@ export class EmbeddedTuiBackend implements TuiBackend {
     this.previousRuntimeLog = undefined;
     this.previousRuntimeError = undefined;
     setEmbeddedMode(false);
+    await this.preparedModelRuntime.waitUntilReady();
   }
 
   async sendChat(opts: ChatSendOptions): Promise<TuiChatSendResult> {
@@ -653,18 +654,8 @@ export class EmbeddedTuiBackend implements TuiBackend {
     };
   }
 
-  async listSessions(opts?: Parameters<TuiBackend["listSessions"]>[0]): Promise<TuiSessionList> {
-    await this.ready;
-    const publication = this.sessionProjection;
-    const projection = await publication;
-    if (!projection || publication !== this.sessionProjection) {
-      throw new Error("Embedded session projection is unavailable");
-    }
-    return (await listProjectedSessions({
-      projection,
-      opts: opts ?? {},
-    })) as TuiSessionList;
-  }
+  listSessions = this.sessionReader.listSessions;
+  describeSession = this.sessionReader.describeSession;
 
   async listAgents(): Promise<TuiAgentsList> {
     return (await listAgentsForGateway(getRuntimeConfig())) as TuiAgentsList;

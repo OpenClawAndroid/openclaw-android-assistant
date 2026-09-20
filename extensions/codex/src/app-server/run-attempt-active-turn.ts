@@ -24,13 +24,14 @@ import type { EmbeddedRunAttemptResult } from "./attempt-terminal.js";
 import { CodexAppServerEventProjector } from "./event-projector.js";
 import { createCodexNativeMcpAppResultDetailsPreparer } from "./native-mcp-app.js";
 import { canonicalizeNativeProgressCardInput } from "./plan-compaction-state.js";
-import { isJsonObject, type CodexTurnStartResponse } from "./protocol.js";
+import { isJsonObject } from "./protocol.js";
 import { readRecentCodexRateLimits } from "./rate-limit-cache.js";
 import { readBoundedCodexRemoteWorkspaceFile } from "./remote-workspace-media.js";
 import { mapCodexAppServerRemoteWorkspacePath } from "./remote-workspace-path.js";
 import type { CodexAttemptLifecycleController } from "./run-attempt-lifecycle-controller.js";
 import type { CodexAttemptNotificationController } from "./run-attempt-notification-controller.js";
 import type { CodexAttemptResources } from "./run-attempt-resources.js";
+import type { CodexStartedTurn } from "./run-attempt-turn-request.js";
 import type { CodexAttemptTurnState } from "./run-attempt-turn-state.js";
 import {
   codexTranscriptMirrorRuntime,
@@ -46,7 +47,7 @@ export function activateCodexAttemptTurn(
   turnRuntime: CodexAttemptTurnState,
   lifecycle: CodexAttemptLifecycleController,
   notifications: CodexAttemptNotificationController,
-  turn: CodexTurnStartResponse,
+  { turn, upstreamUserText }: CodexStartedTurn,
 ) {
   const {
     prompt,
@@ -231,7 +232,7 @@ export function activateCodexAttemptTurn(
           }
         : {}),
       ...(prepareNativeMcpAppResultDetails ? { prepareNativeMcpAppResultDetails } : {}),
-      upstreamUserText: turnState.codexTurnPromptText,
+      upstreamUserText,
       onContextCompacted: async () => {
         computerContextEpoch.value += 1;
         delete computerContextEpoch.frameToolCallId;
@@ -680,7 +681,7 @@ export function activateCodexAttemptTurn(
           cwd: effectiveCwd,
           threadId: resourceState.thread.threadId,
           turnId: activeTurnId,
-          upstreamUserText: turnState.codexTurnPromptText,
+          upstreamUserText,
         }),
       );
     } catch (error) {

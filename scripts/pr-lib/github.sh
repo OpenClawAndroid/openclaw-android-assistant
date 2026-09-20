@@ -54,7 +54,16 @@ pr_gh_run() (
 
 pr_gh() { pr_gh_run read "$@"; }
 
-pr_gh_plain() { pr_gh_run plain "$@"; }
+pr_gh_plain() { pr_gh_run "${pr_gh_quota_route:-plain}" "$@"; }
+
+pr_gh_quota_read() {
+  local pr_gh_quota_route=plain-quota
+  pr_gh_plain "$@"
+}
+
+pr_gh_quota_exhausted() {
+  printf '%s\n' "$1" | jq -e '. == {graphqlQuotaExhausted:true}' >/dev/null 2>&1
+}
 
 pr_gh_writer_login() {
   local response exit_code=0

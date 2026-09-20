@@ -27,7 +27,6 @@ import {
   validatePnpmIsolatedUpdate,
 } from "./package-update-manager-preflight.js";
 import {
-  isBlockingPackageUpdateStep,
   PackageUpdateActivationError,
   removePackageUpdatePath,
   swapStagedPackageInstall,
@@ -70,6 +69,7 @@ import {
   type NpmGlobalPrefixLayout,
 } from "./update-npm-prefix.js";
 import type { UpdateRecovery } from "./update-recovery.js";
+import { isFailedUpdateStep } from "./update-run-step.js";
 import type { UpdateStepResult } from "./update-runner-types.js";
 export type { PackageUpdateTransaction } from "./package-update-swap.js";
 
@@ -881,11 +881,11 @@ export async function runGlobalPackageUpdateSteps(params: {
       }
     }
 
-    if (
-      stagedInstall?.native &&
-      params.installTarget.pnpmIsolated &&
-      finalInstallStep.exitCode === 0
-    ) {
+    if (isFailedUpdateStep(finalInstallStep)) {
+      return await packageUpdateFailure(finalInstallStep, steps);
+    }
+
+    if (stagedInstall?.native && params.installTarget.pnpmIsolated) {
       const activePackages = await listActivePnpmIsolatedGlobalPackages({
         globalRoot: stagedInstall.native.globalRoot,
         packageName: params.packageName,
@@ -909,7 +909,7 @@ export async function runGlobalPackageUpdateSteps(params: {
     // Resolve it again before verification so doctor and version checks inspect
     // the package behind the refreshed global shim, not the removed old root.
     const refreshedPnpmPackageRoot =
-      finalInstallStep.exitCode === 0 && !stagedInstall && params.installTarget.pnpmIsolated
+      !stagedInstall && params.installTarget.pnpmIsolated
         ? await (async () => {
             const activeRoots = (
               await listActivePnpmIsolatedGlobalPackages({
@@ -934,7 +934,6 @@ export async function runGlobalPackageUpdateSteps(params: {
           })()
         : null;
     const pnpmReplacementMissing =
-      finalInstallStep.exitCode === 0 &&
       !stagedInstall &&
       params.installTarget.manager === "pnpm" &&
       params.installTarget.pnpmIsolated !== undefined &&
@@ -970,7 +969,7 @@ export async function runGlobalPackageUpdateSteps(params: {
     if (!stagedInstall) {
       activePackageRoot = livePackageRoot;
     }
-    if (finalInstallStep.exitCode === 0 && !verificationPackageRoot) {
+    if (!verificationPackageRoot) {
       const failedStep: UpdateStepResult = {
         name: "global install verify",
         command: "resolve installed package",
@@ -982,7 +981,7 @@ export async function runGlobalPackageUpdateSteps(params: {
       return await packageUpdateFailure(failedStep, [...steps, failedStep]);
     }
 
-    if (finalInstallStep.exitCode === 0 && verificationPackageRoot) {
+    if (verificationPackageRoot) {
       const candidateVersion = await readPackageVersion(verificationPackageRoot);
       if (!stagedInstall) {
         afterVersion = candidateVersion;
@@ -1084,7 +1083,7 @@ export async function runGlobalPackageUpdateSteps(params: {
       if (stagedInstall && verificationErrors.length === 0) {
         const validation = (await params.validateCandidate?.(verificationPackageRoot)) ?? [];
         steps.push(...validation);
-        const rejectedCandidate = validation.find(isBlockingPackageUpdateStep);
+        const rejectedCandidate = validation.find(isFailedUpdateStep);
         if (rejectedCandidate) {
           return await packageUpdateFailure(rejectedCandidate, steps);
         }
@@ -1176,9 +1175,8 @@ export async function runGlobalPackageUpdateSteps(params: {
       }
     }
 
-    const failedStep = isBlockingPackageUpdateStep(finalInstallStep)
-      ? finalInstallStep
-      : (steps.find((step) => step !== updateStep && isBlockingPackageUpdateStep(step)) ?? null);
+    const failedStep =
+      steps.find((step) => step !== updateStep && isFailedUpdateStep(step)) ?? null;
 
     if (failedStep) {
       return await packageUpdateFailure(failedStep, steps);

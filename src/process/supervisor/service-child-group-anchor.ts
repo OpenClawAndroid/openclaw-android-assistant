@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { closeSync, createReadStream, createWriteStream, type WriteStream } from "node:fs";
+import { closeSync, createWriteStream } from "node:fs";
 import { Socket } from "node:net";
 import { pipeline, type Readable } from "node:stream";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
@@ -18,6 +18,7 @@ import {
 import { reserveStdioEntry, setStdioEntry } from "./service-child-stdio.js";
 
 type AnchorState = "starting" | "active" | "closing" | "closed";
+type BunFdSocket = Socket & { connect(options: { fd: number }): Socket };
 declare const WORKER_DEPLOY_BUILD: boolean;
 
 function commandStdio(start: ServiceChildStart): {
@@ -59,7 +60,7 @@ export function runServiceChildGroupAnchor(): void {
   let command: ChildProcess | undefined;
   let workerStarted = false;
   let workerLineageFds: number[] = [];
-  let control: Socket | WriteStream | undefined;
+  let control: Socket | undefined;
   let rootSettlementStarted = false;
   let rootResultDelivery: Promise<void> | undefined;
   let rootExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
@@ -316,26 +317,19 @@ export function runServiceChildGroupAnchor(): void {
   };
 
   const startCommand = async (next: ServiceChildStart) => {
-    if (next.controlFd === undefined) {
+    const controlFd = next.controlFd;
+    if (controlFd === undefined) {
       process.exitCode = 1;
       return;
     }
     start = next;
-    let controlInput: Readable;
-    if (process.versions.bun) {
-      // Bun cannot wrap a duplex inherited fd in Socket. The anchor process owns
-      // this shared descriptor until exit; neither stream may close the other direction.
-      controlInput = createReadStream("", { fd: start.controlFd, autoClose: false });
-      control = createWriteStream("", { fd: start.controlFd, autoClose: false });
-    } else {
-      // Node must use nonblocking socket IO: a pending fs read prevents process exit.
-      const socket = new Socket({ fd: start.controlFd, readable: true, writable: true });
-      controlInput = socket;
-      control = socket;
-    }
-    controlInput.setEncoding("utf8");
+    const socket = process.versions.bun
+      ? new Socket({ readable: true, writable: true })
+      : new Socket({ fd: controlFd, readable: true, writable: true });
+    control = socket;
+    socket.setEncoding("utf8");
     let pending = "";
-    controlInput.on("data", (chunk: string) => {
+    socket.on("data", (chunk: string) => {
       pending += chunk;
       for (;;) {
         const newline = pending.indexOf("\n");
@@ -358,11 +352,13 @@ export function runServiceChildGroupAnchor(): void {
         void requestCleanup("parent-lost");
       }
     };
-    controlInput.once("end", onControlLoss);
-    controlInput.once("close", onControlLoss);
-    controlInput.once("error", onControlLoss);
-    if (controlInput !== control) {
-      control.once("error", onControlLoss);
+    socket.once("end", onControlLoss);
+    socket.once("close", onControlLoss);
+    socket.once("error", onControlLoss);
+    if (process.versions.bun) {
+      // Attach readers before adoption; end() must shut down the transport after the ACK.
+      // SAFETY: Bun 1.4+ uses this fd overload for its own inherited stdio.
+      (socket as BunFdSocket).connect({ fd: controlFd });
     }
 
     const { stdio, lineageFd, inheritedLineageFds } = commandStdio(start);

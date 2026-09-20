@@ -52,6 +52,7 @@ import type {
   OpenClawDatabaseSchemaPreflight,
   OpenClawStateSchemaPreflightResult,
 } from "./openclaw-database-preflight.types.js";
+import { requestOpenClawAgentDatabaseQuickCheck } from "./openclaw-database-verify.js";
 import type { OpenClawSchemaVersions } from "./openclaw-schema-versions.js";
 import {
   OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
@@ -593,6 +594,9 @@ export async function preflightOpenClawDatabaseSchemas(options: {
           inspectOwnership,
           verifyCurrentSchemaShape: options.verifyCurrentSchemaShape,
           requireStartupMigrationReadiness: options.requireStartupMigrationReadiness,
+          startupIntegrityStateDir: options.requireStartupMigrationReadiness
+            ? resolveStateDir(options.env)
+            : undefined,
         };
         // Unprepared agents use the slot's reader, including header-only Doctor checks.
         if (
@@ -663,6 +667,12 @@ export async function preflightOpenClawDatabaseSchemas(options: {
             foundVersion: agentVersion,
             supportedVersion: supportedVersions.agent,
             ...(writerAppVersion ? { writerAppVersion } : {}),
+          });
+        }
+        if (schemaInspection.integrityGateOutcome === "cached") {
+          requestOpenClawAgentDatabaseQuickCheck({
+            path: agentPath,
+            env: options.env ?? process.env,
           });
         }
         recordPreparedSchemaHeader?.(agentVersion);

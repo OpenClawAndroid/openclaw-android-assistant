@@ -67,7 +67,7 @@ const transferManagedServiceUpdateHandoffMock = vi.fn<
 const cancelManagedServiceUpdateHandoffMock = vi.fn<
   typeof import("../../infra/update-managed-service-handoff.js").cancelManagedServiceUpdateHandoff
 >(async () => "restored-in-process");
-const scheduleGatewaySigusr1RestartMock = vi.fn(() => ({ scheduled: true }));
+const scheduleGatewayRestartMock = vi.fn(() => ({ scheduled: true }));
 const logGatewayInfoMock = vi.fn();
 const writeRestartSentinelMock = vi.fn(async () => undefined);
 const recordLatestUpdateRestartSentinelMock = vi.fn();
@@ -109,7 +109,7 @@ vi.mock("../../infra/restart-sentinel.js", async () => {
 
 vi.mock("../../infra/restart.js", async () => ({
   ...(await vi.importActual<typeof import("../../infra/restart.js")>("../../infra/restart.js")),
-  scheduleGatewaySigusr1Restart: scheduleGatewaySigusr1RestartMock,
+  scheduleGatewayRestart: scheduleGatewayRestartMock,
 }));
 
 vi.mock("../../infra/supervisor-markers.js", () => ({
@@ -231,7 +231,7 @@ beforeEach(() => {
   startManagedServiceUpdateHandoffMock.mockClear();
   transferManagedServiceUpdateHandoffMock.mockReset().mockResolvedValue(true);
   cancelManagedServiceUpdateHandoffMock.mockReset().mockResolvedValue("restored-in-process");
-  scheduleGatewaySigusr1RestartMock.mockClear();
+  scheduleGatewayRestartMock.mockClear();
   logGatewayInfoMock.mockClear();
   writeRestartSentinelMock.mockClear();
   recordLatestUpdateRestartSentinelMock.mockClear();
@@ -779,7 +779,7 @@ describe("update.run campaign ownership", () => {
       installRoot: "/tmp/openclaw",
     });
     expect(cancelManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(clearCampaignMock).not.toHaveBeenCalled();
   });
 });

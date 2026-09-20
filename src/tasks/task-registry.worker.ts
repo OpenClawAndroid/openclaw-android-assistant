@@ -70,6 +70,7 @@ export function executeTaskRegistryCommand(
   }
   if (
     command.type === "tasks.createRecord" ||
+    command.type === "tasks.finalizeActive" ||
     command.type === "tasks.settleUnstarted" ||
     command.type === "flows.createForTask" ||
     command.type === "tasks.linkInitialFlow" ||

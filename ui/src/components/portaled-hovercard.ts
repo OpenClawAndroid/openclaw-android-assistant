@@ -92,6 +92,26 @@ export class PortaledHovercardController {
     this.returnFocus(trigger);
   };
 
+  renderContents(card: HTMLDivElement, update: () => void): void {
+    const focused = card.contains(document.activeElement) ? document.activeElement : null;
+    update();
+    if (focused && !card.contains(document.activeElement)) {
+      // Live session links can move between sections or disappear after a roster update.
+      const replacement =
+        focused instanceof HTMLAnchorElement
+          ? this.focusables().find(
+              (link) => link instanceof HTMLAnchorElement && link.href === focused.href,
+            )
+          : undefined;
+      if (replacement) {
+        replacement.focus({ preventScroll: true });
+      } else {
+        this.returnFocus(this.trigger);
+        this.focusInside = document.activeElement === this.trigger;
+      }
+    }
+  }
+
   returnFocus(trigger: HTMLElement | null): void {
     this.restoringFocus = true;
     trigger?.focus({ preventScroll: true });

@@ -63,7 +63,10 @@ import {
   updateOwnersForScopedRefresh,
 } from "./prepared-model-runtime.refresh-scope.js";
 import { closeEphemeralPreparedModelRuntimeResources } from "./prepared-model-runtime.resources.js";
-import { PreparedModelRuntimeOwnerRetention } from "./prepared-model-runtime.retention.js";
+import {
+  acquireRetainedAgentRuntimeCleanupRegistries,
+  PreparedModelRuntimeOwnerRetention,
+} from "./prepared-model-runtime.retention.js";
 import { setPreparedModelRuntimeStartupStatus } from "./prepared-model-runtime.startup-status.js";
 import { PreparedModelRuntimeStartup } from "./prepared-model-runtime.startup.js";
 import type {
@@ -191,6 +194,14 @@ export async function acquirePreparedModelRuntimeSnapshot(
     rawInput,
     preparedModelRuntimeLeaseContext,
     retainPublishedModelRuntimeOwner,
+  );
+}
+
+/** Retains existing execution owners, including switched-away models, without loading plugins. */
+export async function acquireAgentRuntimeCleanupRegistries(agentDir: string) {
+  return await acquireRetainedAgentRuntimeCleanupRegistries(
+    normalizeOptionalDir(agentDir),
+    preparedModelRuntimeLeaseContext,
   );
 }
 

@@ -215,7 +215,7 @@ describe("private subagent completion processing receipts", () => {
         entered.resolve();
         await release.promise;
         try {
-          command.onExecutionStarted?.();
+          await command.onExecutionStarted?.();
           processingCount += 1;
           throw new Error("synthetic provider failure");
         } catch (error) {
@@ -493,7 +493,7 @@ describe("private subagent completion processing receipts", () => {
     signal.addEventListener("abort", () => release.resolve(), { once: true });
     agentCommandMock.mockImplementationOnce(async (input) => {
       const command = input as AgentCommandOpts;
-      command.onExecutionStarted?.();
+      await command.onExecutionStarted?.();
       await recorder(input).persistApproved();
       consumed.resolve();
       command.abortSignal!.addEventListener("abort", () => release.resolve(), { once: true });
@@ -525,7 +525,7 @@ describe("private subagent completion processing receipts", () => {
       expect(command.runId).toBe(descendantRunId);
       expect(command.sessionId).toBe(childSessionId);
       childAbortSignal = command.abortSignal;
-      command.onExecutionStarted?.();
+      await command.onExecutionStarted?.();
       await command.userTurnTranscriptRecorder?.persistApproved();
       childStarted.resolve();
       command.abortSignal!.addEventListener("abort", () => releaseChild.resolve(), { once: true });
@@ -659,7 +659,7 @@ describe("private subagent completion processing receipts", () => {
       const release = createDeferred();
       agentCommandMock.mockImplementationOnce(async (input) => {
         const command = input as AgentCommandOpts;
-        command.onExecutionStarted?.();
+        await command.onExecutionStarted?.();
         const inputRecorder = recorder(input);
         await inputRecorder.persistApproved();
         inputRecorder.markSentToProvider?.();

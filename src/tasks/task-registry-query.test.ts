@@ -16,11 +16,12 @@ import {
 } from "./task-registry-query.js";
 import { markTaskTerminalById, updateTaskNotifyPolicyById } from "./task-registry-record-api.js";
 import {
+  invalidateTaskRegistryProjection,
   readTaskRegistryRevision,
   reloadTaskRegistryFromStoreAsync,
   tasks as authoritativeTasks,
 } from "./task-registry-state.js";
-import { configureTaskRegistryRuntime } from "./task-registry.store.js";
+import { configureTaskRegistryRuntime, type TaskRegistryStore } from "./task-registry.store.js";
 import type { TaskRecord } from "./task-registry.types.js";
 
 afterEach(() => {
@@ -671,14 +672,20 @@ describe("listFreshTasksForOwnerKey", () => {
     };
   }
 
-  it("uses scoped owner lookups for fresh owner task reads", async () => {
+  it("uses canonical owner rows despite projection changes during lookup", async () => {
     const storedTask = createStoredTask();
     const loadSnapshot = vi.fn(() => ({
       tasks: new Map(),
       deliveryStates: new Map(),
     }));
     const lookup = createDeferred<TaskRecord[]>();
-    const listTasksForOwnerKey = vi.fn(() => lookup.promise);
+    const entered = createDeferred();
+    const listTasksForOwnerKey = vi.fn<NonNullable<TaskRegistryStore["listTasksForOwnerKey"]>>(
+      () => {
+        entered.resolve();
+        return lookup.promise;
+      },
+    );
     configureTaskRegistryRuntime({
       store: {
         ...createInMemoryTaskRegistryStore(),
@@ -688,11 +695,19 @@ describe("listFreshTasksForOwnerKey", () => {
     });
 
     const pending = listFreshTasksForOwnerKey("agent:main:main");
+    await entered.promise;
+    invalidateTaskRegistryProjection();
     lookup.resolve([storedTask]);
     const tasks = await pending;
 
     expect(tasks.map((task) => task.taskId)).toEqual(["task-restored"]);
-    expect(listTasksForOwnerKey).toHaveBeenCalledWith("agent:main:main");
+    const [context, ownerKey, assertCurrent] = expectDefined(
+      listTasksForOwnerKey.mock.calls[0],
+      "captured owner lookup",
+    );
+    expect(ownerKey).toBe("agent:main:main");
+    expect(() => context.admission.assertCurrent()).not.toThrow();
+    expect(assertCurrent).not.toThrow();
     expect(loadSnapshot).toHaveBeenCalledTimes(1);
   });
 

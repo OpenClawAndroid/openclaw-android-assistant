@@ -755,10 +755,30 @@ export function reconcileChatRunFromSessionRow(
   if (row.hasActiveRun !== false && !terminalStatus) {
     return false;
   }
+  const runId = host.chatRunId;
+  let errorMessage: string | undefined;
+  if (runId && row.lastRunId === runId && (row.status === "failed" || row.status === "timeout")) {
+    // Session publication can beat (or replace) chat.error. Show its diagnostic
+    // before retiring the run, without freezing the bounded row summary into the
+    // terminal reducer: a later live/history diagnostic can contain more detail.
+    errorMessage =
+      host.chatRunError?.runId === runId
+        ? host.chatRunError.summary
+        : row.lastRunError?.trim() ||
+          t(
+            row.status === "timeout"
+              ? "sessionsView.runErrorTimedOut"
+              : "sessionsView.runErrorUnknown",
+          );
+    if (host.chatRunError?.runId !== runId) {
+      setChatRunError(host, errorMessage, runId);
+    }
+  }
   reconcileChatRunLifecycle(host, {
     outcome: row.status === "done" ? "done" : "interrupted",
     sessionStatus: row.status === "running" || row.status === undefined ? "killed" : row.status,
-    runId: host.chatRunId,
+    errorMessage,
+    runId,
     sessionKey: host.sessionKey,
     sessionKeys: [row.key],
     clearLocalRun: true,

@@ -1,6 +1,10 @@
 import { expect, it, vi } from "vitest";
 import { VERSION } from "../version.js";
 import { createLazyPluginRuntime } from "./loader-module-runtime.js";
+import {
+  bindGatewayContextResolver,
+  getGatewayContextResolver,
+} from "./runtime/gateway-request-scope.js";
 import type { PluginRuntime } from "./runtime/types.js";
 
 it("keeps version and injected instance surfaces independent of the broad runtime module", () => {
@@ -10,6 +14,8 @@ it("keeps version and injected instance surfaces independent of the broad runtim
   };
   const nodes = {} as PluginRuntime["nodes"];
   const subagent = {} as PluginRuntime["subagent"];
+  const resolveGatewayContext = () => undefined;
+  bindGatewayContextResolver(subagent, resolveGatewayContext);
   const loadPluginModule = vi.fn((_modulePath: string): unknown => {
     throw new Error("broad runtime should stay lazy");
   });
@@ -17,6 +23,7 @@ it("keeps version and injected instance surfaces independent of the broad runtim
     loadPluginModule,
     runtimeOptions: { gateway, hooks, nodes, subagent },
   });
+  expect(getGatewayContextResolver(runtime)).toBe(resolveGatewayContext);
 
   expect(runtime.version).toBe(VERSION);
   expect(Object.getOwnPropertyDescriptor(runtime, "version")?.get?.()).toBe(VERSION);
@@ -69,4 +76,24 @@ it("keeps version and injected instance surfaces independent of the broad runtim
   // Object.prototype names are not declared runtime metadata.
   expect(() => Reflect.has(runtime, "toString")).toThrow("broad runtime should stay lazy");
   expect(loadPluginModule).toHaveBeenCalledTimes(1);
+});
+
+it("does not infer a Gateway owner by invoking an injected subagent accessor", () => {
+  const subagent = {} as PluginRuntime["subagent"];
+  bindGatewayContextResolver(subagent, () => undefined);
+  const readSubagent = vi.fn(() => subagent);
+  const loadPluginModule = vi.fn((_modulePath: string): unknown => {
+    throw new Error("broad runtime should stay lazy");
+  });
+  const runtime = createLazyPluginRuntime({
+    loadPluginModule,
+    runtimeOptions: {
+      get subagent() {
+        return readSubagent();
+      },
+    },
+  });
+  expect(getGatewayContextResolver(runtime)).toBeUndefined();
+  expect(readSubagent).not.toHaveBeenCalled();
+  expect(loadPluginModule).not.toHaveBeenCalled();
 });

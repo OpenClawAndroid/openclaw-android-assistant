@@ -22,7 +22,6 @@ import type { UpdateRunResult, UpdateRunnerOptions } from "./update-runner-types
 
 export type {
   UpdateRunResult,
-  UpdateStepAdvisory,
   UpdateStepProgress,
   UpdateStepResult,
 } from "./update-runner-types.js";

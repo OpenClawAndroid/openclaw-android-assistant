@@ -364,7 +364,11 @@ export async function reconcileTaskFlowWorkerReceipts(
 
 /** Worker receipts reconcile durable rows without resetting live task or delivery owners. */
 export async function runTaskFlowRegistryWorkerMutation<T>(
-  context: { flowId: string; admission: OpenClawStateDatabaseReadAdmission },
+  context: {
+    flowId: string;
+    admission: OpenClawStateDatabaseReadAdmission;
+    onPublicationError?: (error: unknown) => void;
+  },
   mutate: () => Promise<T>,
   readCurrent: () => Promise<TaskFlowRecord | undefined>,
 ): Promise<T> {
@@ -416,6 +420,7 @@ export async function runTaskFlowRegistryWorkerMutation<T>(
       });
     } catch (error) {
       // Persistence has settled. A projection failure must not invite replay of that write.
+      context.onPublicationError?.(error);
       log.warn("Failed to reconcile task-flow state after worker operation", { flowId, error });
     } finally {
       pending.completions.delete(completion.promise);

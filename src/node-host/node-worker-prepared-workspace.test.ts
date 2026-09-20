@@ -55,6 +55,8 @@ async function fixture(setupWrites = false) {
   );
   const workspaceDir = path.join(ownerRoot, "workspace");
   const homeDir = path.join(ownerRoot, "home");
+  // Match the private owner root created by project preparation, independent of host umask.
+  await fsp.mkdir(ownerRoot, { recursive: true, mode: 0o700 });
   await Promise.all([
     fsp.mkdir(workspaceDir, { recursive: true, mode: 0o700 }),
     fsp.mkdir(homeDir, { recursive: true, mode: 0o700 }),

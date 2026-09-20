@@ -32,7 +32,7 @@ const {
   runUpdateFailureTriageMock,
   refreshRemoteModelCatalogMock,
   runGatewayUpdatePreflightMock,
-  scheduleGatewaySigusr1RestartMock,
+  scheduleGatewayRestartMock,
   startManagedServiceUpdateHandoffMock,
   transferManagedServiceUpdateHandoffMock,
   versionMock,
@@ -54,7 +54,7 @@ const {
   })),
   runGatewayUpdatePreflightMock:
     vi.fn<typeof import("./update-runner.js").runGatewayUpdatePreflight>(),
-  scheduleGatewaySigusr1RestartMock: vi.fn(() => ({ scheduled: true })),
+  scheduleGatewayRestartMock: vi.fn(() => ({ scheduled: true })),
   startManagedServiceUpdateHandoffMock:
     vi.fn<typeof import("./update-managed-service-handoff.js").startManagedServiceUpdateHandoff>(),
   transferManagedServiceUpdateHandoffMock: vi.fn<
@@ -86,7 +86,7 @@ vi.mock("./openclaw-root.js", async () => {
 
 vi.mock("./restart.js", async () => ({
   ...(await vi.importActual<typeof import("./restart.js")>("./restart.js")),
-  scheduleGatewaySigusr1Restart: scheduleGatewaySigusr1RestartMock,
+  scheduleGatewayRestart: scheduleGatewayRestartMock,
 }));
 
 vi.mock("./supervisor-markers.js", async () => {
@@ -292,7 +292,7 @@ describe("update-startup", () => {
     runGatewayUpdatePreflightMock.mockResolvedValue(undefined);
     detectRespawnSupervisorMock.mockReset();
     detectRespawnSupervisorMock.mockReturnValue(null);
-    scheduleGatewaySigusr1RestartMock.mockClear();
+    scheduleGatewayRestartMock.mockClear();
     startManagedServiceUpdateHandoffMock.mockClear();
     transferManagedServiceUpdateHandoffMock.mockReset().mockResolvedValue(true);
     cancelManagedServiceUpdateHandoffMock.mockReset().mockResolvedValue("restored-in-process");
@@ -1034,7 +1034,7 @@ describe("update-startup", () => {
     });
     expect(runAutoUpdate).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(readPersistedUpdateCheckState()?.autoFirstSeenVersion).toBeUndefined();
   });
 
@@ -1057,7 +1057,7 @@ describe("update-startup", () => {
     expect(resolveNpmChannelTag).not.toHaveBeenCalled();
     expect(runAutoUpdate).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(onUpdateAvailableChange).toHaveBeenCalledOnce();
     expect(onUpdateAvailableChange).toHaveBeenCalledWith(null);
     expect(getUpdateAvailable()).toBeNull();
@@ -1109,7 +1109,7 @@ describe("update-startup", () => {
     expect(readPersistedUpdateCheckState()?.lastCheckedChannel).toBe("extended-stable");
     expectStableAutoRolloutStatePreserved();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
 
     const lookupCount = vi.mocked(resolveNpmChannelTag).mock.calls.length;
     await runExtendedStableUpdateCheck({ log, onUpdateAvailableChange });
@@ -1392,7 +1392,7 @@ describe("update-startup", () => {
 
       expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
       expect(transferManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-      expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+      expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
       expect(getUpdateSchedule()?.campaign).toBeUndefined();
       expect(listUpdateRuns()).toEqual([
         expect.objectContaining({
@@ -2297,7 +2297,7 @@ describe("update-startup", () => {
       await stopping;
 
       expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-      expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+      expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
       expect(runUpdateFailureTriageMock).not.toHaveBeenCalled();
     } finally {
       releasePreflight?.();
@@ -2369,7 +2369,7 @@ describe("update-startup", () => {
             );
           }
         }
-        expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+        expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
         expect(transferManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
         expect(await readRestartSentinel()).toBeNull();
         expect(runUpdateFailureTriageMock).not.toHaveBeenCalled();
@@ -2413,7 +2413,7 @@ describe("update-startup", () => {
       await stopping;
 
       expect(await readRestartSentinel()).toEqual(newer);
-      expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+      expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
       expect(runUpdateFailureTriageMock).toHaveBeenCalledOnce();
     } finally {
       releaseTriage?.(triageResult);
@@ -2442,7 +2442,7 @@ describe("update-startup", () => {
       });
       await vi.advanceTimersByTimeAsync(0);
       expect(stopped).toBe(false);
-      expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+      expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
 
       transferred.resolve(true);
       await stopping;
@@ -2639,7 +2639,7 @@ describe("update-startup", () => {
 
     expect(runCommandWithTimeout).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(getUpdateSchedule()?.campaign).toBeUndefined();
     expect(getUpdateAvailable()).toMatchObject({ latestVersion: "2.0.0-beta.1" });
     expect((await readRestartSentinel())?.payload).toMatchObject({
@@ -2704,7 +2704,7 @@ describe("update-startup", () => {
       handoffId: "started-auto-handoff-id",
       installRoot: await fs.realpath(installRoot),
     });
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(cancelManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
     expect(log.info).toHaveBeenCalledWith(
       "update campaign waiting-for-idle",
@@ -2761,7 +2761,7 @@ describe("update-startup", () => {
       });
       await vi.advanceTimersByTimeAsync(60_000);
 
-      expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+      expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
       expect(log.info).toHaveBeenCalledWith("auto-update attempt failed", {
         channel: "beta",
         version: "2.0.0-beta.1",
@@ -2823,7 +2823,7 @@ describe("update-startup", () => {
       cfg: createBetaAutoUpdateConfig(),
     });
 
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(transferManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
     expect(runUpdateFailureTriageMock).not.toHaveBeenCalled();
     expect(listUpdateRuns()).toEqual([
@@ -2864,7 +2864,7 @@ describe("update-startup", () => {
       handoffId: "auto-handoff-id",
       installRoot: "/opt/openclaw",
     });
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
   });
 
   it("schedules an initial and recurring 24-hour extended-stable hint check with cleanup", async () => {

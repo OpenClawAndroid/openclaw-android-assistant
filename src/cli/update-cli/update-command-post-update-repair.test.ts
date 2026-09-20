@@ -24,7 +24,10 @@ import { defaultRuntime } from "../../runtime.js";
 import { classifyUpdateOutcome } from "../../shared/update-outcome.js";
 import { registerCurrentCoreRuntimeRefreshTests } from "./update-command-post-update-runtime-refresh.test-support.js";
 import { finishUpdate, type FinishUpdateParams } from "./update-command-post-update.js";
-import { taskRecovery } from "./update-command-post-update.test-support.js";
+import {
+  registerUnverifiedDefinitionRecoveryTest,
+  taskRecovery,
+} from "./update-command-post-update.test-support.js";
 import { repairUpdateService } from "./update-command-repair-service.js";
 import { revalidateManagedGatewayServiceAfterUpdate } from "./update-command-service-maintenance.js";
 import { inspectManagedGatewayServiceBeforeUpdate } from "./update-command-service-plan.js";
@@ -343,45 +346,10 @@ describe("post-activation repair after rollback refusal or failure", () => {
 
   registerCurrentCoreRuntimeRefreshTests(fixture, mocks);
 
-  it("terminalizes a failed final native read after current-core plugin parking", async () => {
-    const params = fixture();
-    params.coreAlreadyCurrent = true;
-    params.preManagedServiceStop!.stopped = false;
-    params.result.status = "skipped";
-    params.result.reason = "already-current";
-    params.result.before = params.result.after;
-    mocks.stop.mockResolvedValue({ ...params.preManagedServiceStop!, stopped: true });
-    mocks.converge.mockImplementation(
-      async (convergence: {
-        result: FinishUpdateParams["result"];
-        beforeDoctor?: () => Promise<void>;
-      }) => {
-        await convergence.beforeDoctor?.();
-        mocks.readService.mockRejectedValueOnce(new Error("final native query failed"));
-        return {
-          resultWithPostUpdate: {
-            ...convergence.result,
-            postUpdate: { plugins: { status: "ok", changed: true } },
-          },
-          postUpdateConfigSnapshot: params.configSnapshot,
-        };
-      },
-    );
-    await expect(finishUpdate(params)).rejects.toMatchObject({
-      exitCode: 1,
-      result: {
-        status: "error",
-        reason: "state-migrated-no-rollback",
-        steps: expect.arrayContaining([
-          expect.objectContaining({ name: "post-update verification", exitCode: 1 }),
-        ]),
-      },
-    });
-    expect(getUpdateRun(params.opts.run!.runId, { env: params.opts.run!.env })).toMatchObject({
-      status: "failed",
-    });
-    expect(mocks.stop).toHaveBeenCalledOnce();
-    expect(mocks.restart).not.toHaveBeenCalled();
+  registerUnverifiedDefinitionRecoveryTest({
+    fixture,
+    makeHome: () => dirs.make("update-definition-recovery-unverified-"),
+    mocks,
   });
 
   it.each([

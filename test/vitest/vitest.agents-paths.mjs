@@ -33,10 +33,7 @@ const incompleteTurnFiles = [
   `${embeddedRoot}/run.incomplete-turn.error-recovery.test.ts`,
   `${embeddedRoot}/run.incomplete-turn.payload-resolution.test.ts`,
 ];
-const overflowCompactionFiles = [
-  `${embeddedRoot}/run.overflow-compaction.test.ts`,
-  `${embeddedRoot}/run.prepared-harness-source-delivery.integration.test.ts`,
-];
+const overflowCompactionFiles = [`${embeddedRoot}/run.overflow-compaction.test.ts`];
 
 export const agentVitestProjectOwners = {
   all: {

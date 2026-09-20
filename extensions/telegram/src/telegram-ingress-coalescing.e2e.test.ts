@@ -16,6 +16,7 @@ import {
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import type { MsgContext } from "openclaw/plugin-sdk/reply-runtime";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TelegramBotDeps } from "./bot-deps.js";
 import { telegramBotInfoForTest } from "./bot.create-telegram-bot.test-support.js";
@@ -56,7 +57,7 @@ vi.mock("./telegram-media.runtime.js", async (importOriginal) => {
   return {
     ...actual,
     saveRemoteMedia: async (params: { filePathHint?: string }) => ({
-      id: params.filePathHint ?? "photo",
+      id: path.basename(params.filePathHint ?? "photo"),
       path: `/tmp/${path.basename(params.filePathHint ?? "photo.jpg")}`,
       size: 4,
       contentType: "image/jpeg",
@@ -277,6 +278,7 @@ describe("Telegram durable ingress coalescing", () => {
         await telegramTransport.close();
       }),
     );
+    await closeOpenClawStateDatabaseAsync();
     closeOpenClawStateDatabaseForTest();
     resetPluginStateStoreForTests({ closeDatabase: false });
     if (originalStateDir === undefined) {

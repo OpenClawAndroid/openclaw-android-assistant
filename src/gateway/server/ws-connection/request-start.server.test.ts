@@ -4,7 +4,10 @@ import { performance } from "node:perf_hooks";
 import { constants as zlibConstants, deflateRawSync } from "node:zlib";
 import { rawDataToString } from "@openclaw/gateway-client/websocket-data";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { WebSocket, WebSocketServer } from "ws";
+import {
+  WebSocket,
+  WebSocketServer,
+} from "../../../../packages/gateway-client/src/websocket.test-support.js";
 import { createEmptyPluginRegistry } from "../../../plugins/registry-empty.js";
 import { createDeferredCore } from "../../../shared/deferred.js";
 import { MAX_PREAUTH_PAYLOAD_BYTES } from "../../server-constants.js";

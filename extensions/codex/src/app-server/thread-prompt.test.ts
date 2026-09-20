@@ -1,4 +1,5 @@
 import type { EmbeddedRunAttemptParamsV2 as EmbeddedRunAttemptParams } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { clearPluginCommands, registerPluginCommand } from "openclaw/plugin-sdk/plugin-runtime";
 import { describe, expect, it } from "vitest";
 import {
   CODEX_OPENCLAW_DIRECT_DYNAMIC_TOOL_NAMESPACE,
@@ -321,4 +322,35 @@ describe("buildDeveloperInstructions delivery-mode stability", () => {
       expect(instructions[0]).not.toContain("message(action=send)");
     }
   });
+});
+
+it("includes Codex app-server scoped plugin command guidance in developer instructions", () => {
+  try {
+    registerPluginCommand("demo-plugin", {
+      name: "codex_demo",
+      description: "Codex demo command",
+      agentPromptGuidance: [
+        "Legacy global command guidance.",
+        {
+          text: "Codex app-server command guidance.",
+          surfaces: ["codex_app_server"],
+        },
+        {
+          text: "Unscoped structured command guidance.",
+        },
+        {
+          text: "OpenClaw main command guidance.",
+          surfaces: ["openclaw_main"],
+        },
+      ],
+      handler: async () => ({ text: "ok" }),
+    });
+    const instructions = buildDeveloperInstructions(createParams());
+    expect(instructions).toContain("Codex app-server command guidance.");
+    expect(instructions).not.toContain("Legacy global command guidance.");
+    expect(instructions).not.toContain("Unscoped structured command guidance.");
+    expect(instructions).not.toContain("OpenClaw main command guidance.");
+  } finally {
+    clearPluginCommands();
+  }
 });

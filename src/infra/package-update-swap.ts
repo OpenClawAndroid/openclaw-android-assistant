@@ -50,6 +50,7 @@ import {
   NativePackageRollbackError,
 } from "./update-native-package-stage.js";
 import { resolveNpmGlobalPrefixLayoutFromGlobalRoot } from "./update-npm-prefix.js";
+import { isFailedUpdateStep } from "./update-run-step.js";
 import { UPDATE_RUNNER_TIMEOUT_MS } from "./update-run-timeouts.js";
 import type { UpdateStepResult } from "./update-runner-types.js";
 
@@ -58,10 +59,6 @@ export type {
   PackageUpdateTransaction,
   StagedPackageInstall,
 } from "./package-update-swap-contract.js";
-
-export function isBlockingPackageUpdateStep(step: UpdateStepResult): boolean {
-  return step.exitCode !== 0 && step.advisory === undefined;
-}
 
 export { removePackageUpdatePath } from "./package-update-filesystem.js";
 
@@ -651,7 +648,7 @@ export async function swapStagedPackageInstall(
     const postVerifyStep = params.postVerifyStep
       ? await runPackagePostInstallVerification(targetPackageRoot, params.postVerifyStep)
       : null;
-    if (postVerifyStep && isBlockingPackageUpdateStep(postVerifyStep) && !retained) {
+    if (postVerifyStep && isFailedUpdateStep(postVerifyStep) && !retained) {
       const rollbackMessages = await restoreSwap();
       return {
         status: "failed",

@@ -1,12 +1,7 @@
 // Reconciles stale or lost task registry records during maintenance passes.
-import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { isAcpTurnActive } from "../acp/control-plane/active-turns.js";
-import { acpSessionActorKey, resolveAcpSessionTarget } from "../acp/control-plane/manager.utils.js";
-import {
-  listAcpSessionEntries,
-  readAcpSessionEntry,
-  type AcpSessionStoreEntry,
-} from "../acp/runtime/session-meta.js";
+import { resolveAcpSessionTarget } from "../acp/control-plane/manager.utils.js";
+import { listAcpSessionEntries, readAcpSessionEntry } from "../acp/runtime/session-meta.js";
 import { isBackgroundExecSessionActive } from "../agents/bash-process-control.js";
 import {
   formatSubagentRecoveryWedgedReason,
@@ -63,7 +58,13 @@ import {
 } from "./runtime-internal.js";
 import { readTaskBackingInstance } from "./task-backing-authority.js";
 import { runTaskFlowRegistryMaintenance } from "./task-flow-registry.maintenance.js";
-import { loadTaskAcpSessionCloser, type CloseAcpSession } from "./task-registry-acp-cleanup.js";
+import {
+  cleanupOrphanedParentOwnedAcpSessions,
+  cleanupTerminalAcpSession,
+  loadTaskAcpSessionCloser,
+  type CloseAcpSession,
+  type TaskRegistryAcpMaintenanceRuntime,
+} from "./task-registry-acp-cleanup.js";
 import {
   applyTaskRegistryMaintenanceRetention,
   shouldStampCleanupAfter,
@@ -71,7 +72,11 @@ import {
 import {
   getTaskRegistryMaintenanceSnapshot,
   getTaskRegistryMaintenanceTask,
+  TASK_MAINTENANCE_BATCH_SIZE,
+  visitTaskRegistryMaintenanceTasks,
+  type TaskRegistryMaintenanceReader,
 } from "./task-registry-maintenance-snapshot.js";
+import { prepareTaskRegistryRead } from "./task-registry-read.js";
 import { withTaskRegistryMutation } from "./task-registry-state.js";
 import {
   configureTaskAuditTaskProvider,
@@ -100,47 +105,34 @@ const HARNESS_OWNED_SUBAGENT_RECONCILE_GRACE_MS = 30 * 60_000;
 const TASK_STALE_RUNNING_MS = 30 * 60_000;
 const TASK_SWEEP_INTERVAL_MS = 60_000;
 
-/**
- * Number of tasks to process before yielding to the event loop.
- * Keeps the main thread responsive during large sweeps.
- */
-const SWEEP_YIELD_BATCH_SIZE = 25;
-
 let sweeper: NodeJS.Timeout | null = null;
 let deferredSweep: NodeJS.Timeout | null = null;
 let sweepInProgress = false;
 let configuredRuntimeAuthoritative = false;
 
-type TaskRegistryMaintenanceRuntime = {
-  listAcpSessionEntries: typeof listAcpSessionEntries;
-  readAcpSessionEntry: typeof readAcpSessionEntry;
-  loadCloseAcpSession?: () => Promise<CloseAcpSession | undefined>;
-  listSessionBindingsBySession?: ReturnType<typeof getSessionBindingService>["listBySession"];
-  unbindSessionBindings?: ReturnType<typeof getSessionBindingService>["unbind"];
-  listSessionEntries: typeof listSessionEntriesReadOnly;
-  resolveStorePath: typeof resolveSessionStorePathCore;
-  deriveSessionChatTypeFromKey?: typeof deriveSessionChatTypeFromKey;
-  isCronJobActive: typeof isCronJobActive;
-  getAgentRunContext: typeof getAgentRunContext;
-  hasSubagentTaskOwner?: typeof hasSubagentTaskOwner;
-  isBackgroundExecSessionActive?: typeof isBackgroundExecSessionActive;
-  hasActiveAcpTurn: (sessionKey: string, agentId?: string) => boolean;
-  parseAgentSessionKey: typeof parseAgentSessionKey;
-  hasActiveTaskForChildSessionKey: typeof hasActiveTaskForChildSessionKey;
-  deleteTaskRecordById: typeof deleteTaskRecordById;
-  ensureTaskRegistryReady: typeof ensureTaskRegistryReady;
-  getTaskById: typeof getTaskById;
-  getTaskRegistryMaintenanceTask: typeof getTaskRegistryMaintenanceTask;
-  getTaskRegistryMaintenanceSnapshot: typeof getTaskRegistryMaintenanceSnapshot;
-  listTaskRecords: typeof listTaskRecords;
-  markTaskLostById: typeof markTaskLostById;
-  markTaskTerminalById: typeof markTaskTerminalById;
-  maybeDeliverTaskTerminalUpdate: typeof maybeDeliverTaskTerminalUpdate;
-  resolveTaskForLookupToken: typeof resolveTaskForLookupToken;
-  setTaskCleanupAfterById: typeof setTaskCleanupAfterById;
-  isRuntimeAuthoritative: () => boolean;
-  listTaskRegistryRecordsByRuntimeSourceIdFromSqlite: typeof listTaskRegistryRecordsByRuntimeSourceIdFromSqlite;
-};
+type TaskRegistryMaintenanceRuntime = TaskRegistryMaintenanceReader &
+  TaskRegistryAcpMaintenanceRuntime & {
+    listSessionEntries: typeof listSessionEntriesReadOnly;
+    resolveStorePath: typeof resolveSessionStorePathCore;
+    deriveSessionChatTypeFromKey?: typeof deriveSessionChatTypeFromKey;
+    isCronJobActive: typeof isCronJobActive;
+    getAgentRunContext: typeof getAgentRunContext;
+    hasSubagentTaskOwner?: typeof hasSubagentTaskOwner;
+    isBackgroundExecSessionActive?: typeof isBackgroundExecSessionActive;
+    hasActiveAcpTurn: (sessionKey: string, agentId?: string) => boolean;
+    parseAgentSessionKey: typeof parseAgentSessionKey;
+    deleteTaskRecordById: typeof deleteTaskRecordById;
+    ensureTaskRegistryReady: typeof ensureTaskRegistryReady;
+    getTaskById: typeof getTaskById;
+    listTaskRecords: typeof listTaskRecords;
+    markTaskLostById: typeof markTaskLostById;
+    markTaskTerminalById: typeof markTaskTerminalById;
+    maybeDeliverTaskTerminalUpdate: typeof maybeDeliverTaskTerminalUpdate;
+    resolveTaskForLookupToken: typeof resolveTaskForLookupToken;
+    setTaskCleanupAfterById: typeof setTaskCleanupAfterById;
+    isRuntimeAuthoritative: () => boolean;
+    listTaskRegistryRecordsByRuntimeSourceIdFromSqlite: typeof listTaskRegistryRecordsByRuntimeSourceIdFromSqlite;
+  };
 
 const defaultTaskRegistryMaintenanceRuntime: TaskRegistryMaintenanceRuntime = {
   listAcpSessionEntries,
@@ -165,6 +157,7 @@ const defaultTaskRegistryMaintenanceRuntime: TaskRegistryMaintenanceRuntime = {
   getTaskById,
   getTaskRegistryMaintenanceTask,
   getTaskRegistryMaintenanceSnapshot,
+  prepareTaskRegistryRead,
   listTaskRecords,
   markTaskLostById,
   markTaskTerminalById,
@@ -557,204 +550,6 @@ function taskReferenceAt(task: TaskRecord): number {
   return task.lastEventAt ?? task.startedAt ?? task.createdAt;
 }
 
-function getNormalizedTaskChildSessionKey(task: TaskRecord): string | undefined {
-  return normalizeOptionalString(task.childSessionKey);
-}
-
-function getAcpSessionParentKeys(acpEntry: Pick<AcpSessionStoreEntry, "entry">): string[] {
-  return [
-    normalizeOptionalString(acpEntry.entry?.spawnedBy),
-    normalizeOptionalString(acpEntry.entry?.parentSessionKey),
-  ].filter((value): value is string => Boolean(value));
-}
-
-function isParentOwnedAcpSessionTask(
-  task: TaskRecord,
-  acpEntry: ReturnType<typeof readAcpSessionEntry>,
-): boolean {
-  const entry = acpEntry?.entry;
-  if (!entry) {
-    return false;
-  }
-  const ownerKey = normalizeOptionalString(task.ownerKey);
-  const requesterKey = normalizeOptionalString(task.requesterSessionKey);
-  const parentKeys = getAcpSessionParentKeys({ entry });
-  return parentKeys.some((parentKey) => parentKey === ownerKey || parentKey === requesterKey);
-}
-
-function isParentOwnedAcpSessionEntry(acpEntry: Pick<AcpSessionStoreEntry, "entry">): boolean {
-  return getAcpSessionParentKeys(acpEntry).length > 0;
-}
-
-function hasActiveSessionBinding(sessionKey: string): boolean {
-  const listBindings = taskRegistryMaintenanceRuntime.listSessionBindingsBySession;
-  if (!listBindings) {
-    return true;
-  }
-  try {
-    return listBindings(sessionKey).some((binding) => binding.status !== "ended");
-  } catch {
-    return true;
-  }
-}
-
-function shouldCloseTerminalAcpSession(task: TaskRecord): boolean {
-  if (task.runtime !== "acp" || isActiveTask(task)) {
-    return false;
-  }
-  const sessionKey = getNormalizedTaskChildSessionKey(task);
-  if (
-    !sessionKey ||
-    taskRegistryMaintenanceRuntime.hasActiveTaskForChildSessionKey({
-      sessionKey,
-      agentId: task.agentId,
-      excludeTaskId: task.taskId,
-    })
-  ) {
-    return false;
-  }
-  const acpEntry = taskRegistryMaintenanceRuntime.readAcpSessionEntry({
-    sessionKey,
-    agentId: task.agentId,
-    clone: false,
-  });
-  if (!acpEntry || acpEntry.storeReadFailed || !acpEntry.acp) {
-    return false;
-  }
-  if (!isParentOwnedAcpSessionTask(task, acpEntry)) {
-    return false;
-  }
-  if (acpEntry.acp.mode === "oneshot") {
-    return true;
-  }
-  return !hasActiveSessionBinding(sessionKey);
-}
-
-function shouldCloseOrphanedParentOwnedAcpSession(acpEntry: AcpSessionStoreEntry): boolean {
-  if (!acpEntry.entry || !acpEntry.acp || !isParentOwnedAcpSessionEntry(acpEntry)) {
-    return false;
-  }
-  const sessionKey = normalizeOptionalString(acpEntry.sessionKey);
-  if (
-    !sessionKey ||
-    taskRegistryMaintenanceRuntime.hasActiveTaskForChildSessionKey({
-      sessionKey,
-      agentId: acpEntry.agentId,
-    })
-  ) {
-    return false;
-  }
-  if (acpEntry.acp.mode === "oneshot") {
-    return true;
-  }
-  return !hasActiveSessionBinding(sessionKey);
-}
-
-async function cleanupTerminalAcpSession(
-  task: TaskRecord,
-  closeAcpSession: CloseAcpSession | undefined,
-): Promise<void> {
-  if (!shouldCloseTerminalAcpSession(task)) {
-    return;
-  }
-  const sessionKey = getNormalizedTaskChildSessionKey(task);
-  if (!sessionKey) {
-    return;
-  }
-  const acpEntry = taskRegistryMaintenanceRuntime.readAcpSessionEntry({
-    sessionKey,
-    agentId: task.agentId,
-    clone: false,
-  });
-  if (!acpEntry || !closeAcpSession) {
-    return;
-  }
-  try {
-    await closeAcpSession({
-      cfg: acpEntry.cfg,
-      agentId: acpEntry.agentId,
-      sessionKey,
-      reason: "terminal-task-cleanup",
-    });
-  } catch (error) {
-    log.warn("Failed to close terminal ACP session during task maintenance", {
-      sessionKey,
-      taskId: task.taskId,
-      error,
-    });
-    return;
-  }
-  try {
-    await taskRegistryMaintenanceRuntime.unbindSessionBindings?.({
-      targetSessionKey: sessionKey,
-      reason: "terminal-task-cleanup",
-    });
-  } catch (error) {
-    log.warn("Failed to unbind terminal ACP session during task maintenance", {
-      sessionKey,
-      taskId: task.taskId,
-      error,
-    });
-  }
-}
-
-async function cleanupOrphanedParentOwnedAcpSessions(
-  closeAcpSession: CloseAcpSession | undefined,
-): Promise<void> {
-  let acpSessions: AcpSessionStoreEntry[];
-  try {
-    acpSessions = await taskRegistryMaintenanceRuntime.listAcpSessionEntries({ clone: false });
-  } catch (error) {
-    log.warn("Failed to list ACP sessions during task maintenance", { error });
-    return;
-  }
-  const seenSessionKeys = new Set<string>();
-  for (const acpEntry of acpSessions) {
-    const sessionKey = normalizeOptionalString(acpEntry.sessionKey);
-    if (!sessionKey) {
-      continue;
-    }
-    const actorKey = acpSessionActorKey(
-      resolveAcpSessionTarget({ cfg: acpEntry.cfg, sessionKey, agentId: acpEntry.agentId }),
-    );
-    if (seenSessionKeys.has(actorKey)) {
-      continue;
-    }
-    seenSessionKeys.add(actorKey);
-    if (!shouldCloseOrphanedParentOwnedAcpSession(acpEntry)) {
-      continue;
-    }
-    if (!closeAcpSession) {
-      continue;
-    }
-    try {
-      await closeAcpSession({
-        cfg: acpEntry.cfg,
-        agentId: acpEntry.agentId,
-        sessionKey,
-        reason: "orphaned-parent-task-cleanup",
-      });
-    } catch (error) {
-      log.warn("Failed to close orphaned parent-owned ACP session during task maintenance", {
-        sessionKey,
-        error,
-      });
-      continue;
-    }
-    try {
-      await taskRegistryMaintenanceRuntime.unbindSessionBindings?.({
-        targetSessionKey: sessionKey,
-        reason: "orphaned-parent-task-cleanup",
-      });
-    } catch (error) {
-      log.warn("Failed to unbind orphaned parent-owned ACP session during task maintenance", {
-        sessionKey,
-        error,
-      });
-    }
-  }
-}
-
 function markTaskLost(
   task: TaskRecord,
   now: number,
@@ -925,7 +720,7 @@ export async function getInspectableTaskStatusSummaryReadOnly(): Promise<TaskSta
       const cron = { ...createCronRecoveryContext(), taskRowsByTaskId: snapshot.cronRecoveryRows };
       const backing = createBackingSessionLookupContext();
       for (const [index, task] of snapshot.candidates.entries()) {
-        if (index > 0 && index % SWEEP_YIELD_BATCH_SIZE === 0) {
+        if (index > 0 && index % TASK_MAINTENANCE_BATCH_SIZE === 0) {
           await new Promise<void>((resolve) => {
             setImmediate(resolve);
           });
@@ -1133,17 +928,6 @@ export function getTaskRegistryMaintenanceDiagnostics(): TaskRegistryMaintenance
   return { staleRunningTasks };
 }
 
-/**
- * Yield control back to the event loop so that pending I/O callbacks,
- * timers, and incoming requests can be processed between batches of
- * synchronous task-registry maintenance work.
- */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => {
-    setImmediate(resolve);
-  });
-}
-
 function startScheduledSweep() {
   if (sweepInProgress) {
     return;
@@ -1157,7 +941,10 @@ function startScheduledSweep() {
     // Reversing this order can preserve phantom active work for another sweep.
     await sweepTaskRegistry();
     await runTaskFlowRegistryMaintenance();
-  }, "tasks:maintenance").then(clearSweepInProgress, clearSweepInProgress);
+  }, "tasks:maintenance").then(clearSweepInProgress, (error: unknown) => {
+    clearSweepInProgress();
+    log.warn("Task registry maintenance failed", { error });
+  });
 }
 
 export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintenanceSummary> {
@@ -1168,91 +955,116 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
   } catch (error) {
     log.warn("Failed to load ACP session cleanup during task maintenance", { error });
   }
-  taskRegistryMaintenanceRuntime.ensureTaskRegistryReady();
-  const now = Date.now();
   let reconciled = 0;
   let recovered = 0;
   let cleanupStamped = 0;
   let pruned = 0;
-  const { taskIds, cronHistoryOverflowTaskIds } =
-    taskRegistryMaintenanceRuntime.getTaskRegistryMaintenanceSnapshot();
   const cronRecoveryContext = createCronRecoveryContext();
   const backingSessionContext = createBackingSessionLookupContext();
   const recoveryHookRegistered = hasDetachedTaskRecoveryHook();
-  for (const [index, taskId] of taskIds.entries()) {
-    if (index > 0 && index % SWEEP_YIELD_BATCH_SIZE === 0) {
-      await yieldToEventLoop();
-    }
-    const current = taskRegistryMaintenanceRuntime.getTaskRegistryMaintenanceTask(
-      taskId,
-      now,
-      cronHistoryOverflowTaskIds,
-    );
-    if (!current) {
-      continue;
-    }
-    const cronRecovery = resolveDurableCronTaskRecovery(current, cronRecoveryContext);
-    if (cronRecovery) {
-      const next = markTaskRecovered(current, cronRecovery);
-      if (next.status !== current.status) {
-        recovered += 1;
+  const { read, deferred } = await visitTaskRegistryMaintenanceTasks(
+    taskRegistryMaintenanceRuntime,
+    async (current, now, cronHistoryOverflowTaskIds, assertOwnerCurrent) => {
+      if (resolveDurableCronTaskRecovery(current, cronRecoveryContext)) {
+        const next = withTaskRegistryMutation(
+          () => {
+            const fresh = taskRegistryMaintenanceRuntime.getTaskById(current.taskId);
+            if (!fresh) {
+              return undefined;
+            }
+            const recovery = resolveDurableCronTaskRecovery(fresh, createCronRecoveryContext());
+            return recovery ? markTaskRecovered(fresh, recovery) : undefined;
+          },
+          () => undefined,
+        );
+        if (next && next.status !== current.status) {
+          recovered += 1;
+        }
+        return;
       }
-      continue;
-    }
-    if (shouldMarkLost(current, now, backingSessionContext)) {
-      const recovery = await tryRecoverTaskBeforeMarkLost({
-        taskId: current.taskId,
-        runtime: current.runtime,
-        task: current,
-        now,
-      });
-      withTaskRegistryMutation(
-        () => {
-          const freshAfterHook = taskRegistryMaintenanceRuntime.getTaskById(current.taskId);
-          if (!freshAfterHook) {
-            return;
-          }
-          // Recovery yields to runtime owners. Recheck persisted backing while
-          // retaining writer custody through the decision and lost-task update.
-          const lostContext =
-            recoveryHookRegistered || hasTaskLostDecisionInputChanged(current, freshAfterHook)
-              ? createBackingSessionLookupContext()
-              : backingSessionContext;
-          if (!shouldMarkLost(freshAfterHook, now, lostContext)) {
-            return;
-          }
-          if (recovery.recovered) {
-            recovered += 1;
-            return;
-          }
-          const next = markTaskLost(freshAfterHook, now, lostContext);
-          if (next.status === "lost") {
-            reconciled += 1;
-          }
-        },
-        () => undefined,
-      );
-      continue;
-    }
-    await cleanupTerminalAcpSession(current, closeAcpSession);
-    if (
-      shouldPruneTerminalTask(current, now, cronHistoryOverflowTaskIds) ||
-      shouldStampCleanupAfter(current)
-    ) {
-      const result = applyTaskRegistryMaintenanceRetention(
-        current.taskId,
-        now,
-        cronHistoryOverflowTaskIds,
-        taskRegistryMaintenanceRuntime,
-      );
-      if (result === "pruned") {
-        pruned += 1;
-      } else if (result === "stamped") {
-        cleanupStamped += 1;
+      if (shouldMarkLost(current, now, backingSessionContext)) {
+        const recovery = await tryRecoverTaskBeforeMarkLost({
+          taskId: current.taskId,
+          runtime: current.runtime,
+          task: current,
+          now,
+        });
+        assertOwnerCurrent();
+        withTaskRegistryMutation(
+          () => {
+            const freshAfterHook = taskRegistryMaintenanceRuntime.getTaskById(current.taskId);
+            if (!freshAfterHook) {
+              return;
+            }
+            const cronRecovery = resolveDurableCronTaskRecovery(
+              freshAfterHook,
+              createCronRecoveryContext(),
+            );
+            if (cronRecovery) {
+              const next = markTaskRecovered(freshAfterHook, cronRecovery);
+              if (next.status !== freshAfterHook.status) {
+                recovered += 1;
+              }
+              return;
+            }
+            // Recovery yields to runtime owners. Recheck persisted backing while
+            // retaining writer custody through the decision and lost-task update.
+            const lostContext =
+              recoveryHookRegistered || hasTaskLostDecisionInputChanged(current, freshAfterHook)
+                ? createBackingSessionLookupContext()
+                : backingSessionContext;
+            if (!shouldMarkLost(freshAfterHook, now, lostContext)) {
+              return;
+            }
+            if (recovery.recovered) {
+              recovered += 1;
+              return;
+            }
+            const next = markTaskLost(freshAfterHook, now, lostContext);
+            if (next.status === "lost") {
+              reconciled += 1;
+            }
+          },
+          () => undefined,
+        );
+        return;
       }
-    }
+      if (current.runtime === "acp") {
+        await cleanupTerminalAcpSession(
+          taskRegistryMaintenanceRuntime,
+          current,
+          closeAcpSession,
+          assertOwnerCurrent,
+        );
+        assertOwnerCurrent();
+      }
+      if (
+        shouldPruneTerminalTask(current, now, cronHistoryOverflowTaskIds) ||
+        shouldStampCleanupAfter(current)
+      ) {
+        const result = applyTaskRegistryMaintenanceRetention(
+          current.taskId,
+          now,
+          cronHistoryOverflowTaskIds,
+          taskRegistryMaintenanceRuntime,
+        );
+        if (result === "pruned") {
+          pruned += 1;
+        } else if (result === "stamped") {
+          cleanupStamped += 1;
+        }
+      }
+    },
+  );
+  if (deferred > 0) {
+    log.debug("Deferred task maintenance for unsettled mutations", { count: deferred });
   }
-  await cleanupOrphanedParentOwnedAcpSessions(closeAcpSession);
+  await cleanupOrphanedParentOwnedAcpSessions(
+    taskRegistryMaintenanceRuntime,
+    closeAcpSession,
+    read.assertOwnerCurrent,
+  );
+  read.assertOwnerCurrent();
   try {
     // Task-registry readiness has already opened the shared state database.
     // Sweep plugin TTL rows even when no plugin namespace was opened this process,

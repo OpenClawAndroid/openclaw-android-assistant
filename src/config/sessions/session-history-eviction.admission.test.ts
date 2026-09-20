@@ -15,6 +15,7 @@ import {
   getOpenClawAgentDatabaseIfOpen,
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
+import { clearOpenClawAgentIntegrityVerification } from "../../state/openclaw-quarantine-store.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -208,6 +209,7 @@ it.each([
       if (cold) {
         closeCachedOpenClawAgentDatabase(database, { eviction: true });
         invalidateOpenClawAgentDatabaseValidation(database.path);
+        clearOpenClawAgentIntegrityVerification(database.path, testState.env);
         expect(getOpenClawAgentDatabaseIfOpen(options)).toBeUndefined();
         events.push("parent-handle-closed");
       }

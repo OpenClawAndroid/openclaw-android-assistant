@@ -143,8 +143,8 @@ Their request and recovery watchdogs do not become update validation deadlines.
 Startup and readiness responses share that validation deadline, including reading
 the response body.
 
-These deadlines belong to the invoking updater. The published 2026.9.3 updater
-caps its complete rehearsal at five minutes, including the snapshot, and its
+These deadlines belong to the invoking updater. The published 2026.9.3 and 2026.9.4 updaters
+cap their complete rehearsal at five minutes, including the snapshot, and their
 later schema inspection at thirty seconds, even with `--timeout 900`. Installing
 a newer candidate cannot enlarge those parent-process deadlines on that first
 update. Subsequent updates use the newer updater's allowances described above.
@@ -233,6 +233,10 @@ or state, invalid or unattributed plugin-registry results, and failed core start
 or readiness checks. The updater reruns the failed check after each attempt and
 activates only after it passes. Failed or unavailable repair discards the
 staged update and leaves the serving Gateway untouched.
+After Doctor migrations complete and validation children shut down, repair reuses
+that private copy and its completed checks. If no usable inference route exists,
+the attempt is skipped without another snapshot or Doctor pass. Incomplete
+migrations or unconfirmed child shutdown require a fresh private copy instead.
 Successful repair of a private copy does not mean the update was applied:
 the updater validates a fresh copy of the update again before activation. If that check
 fails, the report retains the failed update and the command exits nonzero even

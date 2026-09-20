@@ -23,9 +23,11 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { sanitizeUntrustedFileName } from "../../infra/fs-safe-advanced.js";
 import { FsSafeError } from "../../infra/fs-safe.js";
+import { collectReplyMediaEntries } from "../../infra/outbound/reply-media-entries.js";
 import { resolveOutboundMediaMaxBytes } from "../../media/configured-max-bytes.js";
 import type { OutboundMediaAccess } from "../../media/load-options.js";
 import { HostReadMediaTypeError, LocalMediaAccessError } from "../../media/local-media-access.js";
+import { normalizeMediaReferenceForComparison } from "../../media/media-reference-comparison.js";
 import { resolveOutboundAttachmentFromUrl } from "../../media/outbound-attachment.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
 import {
@@ -425,10 +427,13 @@ export function applyPreparedReplyMedia(
   const bySource = new Map(prepared.map(({ source, outcome }) => [source, outcome]));
   const normalizedMedia: string[] = [];
   const normalizedAttachments: NonNullable<ReplyPayload["attachments"]> = [];
+  const previousSourceUrls = getReplyPayloadMetadata(payload)?.replyMediaSourceUrls;
+  const sourcesByReference = new Map<string, Set<string>>();
   const seen = new Set<string>();
   let hasTrustedLocalMedia = payload.trustedLocalMedia === true;
   const mediaFailures: ReplyMediaFailure[] = [];
-  for (const [mediaIndex, media] of mediaList.entries()) {
+  const mediaEntries = collectReplyMediaEntries(payload, mediaList);
+  for (const { url: media, attachment } of mediaEntries) {
     const normalized: PreparedReplyMedia[number]["outcome"] = bySource.get(media) ?? {
       mediaUrl: media,
       trustedLocalMedia: false,
@@ -437,23 +442,52 @@ export function applyPreparedReplyMedia(
       mediaFailures.push(normalized.failure);
       continue;
     }
-    if (!normalized.mediaUrl || seen.has(normalized.mediaUrl)) {
+    if (!normalized.mediaUrl) {
+      continue;
+    }
+    const normalizedKey = normalizeMediaReferenceForComparison(normalized.mediaUrl);
+    const sourceKey = normalizeMediaReferenceForComparison(media);
+    const sourceUrls = sourcesByReference.get(normalizedKey) ?? new Set<string>();
+    for (const source of previousSourceUrls?.get(sourceKey) ?? []) {
+      sourceUrls.add(source);
+    }
+    if (normalized.mediaUrl !== media.trim()) {
+      sourceUrls.add(media.trim());
+    }
+    if (sourceUrls.size > 0) {
+      sourcesByReference.set(normalizedKey, sourceUrls);
+    }
+    if (seen.has(normalized.mediaUrl)) {
       continue;
     }
     seen.add(normalized.mediaUrl);
     normalizedMedia.push(normalized.mediaUrl);
     hasTrustedLocalMedia ||= normalized.trustedLocalMedia;
-    const existingAttachment = payload.attachments?.[mediaIndex] ?? {};
-    normalizedAttachments.push({
+    const existingAttachment = attachment ?? {};
+    const normalizedAttachment = {
       ...existingAttachment,
       ...(normalized.fileName && !existingAttachment.name ? { name: normalized.fileName } : {}),
       ...(normalized.mimeType && !existingAttachment.mimeType
         ? { mimeType: normalized.mimeType }
         : {}),
       ...(normalized.trustedLocalMedia ? { trustedLocalMedia: true } : {}),
-    });
+    };
+    if (normalized.mediaUrl !== media) {
+      for (const field of ["path", "url", "mediaUrl", "filePath"] as const) {
+        if (normalizedAttachment[field] !== undefined) {
+          normalizedAttachment[field] = normalized.mediaUrl;
+        }
+      }
+    }
+    normalizedAttachments.push(normalizedAttachment);
   }
 
+  const replyMediaSourceUrls =
+    sourcesByReference.size > 0
+      ? new Map<string, readonly string[]>(
+          [...sourcesByReference].map(([key, sources]) => [key, [...sources]]),
+        )
+      : undefined;
   const text = appendReplyMediaFailures(payload.text, mediaFailures);
   const previousMediaFailures = getReplyPayloadMetadata(payload)?.assistantMediaFailures ?? [];
   const assistantMediaFailures = [...previousMediaFailures, ...mediaFailures];
@@ -464,10 +498,12 @@ export function applyPreparedReplyMedia(
       text,
       mediaUrl: undefined,
       mediaUrls: undefined,
+      attachments: undefined,
     });
-    return mediaFailures.length === 0
-      ? normalized
-      : setReplyPayloadMetadata(normalized, { assistantMediaFailures });
+    return setReplyPayloadMetadata(normalized, {
+      replyMediaSourceUrls: undefined,
+      ...(mediaFailures.length > 0 ? { assistantMediaFailures } : {}),
+    });
   }
 
   const normalized = copyReplyPayloadMetadata(payload, {
@@ -475,14 +511,15 @@ export function applyPreparedReplyMedia(
     text,
     mediaUrl: normalizedMedia[0],
     mediaUrls: normalizedMedia,
-    ...(normalizedAttachments.some((attachment) => Object.keys(attachment).length > 0)
-      ? { attachments: normalizedAttachments }
-      : {}),
+    attachments: normalizedAttachments.some((attachment) => Object.keys(attachment).length > 0)
+      ? normalizedAttachments
+      : undefined,
     ...(hasTrustedLocalMedia ? { trustedLocalMedia: true } : {}),
   });
-  return mediaFailures.length === 0
-    ? normalized
-    : setReplyPayloadMetadata(normalized, { assistantMediaFailures });
+  return setReplyPayloadMetadata(normalized, {
+    replyMediaSourceUrls,
+    ...(mediaFailures.length > 0 ? { assistantMediaFailures } : {}),
+  });
 }
 
 export function createReplyMediaPathNormalizer(

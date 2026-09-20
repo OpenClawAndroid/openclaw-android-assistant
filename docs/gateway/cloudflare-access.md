@@ -61,6 +61,23 @@ consumes them in the next step:
 - `cf-access-jwt-assertion` — Access's signed assertion. OpenClaw checks only that this
   header is present and non-blank; it does not verify the JWT signature.
 
+### OIDC sign-in and existing people
+
+For OIDC sign-in, configure an Access policy that admits the intended users through
+that identity provider. For example, use a signed role claim maintained by the
+provider. A GitHub organization policy applies to the GitHub identity provider;
+it does not grant access through a separate OIDC provider.
+
+OpenClaw verifies the OIDC identity through Cloudflare Access's identity endpoint
+and requires its email to match the authenticated user header. It then resolves
+that email through the existing person profile. Using the same email retains the
+person's profile and role; a different email requires an existing linked alias to
+resolve to that person. GitHub sign-in continues to verify the immutable GitHub
+account ID. Failed identity verification does not fall back to email matching.
+
+Keep the identity provider responsible for verifying email ownership. Creating an
+OpenClaw person profile does not grant access through Cloudflare Access.
+
 ## Step 3: Trust those headers in the Gateway
 
 Set `gateway.auth.mode` to `trusted-proxy` and name the Access headers. `allowLoopback`

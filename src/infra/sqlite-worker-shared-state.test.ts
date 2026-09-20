@@ -188,7 +188,7 @@ describe("canonical shared-state worker admission", () => {
     },
   );
 
-  it.each(["Web Push", "task"] as const)(
+  it.each(["Web Push", "task", "GitHub publication"] as const)(
     "keeps metadata inspection and the first %s operation in the same actor",
     async (operation) => {
       const captured = context();
@@ -222,13 +222,24 @@ describe("canonical shared-state worker admission", () => {
                 input: { ownerKey: "agent:main:main" },
               }),
             ).toEqual([]);
-          } else {
+          } else if (operation === "Web Push") {
             expect(
               await scope.execute({
                 type: "webPush.listTerminalWebPushApprovalDeliveryIds",
                 input: {},
               }),
             ).toEqual({ approvalIds: [], nextAfterApprovalId: null, throughApprovalId: null });
+          } else {
+            expect(
+              await scope.execute({
+                type: "githubRepository.personalPending",
+                input: {
+                  ownerProfileId: "profile-first-use",
+                  sessionKey: "agent:main:github-first-use",
+                  agentId: "main",
+                },
+              }),
+            ).toBeUndefined();
           }
           expect(messages.mock.contexts.length).toBeGreaterThan(0);
           expect(messages.mock.contexts.every((worker) => worker === metadataWorker)).toBe(true);

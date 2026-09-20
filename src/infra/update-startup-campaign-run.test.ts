@@ -46,7 +46,7 @@ vi.mock("./update-triage.js", () => ({
 }));
 vi.mock("./restart.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./restart.js")>()),
-  scheduleGatewaySigusr1Restart: restart,
+  scheduleGatewayRestart: restart,
 }));
 
 function createApplyingCampaign() {

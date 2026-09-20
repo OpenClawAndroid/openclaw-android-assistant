@@ -10,7 +10,10 @@ import { resetGatewayWorkAdmission } from "../process/gateway-work-admission.js"
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import { updateUserGitHubConnection } from "../state/user-github-connections.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
-import { personalGitHubStatus } from "./github-personal-oauth.js";
+import {
+  createPersonalGitHubOAuthLifecycle,
+  personalGitHubStatus,
+} from "./github-personal-oauth.js";
 import {
   SESSION_ID,
   SESSION_KEY,
@@ -183,20 +186,28 @@ export async function callPersonalPublicationRpc(
   params: Record<string, unknown> = { sessionKey: SESSION_KEY },
 ) {
   const respond = vi.fn();
-  await handleGatewayRequest({
-    req: { type: "req", id: randomUUID(), method, params },
-    client,
-    context: {
-      ...context,
-      githubPublicationService: coordinator,
-      githubOAuthService: {
-        personal: { status: async (statusAction) => personalGitHubStatus(statusAction) },
-      } as GatewayRequestContext["githubOAuthService"],
-    },
-    respond,
-    isWebchatConnect: () => false,
-  });
-  return respond.mock.calls[0]!;
+  const personal = createPersonalGitHubOAuthLifecycle();
+  try {
+    await handleGatewayRequest({
+      req: { type: "req", id: randomUUID(), method, params },
+      client,
+      context: {
+        ...context,
+        githubPublicationService: coordinator,
+        githubOAuthService: {
+          personal: {
+            ...personal,
+            status: async (statusAction) => personalGitHubStatus(statusAction),
+          },
+        } as GatewayRequestContext["githubOAuthService"],
+      },
+      respond,
+      isWebchatConnect: () => false,
+    });
+    return respond.mock.calls[0]!;
+  } finally {
+    await personal.stop();
+  }
 }
 
 export function restartPersonalPublicationFixture(

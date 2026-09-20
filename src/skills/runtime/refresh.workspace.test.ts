@@ -15,8 +15,12 @@ import {
   useSkillsWatcherFixture,
 } from "./refresh.watcher.test-support.js";
 
-const { createdWatchers, watchMock, watchForSkillRoot } = createSkillsWatcherMock();
+const { createdWatchers, watchMock, nativeWatchMock, watchForSkillRoot } =
+  createSkillsWatcherMock();
 vi.mock("chokidar", () => ({ default: { watch: watchMock } }));
+vi.mock("./refresh-ancestor-native.js", () => ({
+  createNativeSkillsAncestorWatcher: nativeWatchMock,
+}));
 const fixture = useSkillsWatcherFixture();
 let resolveReusableWorkspaceSkillSnapshot: typeof import("./session-snapshot.js").resolveReusableWorkspaceSkillSnapshot;
 let refresh: typeof import("./refresh.js");

@@ -24,6 +24,14 @@ and publishes the result. Avoid exposing a generic SQL callback to application
 code or adding an asynchronous wrapper around an existing asynchronous facade.
 The plugin KV API already has asynchronous methods over its SQLite owner.
 
+Sandbox registry lists, point lookups, backend/scope runtime IDs, and browser
+registry reads execute in the shared-state read worker. CLI management and
+runtime provisioning await the same domain APIs. Reads retain inherited snapshot
+and disposable-source scopes, preserve read-only and missing-state behavior, and
+join native reader cleanup before returning. Registry writes, runtime reservation
+and currentness callbacks, and Doctor imports retain their synchronous owners;
+their worker migration remains separate work.
+
 Shared-state operations that request host transaction or commit admission acquire
 fresh lifecycle coordinator custody on their executing SQLite worker. A live
 parent-owned maintenance or native lease still delegates its existing custody.
@@ -78,8 +86,9 @@ media cleanup and best-effort live sending. When execution may have occurred but
 result is available, recovery retains queue custody and staged media; best-effort
 sending does not fall back to an independent live send. Native settlement alone
 is not evidence that a rejected command did not commit. Random insertion without
-a media stage retains its single-statement boundary; a rejected statement without
-authoritative nonpublication evidence remains an unconfirmed outcome. Recovery
+a media stage keeps its single upsert inside the same tracked transaction, so an
+observed full rollback supplies authoritative nonpublication evidence. Other
+rejections without that evidence remain unconfirmed outcomes. Recovery
 owns terminal audit publication while custody is retained. Media preparation and
 callbacks stay on the host. Media stage creation, cancellation, pruning, stable
 preparation checkpoints, and other queue mutations retain their existing owners.
@@ -100,6 +109,16 @@ accepted queue sweep through filesystem cleanup, and replacement maintenance wai
 for earlier cleanup generations. Each sweep keeps its captured state directory.
 Queue and staging formats, retention limits, writable database preparation, and
 update behavior are unchanged; send admission and settlement retain their owners.
+
+Personal repository publication options scan receipts in the shared-state worker.
+The reader validates every matching pending receipt in the existing timestamp and
+request-ID order, retaining only the latest status. Title and body content remain
+in the worker; older corrupt receipts still fail the read. Options recheck current
+caller and session authority after waiting, then consult the shared publication
+owner. Prepared personal account status rechecks its current generation and
+account without repeating network verification. Empty repository results retain
+the non-repository workspace owner's fallback. Database-open behavior, publication
+writes, schemas, and retention are unchanged.
 
 Project recents and observed checkouts prepare durable session listings through
 the existing session-transcript worker. Federation captures physical targets,
@@ -514,6 +533,15 @@ compatibility paths retain their native owners. Mutable workspace reads, writes,
 and Doctor alias repair keep their existing transaction owners. Schemas,
 retention, and update behavior are unchanged.
 
+MCP grant preparation reads exec approval policy through the independent shared-state
+read worker. The policy owner captures the original database path before yielding
+and keeps legacy-file migration checks, normalization, fail-closed results, and
+warning throttling on the host. The reader preserves inherited snapshots and joins
+accepted reads before disposable source cleanup. Missing stores stay absent, and
+worker failures never retry through host SQLite. Synchronous execution-authorization
+callbacks and policy mutation, restore, and initialization keep their existing
+owners.
+
 Use Kysely for ordinary queries and mutations. The current
 `getNodeSqliteKysely` facade compiles queries; `executeSqliteQuerySync` runs them
 on the supplied `node:sqlite` connection. Calling Kysely's asynchronous
@@ -562,6 +590,17 @@ An unadmitted worker-capacity refusal leaves cold registry preparation retryable
 it does not become a permanent restore failure.
 Task observation waits for each acknowledged row's required flow effects.
 Acknowledged task mutations are never replayed.
+
+Active core Gateway task completion retains the creation-time registry owners and
+updates its original run/runtime/session selection through the shared-state worker.
+Each selected task is reread against its exact receipt and current Gateway/run
+owner, and its publication and flow effects settle before the next sibling is
+admitted. Cancellation can still record its terminal outcome while its producer
+holds the Gateway lease. A replaced Gateway or adopted task cannot authorize a
+stale write; changing the registered runtime cannot redirect an existing core run.
+Deferred publication or required flow work stops settlement before another task is
+admitted. The committed result survives, and the existing bounded flow-repair owner
+retains its obligation without replaying that task write.
 
 Agent-event task progress uses the same shared-state worker and publication owner.
 Ingestion retains exact task, run, and backing identities without waiting for a native
@@ -752,6 +791,15 @@ the selected state environment before waiting and recheck retired-file refusal o
 that original root before accepting the worker reply. Managed nodes retain the
 canonical existing-schema scope without taking over schema repair. Configuration
 replacement retains its synchronous transaction owner.
+
+First-use session-group registration runs in the shared-state worker. Existing
+categories return without writer admission; missing names are rechecked inside
+the synchronous transaction that allocates their position and inserts them.
+Session creation and patch callers await registration before publishing a groups
+invalidation. Both preserve the durable session result and warn when catalog
+bookkeeping fails. Patches also refresh only the catalog on uncertain outcomes;
+retrying the same category assignment repairs a missing registration. Catalog
+reads and other mutations, defaults, and sidebar ordering retain their owners.
 
 The host captures the database path, state environment, and current admission
 before awaited work. The shared worker owns its canonical connection and schema

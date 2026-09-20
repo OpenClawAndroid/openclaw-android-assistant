@@ -93,6 +93,13 @@ writing.
 OAuth upserts recheck the current local or inherited credential after admission,
 before applying the existing generation-replacement rules.
 
+Inline API-key failure bookkeeping reads and updates the selected agent's auth
+state through its existing SQLite worker. It preserves credential bytes and
+other profiles' health state. Runtime snapshot publication reads canonical local
+and shared rows off-thread, then retains the current host's resolved secrets and
+external profile overlays. A publication failure does not replay a committed
+health update. The synchronous SDK store APIs retain their existing contracts.
+
 Gateway model metadata refreshes when credentials, profile ordering or ownership,
 or model availability changes, including cooldown and blocked-state transitions.
 Usage timestamps, success history, and failure counters remain recorded without

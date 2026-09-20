@@ -110,7 +110,7 @@ export type TaskProgressBatch = {
 
 export type TaskRegistryEventMutations = {
   prepare: () => { consume: () => void; release: () => void } | undefined;
-  pending: () => boolean;
+  pending: (taskId?: string) => boolean;
   captureReadFence: (admission: OpenClawStateDatabaseReadAdmission) => Promise<void>;
 };
 
@@ -352,6 +352,40 @@ export function matchesScope(task: TaskRecord, scope: TaskRegistryMutationScope)
     Boolean(scope.runId && task.runId?.trim() === scope.runId) ||
     Boolean(scope.childSessionKey && task.childSessionKey?.trim() === scope.childSessionKey)
   );
+}
+
+export function selectTaskRegistryScopes(scopes?: readonly TaskRegistryMutationScope[]): {
+  taskIds: Iterable<string>;
+  matches: (task: TaskRecord) => boolean;
+} {
+  if (!scopes) {
+    return { taskIds: indexState.tasks.keys(), matches: () => true };
+  }
+  const single = scopes[0];
+  if (scopes.length === 1 && single) {
+    return { taskIds: taskIdsInScope(single), matches: (task) => matchesScope(task, single) };
+  }
+  const taskIds = new Set(scopes.map((scope) => scope.taskId));
+  const runIds = new Set(scopes.flatMap((scope) => scope.runId || []));
+  const childSessionKeys = new Set(scopes.flatMap((scope) => scope.childSessionKey || []));
+  const candidates = new Set(taskIds);
+  for (const { keys, index } of [
+    { keys: runIds, index: indexState.taskIdsByRunId },
+    { keys: childSessionKeys, index: indexState.taskIdsByRelatedSessionKey },
+  ]) {
+    for (const key of keys) {
+      for (const taskId of index.get(key) ?? []) {
+        candidates.add(taskId);
+      }
+    }
+  }
+  return {
+    taskIds: candidates,
+    matches: (task) =>
+      taskIds.has(task.taskId) ||
+      runIds.has(task.runId?.trim() ?? "") ||
+      childSessionKeys.has(task.childSessionKey?.trim() ?? ""),
+  };
 }
 
 /** Restore transaction-local publication facts without replacing held witness objects. */

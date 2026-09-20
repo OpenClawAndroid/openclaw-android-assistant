@@ -64,6 +64,7 @@ import { createPluginSdkLightVitestConfig } from "../vitest/vitest.plugin-sdk-li
 import { createPluginSdkVitestConfig } from "../vitest/vitest.plugin-sdk.config.ts";
 import { createPluginsVitestConfig } from "../vitest/vitest.plugins.config.ts";
 import { createRuntimeConfigVitestConfig } from "../vitest/vitest.runtime-config.config.ts";
+import { startupCorpusTestFiles } from "../vitest/vitest.startup-corpus-paths.mjs";
 import { createTasksVitestConfig } from "../vitest/vitest.tasks.config.ts";
 import { fullSuiteVitestShards } from "../vitest/vitest.test-shards.mjs";
 import { createToolingVitestConfig } from "../vitest/vitest.tooling.config.ts";
@@ -80,10 +81,7 @@ import { createWizardVitestConfig } from "../vitest/vitest.wizard.config.ts";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("startup corpus coverage", () => {
-  const files = [
-    "src/config/config-startup-corpus.test.ts",
-    "src/config/state-startup-corpus.test.ts",
-  ];
+  const files = startupCorpusTestFiles;
   const group = {
     shard_name: "core-runtime-config",
     configs: ["test/vitest/vitest.runtime-config.config.ts"],
@@ -102,7 +100,10 @@ describe("startup corpus coverage", () => {
   it.each<
     { label: string } & Partial<Parameters<typeof hasCompleteStartupCorpusCoverage>[0][number]>
   >([
-    { label: "partial file list", groups: [{ ...group, includePatterns: files.slice(0, 1) }] },
+    ...files.map((missingFile) => ({
+      label: `missing ${missingFile}`,
+      groups: [{ ...group, includePatterns: files.filter((file) => file !== missingFile) }],
+    })),
     { label: "unknown full config", groups: [{ ...group, includePatterns: undefined }] },
     {
       label: "glob instead of complete files",
@@ -1646,7 +1647,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         expect(new Set(names).size).toBe(names.length);
         expect(new Set(plan.map((shard) => shard.checkName)).size).toBe(plan.length);
         expect(new Set(plan.map((shard) => shard.shardName)).size).toBe(plan.length);
-        expect(plan.length, `${profile.name} row budget`).toBeLessThanOrEqual(80);
+        expect(plan.length, `${profile.name} row budget`).toBeLessThanOrEqual(90);
       }
     }
     expect(compact.every((shard) => Array.isArray(shard.groups))).toBe(true);
@@ -2515,6 +2516,8 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     const runtimeTargets = [
       "test/e2e/qa-lab/runtime/gateway-support-export-runtime.test.ts",
       "src/infra/update-managed-service-handoff-lifecycle.test.ts",
+      "src/infra/update-managed-service-handoff-repair-validating.test.ts",
+      "src/infra/update-managed-service-handoff-repair-verifying.test.ts",
       ...doctorRuntimeTargets,
       "src/commands/doctor-plugin-install-config.process.test.ts",
       "src/gateway/gateway-active-memory.test.ts",
@@ -2780,7 +2783,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     // Every selected file is now indivisible above the admission cap. Overflow
     // must retain these 96 files plus two dist owners, never resurrect the full suite.
     expect(() => createSelectedNodeTestShardBundles(selected, { runnerBackend: "github" })).toThrow(
-      "exceeds 80 jobs (98 planned)",
+      "exceeds 90 jobs (98 planned)",
     );
   });
 
@@ -2898,8 +2901,8 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     const unitFastPaths = await vi.importActual<
       typeof import("../vitest/vitest.unit-fast-paths.mjs")
     >("../vitest/vitest.unit-fast-paths.mjs");
-    // Fifty-six full-budget anchors leave 24 of the 80 jobs for tooling.
-    const anchors = Array.from({ length: 56 }, (_, index) => ({
+    // Sixty-six full-budget anchors leave 24 of the 90 jobs for tooling.
+    const anchors = Array.from({ length: 66 }, (_, index) => ({
       config: `test/vitest/vitest.capacity-anchor-${index}.config.ts`,
       name: `capacity-anchor-${index}`,
       projects: [`test/vitest/vitest.capacity-anchor-${index}.config.ts`],
@@ -3000,14 +3003,14 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       .flatMap((job) => job.groups)
       .filter(isNumberedToolingGroup)
       .flatMap((group) => group.includePatterns ?? []);
-    expect(baseline).toHaveLength(80);
+    expect(baseline).toHaveLength(90);
     expect(baselineToolingFiles.toSorted()).toEqual(fixtureFiles.toSorted());
     const grown = await createPlanWithInventory(true);
     const toolingGroups = grown.flatMap((job) => job.groups).filter(isNumberedToolingGroup);
     const toolingFiles = toolingGroups.flatMap((group) => group.includePatterns ?? []);
     const crossRunnerHostedJobs: CompactNodeTestShard[] = [];
 
-    expect(grown.length).toBeLessThanOrEqual(80);
+    expect(grown.length).toBeLessThanOrEqual(90);
     expect(new Set(toolingFiles).size).toBe(toolingFiles.length);
     expect(toolingFiles.toSorted()).toEqual(
       [...baselineToolingFiles, inventoryGrowthFile].toSorted(),
@@ -3056,7 +3059,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         .flatMap((job) => job.groups)
         .filter(isNumberedToolingGroup)
         .flatMap((group) => group.includePatterns ?? []);
-      expect(expanded.length).toBeLessThanOrEqual(80);
+      expect(expanded.length).toBeLessThanOrEqual(90);
       expect(new Set(expandedToolingFiles).size).toBe(expandedToolingFiles.length);
       expect(expandedToolingFiles.toSorted()).toEqual(
         [...new Set([...baselineToolingFiles, inventoryGrowthFile, ...extraFiles])].toSorted(),
@@ -3446,7 +3449,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       }
       expect(actual.toSorted()).toEqual(expected.toSorted());
       expect(new Set(actual).size).toBe(actual.length);
-      expect(plan.length).toBeLessThanOrEqual(80);
+      expect(plan.length).toBeLessThanOrEqual(90);
       const config = createInfraVitestConfig({});
       expect(config.test?.fileParallelism).toBe(false);
       expect(config.test?.isolate).toBe(true);
@@ -4535,7 +4538,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
                 shard.runner === EXTRA_LARGE_NODE_TEST_RUNNER)),
         ),
       ).toBe(true);
-      expect(after.length).toBeLessThanOrEqual(80);
+      expect(after.length).toBeLessThanOrEqual(90);
     },
   );
 

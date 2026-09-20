@@ -179,7 +179,12 @@ export async function runAcpAgentCommand(params: {
         if (recorder && !recorder.hasPersisted() && !(await recorder.persistApproved())) {
           throw new Error("ACP input could not enter the session transcript");
         }
-        params.opts.onExecutionStarted?.();
+        await params.opts.onExecutionStarted?.();
+        assertAgentRunLifecycleGenerationCurrent(params.lifecycleGeneration);
+        params.opts.abortSignal?.throwIfAborted();
+        if (!getAdmittedRunDelegatedAuthority(admittedRunContext)) {
+          throw new Error("ACP run authority is no longer active");
+        }
       },
       onLifecycle: (event) => {
         if (event.type === "prompt_submitted") {

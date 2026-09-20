@@ -3,7 +3,11 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import type { ReplyToMode } from "../../config/types.js";
 import { hasReplyPayloadContent } from "../../interactive/payload.js";
 import { parseInlineDirectives } from "../../utils/directive-tags.js";
-import { copyReplyPayloadMetadata, setReplyPayloadMetadata } from "../reply-payload.js";
+import {
+  copyReplyPayloadMetadata,
+  hasReplyPayloadSpeechContent,
+  setReplyPayloadMetadata,
+} from "../reply-payload.js";
 import type { OriginatingChannelType } from "../templating.js";
 import type { ReplyPayload, ReplyThreadingPolicy } from "../types.js";
 import {
@@ -91,7 +95,8 @@ export function applyReplyTagsToPayload(
 /** True when a payload has visible or playable content for delivery. */
 export function isRenderablePayload(payload: ReplyPayload): boolean {
   return hasReplyPayloadContent(payload, {
-    extraContent: payload.audioAsVoice || payload.location != null,
+    extraContent:
+      payload.audioAsVoice || payload.location != null || hasReplyPayloadSpeechContent(payload),
   });
 }
 

@@ -426,6 +426,9 @@ describe("worker environment store", () => {
     expect(plan.map((row) => row.detail).join("\n")).toContain(
       "idx_worker_environments_terminal_changed",
     );
+    expect(plan.map((row) => row.detail).join("\n")).toContain(
+      "idx_worker_session_placements_environment",
+    );
   });
 
   it("prunes only old unreferenced terminal environments and cascades owned rows", () => {

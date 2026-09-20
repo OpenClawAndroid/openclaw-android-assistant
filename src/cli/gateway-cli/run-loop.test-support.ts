@@ -1,7 +1,9 @@
+import { performance } from "node:perf_hooks";
 import { expect, it, vi, type Mock } from "vitest";
 import type { GatewayServer } from "../../gateway/server-public.js";
 import type { GatewayActiveWorkSnapshot } from "../../infra/gateway-active-work.js";
 import type { GatewayRestartIntent } from "../../infra/restart-intent.js";
+import { createDeferredCore } from "../../shared/deferred.js";
 import type { GatewayRestartSnapshot } from "../daemon-cli/restart-health.js";
 
 export const createActiveWorkSnapshot = (
@@ -66,7 +68,7 @@ export function createSignaledStart(
 }
 
 export const shutdownBudgetCases: {
-  signal: "SIGTERM" | "SIGUSR1";
+  signal: "SIGTERM" | "SIGUSR2";
   honorsAbort: boolean;
   supervisor: "systemd" | "external-systemd" | "launchd" | "foreground";
   waitMs?: number;
@@ -80,7 +82,7 @@ export const shutdownBudgetCases: {
     installedStopMs: 90_000,
   },
   {
-    signal: "SIGUSR1",
+    signal: "SIGUSR2",
     honorsAbort: false,
     supervisor: "external-systemd",
     installedStopMs: 90_000,
@@ -88,11 +90,11 @@ export const shutdownBudgetCases: {
   { signal: "SIGTERM", honorsAbort: false, supervisor: "systemd" },
   { signal: "SIGTERM", honorsAbort: false, supervisor: "foreground" },
   { signal: "SIGTERM", honorsAbort: true, supervisor: "systemd" },
-  { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd" },
+  { signal: "SIGUSR2", honorsAbort: false, supervisor: "systemd" },
   { signal: "SIGTERM", honorsAbort: false, supervisor: "launchd" },
-  { signal: "SIGUSR1", honorsAbort: false, supervisor: "launchd" },
-  { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd", waitMs: 0 },
-  { signal: "SIGUSR1", honorsAbort: false, supervisor: "systemd", waitMs: 600_000 },
+  { signal: "SIGUSR2", honorsAbort: false, supervisor: "launchd" },
+  { signal: "SIGUSR2", honorsAbort: false, supervisor: "systemd", waitMs: 0 },
+  { signal: "SIGUSR2", honorsAbort: false, supervisor: "systemd", waitMs: 600_000 },
 ];
 
 export const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
@@ -107,7 +109,7 @@ export function setPlatform(platform: string) {
   });
 }
 
-const LOOP_SIGNALS = ["SIGTERM", "SIGINT", "SIGUSR1"] as const;
+const LOOP_SIGNALS = ["SIGTERM", "SIGINT", "SIGUSR2"] as const;
 type LoopSignal = (typeof LOOP_SIGNALS)[number];
 
 function removeNewSignalListeners(signal: LoopSignal, existing: Set<(...args: unknown[]) => void>) {
@@ -223,8 +225,8 @@ export type UpdateRespawnResultFixture = {
 
 export function registerUpdateRespawnProgressTests({
   runLoopWithStart,
-  peekGatewaySigusr1RestartReason,
-  consumeGatewaySigusr1RestartIntent,
+  peekGatewayRestartReason,
+  consumeGatewayRestartIntent,
   respawnGatewayProcessForUpdate,
   readRestartSentinelReadOnly,
   waitForGatewayHealthyRestart,
@@ -238,8 +240,8 @@ export function registerUpdateRespawnProgressTests({
     runtime: ReturnType<typeof createRuntimeWithExitSignal>["runtime"];
     lockPort: number;
   }) => Promise<unknown>;
-  peekGatewaySigusr1RestartReason: Mock<() => string | undefined>;
-  consumeGatewaySigusr1RestartIntent: Mock<() => GatewayRestartIntent | null>;
+  peekGatewayRestartReason: Mock<() => string | undefined>;
+  consumeGatewayRestartIntent: Mock<() => GatewayRestartIntent | null>;
   respawnGatewayProcessForUpdate: Mock<
     (_opts?: { env?: NodeJS.ProcessEnv }) => UpdateRespawnResultFixture
   >;
@@ -264,8 +266,8 @@ export function registerUpdateRespawnProgressTests({
     "leaves a $waitOutcome replacement running after $elapsedMs ms",
     async ({ waitOutcome, elapsedMs, closeMs, sentinelStatus }) => {
       vi.clearAllMocks();
-      peekGatewaySigusr1RestartReason.mockReturnValue("update.run");
-      consumeGatewaySigusr1RestartIntent.mockReturnValueOnce({ reason: "update.run", force: true });
+      peekGatewayRestartReason.mockReturnValue("update.run");
+      consumeGatewayRestartIntent.mockReturnValueOnce({ reason: "update.run", force: true });
       const kill = vi.fn();
       readRestartSentinelReadOnly.mockResolvedValueOnce({
         version: 1,
@@ -295,10 +297,10 @@ export function registerUpdateRespawnProgressTests({
         const { runtime, exited } = createRuntimeWithExitSignal();
         await runLoopWithStart({ start, runtime, lockPort: 18789 });
         await waitForStart(started);
-        const sigusr1 = captureSignal("SIGUSR1");
+        const restartSignal = captureSignal("SIGUSR2");
 
         vi.useFakeTimers();
-        sigusr1();
+        restartSignal();
         await vi.advanceTimersByTimeAsync(10_000);
         expect(runtime.exit).not.toHaveBeenCalled();
         expect(kill).not.toHaveBeenCalled();
@@ -324,6 +326,139 @@ export function registerUpdateRespawnProgressTests({
           expect(writeRestartSentinelIfUnchanged).not.toHaveBeenCalled();
         }
         expect(writeGatewayRestartHandoffSync).not.toHaveBeenCalled();
+      });
+    },
+  );
+}
+
+export function registerGatewayRestartOwnershipTests({
+  consumeGatewayRestartIntentPayloadSync,
+  readCgroup,
+  systemctl,
+  consumeGatewayRestartIntent,
+  runLoopWithStart,
+  acquireGatewayLock,
+  gatewayLog,
+}: {
+  consumeGatewayRestartIntentPayloadSync: Mock;
+  readCgroup: Mock;
+  systemctl: Mock;
+  consumeGatewayRestartIntent: Mock<() => GatewayRestartIntent | null>;
+  runLoopWithStart: (params: {
+    start: ReturnType<typeof createSignaledStart>["start"];
+    runtime: ReturnType<typeof createRuntimeWithExitSignal>["runtime"];
+  }) => Promise<unknown>;
+  acquireGatewayLock: Mock;
+  gatewayLog: { info: Mock };
+}) {
+  it.each(
+    [false, true].flatMap((noRespawn) =>
+      [false, true].map((cleanupCompletes) => ({ noRespawn, cleanupCompletes })),
+    ),
+  )(
+    "keeps restart ownership inside a service cgroup (noRespawn=$noRespawn, cleanupCompletes=$cleanupCompletes)",
+    async ({ noRespawn, cleanupCompletes }) => {
+      if (noRespawn) {
+        process.env.OPENCLAW_SYSTEMD_UNIT = "openclaw-gateway.service";
+        process.env.OPENCLAW_NO_RESPAWN = "1";
+      }
+      readCgroup.mockResolvedValue("0::/system.slice/setup_and_run_blacksmith.service\n");
+      systemctl.mockResolvedValue({
+        code: 0,
+        stdout: "LoadState=loaded\nTimeoutStopUSec=90s",
+        stderr: "",
+      });
+      consumeGatewayRestartIntent.mockReturnValueOnce({ force: true });
+      await withIsolatedSignals(async ({ captureSignal }) => {
+        const cleanup = createDeferredCore();
+        const close = createCloseMock().mockImplementationOnce(() => cleanup.promise);
+        const { start, started } = createSignaledStart(close);
+        const { runtime, exited } = createRuntimeWithExitSignal();
+        await runLoopWithStart({ start, runtime });
+        await waitForStart(started);
+        const stop = captureSignal("SIGINT");
+        vi.useFakeTimers();
+        try {
+          captureSignal("SIGUSR2")();
+          await vi.advanceTimersByTimeAsync(11_000);
+          expect(close).toHaveBeenCalledOnce();
+          expect(runtime.exit).not.toHaveBeenCalled();
+          if (cleanupCompletes) {
+            cleanup.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(start).toHaveBeenCalledTimes(2);
+          } else {
+            await vi.advanceTimersByTimeAsync(74_000);
+            expect(runtime.exit).toHaveBeenCalledExactlyOnceWith(1);
+            expect(start).toHaveBeenCalledOnce();
+          }
+          expect(acquireGatewayLock).toHaveBeenCalledWith(
+            expect.objectContaining({
+              listenerMode: noRespawn ? "supervised" : "foreground",
+              supervisor: noRespawn ? { kind: "systemd", name: "openclaw-gateway.service" } : null,
+            }),
+          );
+          expect(gatewayLog.info).toHaveBeenCalledWith(expect.stringContaining("shutdown=85000ms"));
+        } finally {
+          cleanup.resolve();
+          await vi.advanceTimersByTimeAsync(0);
+          if (runtime.exit.mock.calls.length === 0) {
+            stop();
+            await vi.advanceTimersByTimeAsync(0);
+            await exited;
+          }
+          vi.useRealTimers();
+        }
+      });
+    },
+  );
+  it.each(["completed", "unconfirmed"] as const)(
+    "passes the remaining forced restart budget and reports %s cleanup before process exit",
+    async (outcome) => {
+      setPlatform("linux");
+      vi.stubEnv("OPENCLAW_SYSTEMD_UNIT", "openclaw-gateway.service");
+      vi.stubEnv("OPENCLAW_SUPERVISOR_MODE", "external");
+      consumeGatewayRestartIntentPayloadSync.mockReturnValueOnce({ force: true });
+      systemctl.mockResolvedValue({
+        code: 0,
+        stdout: "LoadState=loaded\nTimeoutStopUSec=90s",
+        stderr: "",
+      });
+      await withIsolatedSignals(async ({ captureSignal }) => {
+        let cleanupDeadline: number | undefined;
+        const close = vi.fn<GatewayServer["close"]>(async () => {
+          cleanupDeadline = getProcessCleanupBudget()?.deadline;
+          await new Promise<void>((resolve, reject) => {
+            if (outcome === "completed") {
+              setTimeout(resolve, 6_000);
+            } else {
+              setTimeout(() => {
+                setImmediate(() => reject(new Error("service child extinction unconfirmed")));
+              }, cleanupDeadline! - performance.now());
+            }
+          });
+        });
+        const { start, started } = createSignaledStart(close);
+        const { runtime, exited } = createRuntimeWithExitSignal();
+        await runLoopWithStart({ start, runtime });
+        await waitForStart(started);
+        const { getProcessCleanupBudget } =
+          await import("../../process/supervisor/cleanup-budget.js");
+        vi.useFakeTimers();
+        const clock = vi.spyOn(performance, "now").mockReturnValue(1_000);
+        try {
+          captureSignal("SIGTERM")();
+          await vi.advanceTimersByTimeAsync(5_000);
+          expect(close).toHaveBeenCalledOnce();
+          expect(runtime.exit).not.toHaveBeenCalled();
+          await vi.advanceTimersByTimeAsync(outcome === "completed" ? 1_000 : 5_001);
+          await expect(exited).resolves.toBe(outcome === "completed" ? 0 : 1);
+          expect(cleanupDeadline).toBe(10_000);
+          expect(start).toHaveBeenCalledOnce();
+        } finally {
+          clock.mockRestore();
+          vi.useRealTimers();
+        }
       });
     },
   );

@@ -10,7 +10,6 @@ import type { AgentContextPruningConfig } from "../../config/types.agent-default
 import { sha256Base64Url } from "../../infra/crypto-digest.js";
 import { createDedupeCache } from "../../infra/dedupe.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import type { TextContent } from "../../llm/types.js";
 import { emitSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
 import { compileGlobPatterns, matchesAnyGlobPattern } from "../glob-pattern.js";
 import type { AgentMessage } from "../runtime/index.js";
@@ -31,6 +30,8 @@ import {
 import { dropThinkingBlocks } from "./thinking.js";
 import {
   estimateToolResultTextChars,
+  isToolResultTextBlock,
+  readPreparedToolResultTextChars,
   sliceToolResultTextTailToBudget,
   sliceToolResultTextToBudget,
 } from "./tool-result-text-budget.js";
@@ -545,9 +546,16 @@ export function truncateToolResultMessage(
     return msg;
   }
 
-  const blockTextChars = content.map((block) =>
-    isToolResultTextBlock(block) ? estimateToolResultTextChars(block.text, budgetOptions) : 0,
-  );
+  const blockTextChars = content.map((block) => {
+    if (!isToolResultTextBlock(block)) {
+      return 0;
+    }
+    const text = block.text;
+    return (
+      readPreparedToolResultTextChars(block, text, budgetOptions.minimumRawWeight ?? 1) ??
+      estimateToolResultTextChars(text, budgetOptions)
+    );
+  });
   const totalTextChars = blockTextChars.reduce((sum, chars) => sum + chars, 0);
   if (totalTextChars <= maxChars) {
     return msg;
@@ -613,19 +621,6 @@ export function truncateToolResultMessage(
   });
 
   return { ...msg, content: newContent } as AgentMessage;
-}
-
-function isToolResultTextBlock(
-  block: unknown,
-): block is TextContent & { content?: unknown; type: "text" | "toolResult" } {
-  if (!block || typeof block !== "object") {
-    return false;
-  }
-  const type = (block as { type?: unknown }).type;
-  return (
-    (type === "text" || type === "toolResult") &&
-    typeof (block as { text?: unknown }).text === "string"
-  );
 }
 
 function getToolResultSpillDetails(message: AgentMessage) {

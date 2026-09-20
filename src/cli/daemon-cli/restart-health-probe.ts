@@ -10,6 +10,7 @@ import { classifyGatewayConnectFailure } from "../../../packages/gateway-protoco
 import { sanitizeTerminalText } from "../../../packages/terminal-core/src/safe-text.js";
 import { createConfigIO } from "../../config/io.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { loadStoredOperatorDeviceAuthToken } from "../../gateway/call-device-auth.js";
 import { callGateway } from "../../gateway/call.js";
 import { isGatewayProtocolResponseError } from "../../gateway/client.js";
 import type { PluginHealthErrorSummary } from "../../gateway/health/types.js";
@@ -19,6 +20,7 @@ import {
 } from "../../gateway/local-http-probe.js";
 import { READ_SCOPE } from "../../gateway/method-scopes.js";
 import { resolveGatewayProbeAuthSafeWithSecretInputs } from "../../gateway/probe-auth.js";
+import { loadDeviceIdentityIfPresent } from "../../infra/device-identity.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { inspectPortUsage } from "../../infra/ports-inspect.js";
 import { LOOPBACK_PORT_PROBE_HOSTS } from "../../infra/ports-probe.js";
@@ -291,8 +293,19 @@ export async function confirmGatewayReachable(params: {
       return { ...result, probeError: "gateway TLS certificate unavailable" };
     }
     const authNone = context.config.gateway?.auth?.mode === "none";
+    const identity =
+      authNone || auth?.token || auth?.password
+        ? null
+        : loadDeviceIdentityIfPresent({ env: params.env });
+    const preparedDeviceAuth = await loadStoredOperatorDeviceAuthToken(
+      identity,
+      undefined,
+      "read-only",
+      params.env,
+    );
     // Readiness is first-party local control. CLI shared auth preserves read scopes;
-    // auth-none uses the existing loopback backend contract without pairing a device.
+    // auth-none uses the loopback backend contract. Other modes may reuse an
+    // existing paired identity; the read-only client never creates or changes it.
     params.signal?.throwIfAborted();
     const health = await callGateway({
       config: context.config,
@@ -306,7 +319,8 @@ export async function confirmGatewayReachable(params: {
       clientName: authNone ? GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT : GATEWAY_CLIENT_NAMES.CLI,
       mode: authNone ? GATEWAY_CLIENT_MODES.BACKEND : GATEWAY_CLIENT_MODES.CLI,
       requireLocalBackendSharedAuth: authNone,
-      deviceIdentity: null,
+      deviceIdentity: preparedDeviceAuth ? identity : null,
+      preparedDeviceAuth: preparedDeviceAuth ?? undefined,
       sharedStateMode: "read-only",
       timeoutMs: params.timeoutMs ?? GATEWAY_RESTART_PROBE_TIMEOUT_MS,
       ...(params.signal ? { signal: params.signal } : {}),

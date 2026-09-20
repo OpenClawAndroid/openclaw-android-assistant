@@ -1,11 +1,16 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Selectable } from "kysely";
+import type {
+  SandboxBrowserRegistryEntry,
+  SandboxRegistryEntry,
+} from "../agents/sandbox/registry.types.js";
 import type { WorkspaceStateSnapshot } from "../agents/workspace-state-store.kernel.js";
 import type {
   ExecutionIdentityInspectionQuery,
   ExecutionIdentityInspectionOutcome,
 } from "../audit/execution-identity-inspection.types.js";
 import type { FleetCellRecord } from "../fleet/registry.types.js";
+import type { readExecApprovalsConfigRow } from "../infra/exec-approvals-sqlite.js";
 import type { SqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import type { AsyncWorkScope } from "../shared/async-work-scope.js";
 import type { OnboardingRecommendationsRecord } from "./onboarding-recommendations.contract.js";
@@ -29,6 +34,7 @@ export type OpenClawStateReadAuthority = {
 };
 
 export type OpenClawStateReadCommand =
+  | { type: "exec-approvals.read" }
   | { type: "agentDatabaseRegistry.read" }
   | { type: "onboardingRecommendations.read"; configKey: string }
   | { type: "userProfiles.avatar.reconcile"; profileId: string }
@@ -36,7 +42,11 @@ export type OpenClawStateReadCommand =
   | { type: "fleet.list" }
   | { type: "fleet.get"; tenantId: string }
   | { type: "nodeHost.config" }
-  | { type: "workspace.snapshot"; workspaceDir: string };
+  | { type: "workspace.snapshot"; workspaceDir: string }
+  | { type: "sandboxRegistry.list" }
+  | { type: "sandboxRegistry.get"; containerName: string }
+  | { type: "sandboxRegistry.runtimeIds"; backendId: string; scopeKey: string }
+  | { type: "sandboxRegistry.browsers" };
 export type OpenClawStateReadRequest = {
   context: SqliteWorkerStateContext;
   databasePath: string;
@@ -72,6 +82,12 @@ export type OpenClawStateReadReply = (
       result: ExecutionIdentityInspectionOutcome;
     }
   | { ok: true; type: "admit" }
+  | {
+      ok: true;
+      type: "exec-approvals.read";
+      sourceAdmitted: true;
+      row: ReturnType<typeof readExecApprovalsConfigRow>;
+    }
   | { ok: true; type: "fleet.list"; sourceAdmitted: true; cells: FleetCellRecord[] }
   | { ok: true; type: "fleet.get"; sourceAdmitted: true; cell: FleetCellRecord | undefined }
   | {
@@ -81,6 +97,25 @@ export type OpenClawStateReadReply = (
       row: Pick<Selectable<ConfigMachineState>, "value_json" | "updated_at_ms"> | undefined;
     }
   | { ok: true; type: "workspace.snapshot"; sourceAdmitted: true; snapshot: WorkspaceStateSnapshot }
+  | {
+      ok: true;
+      type: "sandboxRegistry.list";
+      sourceAdmitted: true;
+      entries: SandboxRegistryEntry[];
+    }
+  | {
+      ok: true;
+      type: "sandboxRegistry.get";
+      sourceAdmitted: true;
+      entry: SandboxRegistryEntry | null;
+    }
+  | { ok: true; type: "sandboxRegistry.runtimeIds"; sourceAdmitted: true; runtimeIds: string[] }
+  | {
+      ok: true;
+      type: "sandboxRegistry.browsers";
+      sourceAdmitted: true;
+      entries: SandboxBrowserRegistryEntry[];
+    }
   | {
       ok: false;
       sourceAdmitted?: true;

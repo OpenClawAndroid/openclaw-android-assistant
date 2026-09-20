@@ -60,7 +60,7 @@ export async function prepareGatewayRestartIteration(
   logger: Pick<SubsystemLogger, "warn">,
   onAdmissionReset: () => void,
 ): Promise<void> {
-  // After an in-process restart (SIGUSR1), reset command-queue lane state.
+  // After an in-process restart (SIGUSR2), reset command-queue lane state.
   // Interrupted tasks from the previous lifecycle may have left `active`
   // counts elevated (their finally blocks never ran), permanently blocking
   // new work from draining. The same boundary also discards stale restart

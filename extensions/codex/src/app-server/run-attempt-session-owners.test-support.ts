@@ -24,14 +24,24 @@ export async function seedRunSessionOwnerForTest(sessionId: string, sessionKey: 
   seededSessionOwnersForTest.push({ ...scope, expectedSessionId: sessionId });
 }
 
-export async function cleanupRunSessionOwnersForTest(): Promise<void> {
-  // Seeded rows retain their original selectors until their maintenance owners settle.
+export async function cleanupRunSessionOwnersForTest({
+  closeDatabases = false,
+}: { closeDatabases?: boolean } = {}): Promise<void> {
+  // Each test deletes its rows; the suite retains their database and filesystem owners.
   for (const owner of seededSessionOwnersForTest) {
     await deleteSessionEntry(owner);
   }
+  if (closeDatabases) {
+    await closeRunSessionOwnerDatabasesForTest();
+  } else {
+    resetPluginStateStoreForTests({ closeDatabase: false });
+  }
+  seededSessionOwnersForTest.length = 0;
+}
+
+export async function closeRunSessionOwnerDatabasesForTest(): Promise<void> {
   await closeOpenClawAgentDatabasesAsync();
   closeOpenClawAgentDatabasesForTest();
   await closeOpenClawStateDatabaseAsync();
   resetPluginStateStoreForTests();
-  seededSessionOwnersForTest.length = 0;
 }

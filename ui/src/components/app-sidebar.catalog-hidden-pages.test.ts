@@ -73,6 +73,42 @@ describe("AppSidebar expanded catalog refresh visibility", () => {
     vi.useRealTimers();
   });
 
+  it("holds expanded pending rows until an explicit fresh page is requested", async () => {
+    const pendingPage = catalogPage([]);
+    pendingPage.catalogs[0]!.hosts[0]!.pending = true;
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(page(1))
+      .mockResolvedValueOnce(page(2))
+      .mockResolvedValueOnce(page(3))
+      .mockResolvedValueOnce(pendingPage)
+      .mockResolvedValue(page(4, "Fresh", ""));
+    const { sidebar } = await mountExpanded(request);
+    await sidebar.sessionData.refreshSessionCatalogs();
+    await settle(sidebar);
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(sidebar.sessionData.sessionCatalogs[0]?.hosts[0]).toMatchObject({
+      pending: true,
+      nextCursor: "page-4",
+      sessions: [
+        expect.objectContaining({ threadId: "thread-1" }),
+        expect.objectContaining({ threadId: "thread-2" }),
+        expect.objectContaining({ threadId: "thread-3" }),
+      ],
+    });
+    await loadMore(sidebar);
+    expect(request).toHaveBeenCalledTimes(5);
+    expect(request).toHaveBeenLastCalledWith("sessions.catalog.list", {
+      agentId: "main",
+      catalogId: "codex",
+      hostIds: ["gateway:local"],
+      cursors: { "gateway:local": "page-4" },
+    });
+    expect(sidebar.sessionData.sessionCatalogs[0]?.hosts[0]?.pending).toBeUndefined();
+    expect(sidebar.textContent).toContain("Original 3");
+    expect(sidebar.textContent).toContain("Fresh 4");
+  });
+
   it.each(["base", "expanded"] as const)(
     "stops new automatic pages after hiding during the %s response and catches up once",
     async (heldStage) => {

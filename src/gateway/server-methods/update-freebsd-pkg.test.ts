@@ -12,7 +12,7 @@ import {
   mockGlobalInstallSurface,
   resolveUpdateInstallSurfaceMock,
   runGatewayUpdateMock,
-  scheduleGatewaySigusr1RestartMock,
+  scheduleGatewayRestartMock,
   startManagedServiceUpdateHandoffMock,
 } from "./update.test-harness.js";
 
@@ -65,7 +65,7 @@ describe("FreeBSD pkg RPC admission", () => {
       expect(adoptUpdateCampaignMock).not.toHaveBeenCalled();
       expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
       expect(runGatewayUpdateMock).not.toHaveBeenCalled();
-      expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+      expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     },
   );
 

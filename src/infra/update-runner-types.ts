@@ -9,6 +9,7 @@ import type {
   UpdateDoctorConfigChange,
   UpdateDoctorConfigWriteRefusal,
 } from "./update-doctor-config.js";
+import type { UpdateDoctorLintFinding } from "./update-doctor-lint-schema.js";
 import type { PackageUpdateStepAdvisory } from "./update-doctor-result.js";
 import type { UpdateFailureFact } from "./update-failure-facts.js";
 import type { GlobalInstallManager } from "./update-global.js";
@@ -16,7 +17,7 @@ import type { UpdateRecovery } from "./update-recovery.js";
 import type { UpdateRollbackOutcome } from "./update-run-schema.js";
 import type { UpdateSnapshotCapacity } from "./update-snapshot-capacity.js";
 
-export type UpdateStepAdvisory =
+type UpdateStepAdvisory =
   | PackageUpdateStepAdvisory
   | { kind: "candidate-runtime-unavailable" | "recoverable-maintenance"; message: string };
 
@@ -30,6 +31,7 @@ export type UpdateStepResult = {
   stderrTail?: string | null;
   signal?: NodeJS.Signals | null;
   killed?: boolean;
+  outputLimitExceeded?: boolean;
   termination?: "exit" | "timeout" | "no-output-timeout" | "signal";
   advisory?: UpdateStepAdvisory;
   /** Complete owner-classified warnings when one step reports several outcomes. */
@@ -37,6 +39,7 @@ export type UpdateStepResult = {
   /** Suggested operator actions, distinct from executed update steps. */
   recoverySteps?: readonly UpdateRecoveryStep[];
   failureFacts?: UpdateFailureFact[];
+  doctorLintFindings?: UpdateDoctorLintFinding[];
   configChanges?: UpdateDoctorConfigChange[];
   configWriteRefusal?: UpdateDoctorConfigWriteRefusal;
   snapshotCapacity?: UpdateSnapshotCapacity;
@@ -65,6 +68,7 @@ export type UpdateRunResult = {
   postUpdate?: {
     plugins?: {
       failureFacts?: UpdateFailureFact[];
+      doctorLint?: UpdateStepResult;
       status: "ok" | "warning" | "skipped" | "error";
       reason?: string;
       changed: boolean;

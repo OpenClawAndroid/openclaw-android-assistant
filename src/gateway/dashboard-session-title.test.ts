@@ -361,16 +361,23 @@ describe("maybeGenerateDashboardSessionTitle", () => {
     );
   });
 
-  it("persists a deterministic goal title when model labeling fails", async () => {
-    generateConversationLabelWithFallback.mockRejectedValueOnce(new Error("route unavailable"));
+  it.each(["failure", "empty"])(
+    "persists a two-word name after model labeling %s",
+    async (outcome) => {
+      if (outcome === "failure") {
+        generateConversationLabelWithFallback.mockRejectedValueOnce(new Error("route unavailable"));
+      } else {
+        generateConversationLabelWithFallback.mockResolvedValueOnce(null);
+      }
 
-    await expect(maybeGenerateDashboardSessionTitle(titleParams())).resolves.toBe(true);
-    expect(generateConversationLabelWithFallback).toHaveBeenCalledTimes(1);
-    const update = updateSessionEntry.mock.calls[0]?.[1];
-    expect(await update?.({ ...baseEntry })).toEqual({
-      displayName: "Help me plan the release",
-    });
-  });
+      await expect(maybeGenerateDashboardSessionTitle(titleParams())).resolves.toBe(true);
+      expect(generateConversationLabelWithFallback).toHaveBeenCalledTimes(1);
+      const update = updateSessionEntry.mock.calls[0]?.[1];
+      expect(await update?.({ ...baseEntry })).toEqual({
+        displayName: expect.stringMatching(/^[a-z]+-[a-z]+$/),
+      });
+    },
+  );
 
   it("does not persist a deterministic title when utility-only speculation fails", async () => {
     generateConversationLabelWithFallback.mockRejectedValueOnce(new Error("route unavailable"));
@@ -483,7 +490,8 @@ describe("maybeGenerateDashboardSessionTitle", () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(loadSessionEntry()).toMatchObject({
-        displayName: outcome === "generated" ? "Release Planning" : "Help me plan the release",
+        displayName:
+          outcome === "generated" ? "Release Planning" : expect.stringMatching(/^[a-z]+-[a-z]+$/),
       });
       expect(onPersisted).toHaveBeenCalledOnce();
       expect(updateSessionEntry).toHaveBeenCalledOnce();

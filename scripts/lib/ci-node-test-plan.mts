@@ -19,6 +19,7 @@ import {
   isGatewayServerBackedHttpTestFile,
   isGatewayServerTestFile,
 } from "../../test/vitest/vitest.gateway-server-paths.mjs";
+import { startupCorpusTestFiles } from "../../test/vitest/vitest.startup-corpus-paths.mjs";
 import { fullSuiteVitestShards } from "../../test/vitest/vitest.test-shards.mjs";
 import { toolingIsolatedTestFiles } from "../../test/vitest/vitest.tooling-isolated-paths.mjs";
 import { uiIsolatedTestFiles } from "../../test/vitest/vitest.ui-isolated-paths.mjs";
@@ -111,14 +112,11 @@ export function hasCompleteStartupCorpusCoverage(
   }[],
 ): boolean {
   // Only explicit, unfiltered file owners prove the corpus is complete. A
-  // config name or native shard can still execute just part of either file.
+  // config name or native shard can still execute just part of the matrix.
   const groups = shards.flatMap((shard) =>
     !shard.requiresDist && !shard.targets?.length ? (shard.groups ?? []) : [],
   );
-  return [
-    "src/config/config-startup-corpus.test.ts",
-    "src/config/state-startup-corpus.test.ts",
-  ].every((file) =>
+  return startupCorpusTestFiles.every((file) =>
     groups.some(
       (group) =>
         group.configs.length === 1 &&
@@ -304,7 +302,7 @@ const COMPACT_GITHUB_MAX_PREDICTED_SECONDS = 150;
 const COMPACT_HOSTED_STORAGE_STATE_MAX_FILES = 64;
 // Trusted forks can use the GitHub profile on Blacksmith. Every compact
 // profile must fit the same runner-registration allowance.
-const COMPACT_NODE_TEST_JOB_CAP = 80;
+const COMPACT_NODE_TEST_JOB_CAP = 90;
 const COMPACT_NODE_TEST_JOB_GROUPS = 10;
 const COMPACT_TOOLING_NODE_TEST_GROUPS = 16;
 const COMPACT_WHOLE_NODE_TEST_TIMEOUT_MINUTES = 120;

@@ -54,18 +54,13 @@ export function createWorkerTaskPoolRetirement<Input, Output>({
         throw error;
       })
       .then(() => {
-        const directory = slot.temporaryDirectory;
-        if (directory) {
+        const releaseResources = slot.releaseResources;
+        if (releaseResources) {
           runInContext(() => {
             const cleanup = runBestEffortCleanup({
-              cleanup: async () => {
-                const { removeTemporaryArtifacts } = await import("./temp-artifact-cleanup.js");
-                await removeTemporaryArtifacts(directory, "Worker task");
-              },
+              cleanup: releaseResources,
               onError: (error) =>
-                process.emitWarning(
-                  `Worker task cleanup could not load for ${directory}: ${String(error)}`,
-                ),
+                process.emitWarning(`Worker task resource release failed: ${String(error)}`),
             });
             // Release execution capacity at exit; terminal close still joins disposable files.
             artifactCleanups.add(cleanup);

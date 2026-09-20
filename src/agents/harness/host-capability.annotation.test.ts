@@ -855,7 +855,7 @@ describe("host-owned current admission annotation", () => {
     );
   });
 
-  it.each(["unpersisted", "suppressed", "internal", "copied"] as const)(
+  it.each(["unpersisted", "suppressed", "excluded", "copied"] as const)(
     "does not issue current-row authority for %s recorders",
     async (kind) => {
       await withAdmission(
@@ -881,7 +881,10 @@ describe("host-owned current admission annotation", () => {
         {
           persist: kind !== "unpersisted",
           suppress: kind === "suppressed",
-          input: kind === "internal" ? { display: false, text: "prompt" } : undefined,
+          input:
+            kind === "excluded"
+              ? { display: false, excludeFromContext: true, text: "prompt" }
+              : undefined,
         },
       );
     },

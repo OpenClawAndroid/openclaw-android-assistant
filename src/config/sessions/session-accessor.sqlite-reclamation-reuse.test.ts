@@ -34,6 +34,7 @@ import {
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
 import { runOpenClawAgentWriteAdmission } from "../../state/openclaw-agent-write-admission.js";
+import { clearOpenClawAgentIntegrityVerification } from "../../state/openclaw-quarantine-store.js";
 import {
   closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
@@ -335,11 +336,13 @@ test("retained reclamation operations share the first full scan until the Gatewa
     });
   }
   closeOpenClawAgentDatabasesForTest(databaseOptions.env.OPENCLAW_STATE_DIR);
+  clearOpenClawAgentIntegrityVerification(database.path, databaseOptions.env);
   const workerIds = new Set<number>();
   for (let pass = 0; pass < 3; pass += 1) {
     if (pass === 2) {
       await closeOpenClawAgentDatabasesAsync(databaseOptions.env.OPENCLAW_STATE_DIR);
       closeOpenClawAgentDatabasesForTest(databaseOptions.env.OPENCLAW_STATE_DIR);
+      clearOpenClawAgentIntegrityVerification(database.path, databaseOptions.env);
     }
     const diagnostics: SqliteSessionReclamationDiagnostics = {};
     await expect(

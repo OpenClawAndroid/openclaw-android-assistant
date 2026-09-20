@@ -1625,6 +1625,7 @@ CREATE INDEX IF NOT EXISTS idx_task_runs_last_event_at ON task_runs(last_event_a
 CREATE INDEX IF NOT EXISTS idx_task_runs_owner_key ON task_runs(owner_key);
 CREATE INDEX IF NOT EXISTS idx_task_runs_parent_flow_id ON task_runs(parent_flow_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_child_session_key ON task_runs(child_session_key);
+CREATE INDEX IF NOT EXISTS idx_task_runs_requester_session_key ON task_runs(requester_session_key);
 CREATE INDEX IF NOT EXISTS idx_task_runs_runtime_source_ended
   ON task_runs(runtime, source_id, ended_at, created_at, task_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_runtime_ended
@@ -2234,6 +2235,10 @@ CREATE INDEX IF NOT EXISTS idx_worker_session_placements_session_key
 
 CREATE INDEX IF NOT EXISTS idx_worker_session_placements_reconcile
   ON worker_session_placements(updated_at_ms, session_id);
+
+CREATE INDEX IF NOT EXISTS idx_worker_session_placements_environment
+  ON worker_session_placements(environment_id)
+  WHERE environment_id IS NOT NULL;
 
 -- Planned placement moves retain their exact source CAS and bounded target
 -- without widening the stable placement-state vocabulary. The opaque operation

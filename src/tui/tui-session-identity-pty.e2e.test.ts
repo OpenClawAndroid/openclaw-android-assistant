@@ -76,6 +76,58 @@ afterEach(async () => {
   await disposeActiveTuiFixtures();
 });
 
+it("restores the exact remembered session behind six newer prefix and label matches", async () => {
+  const stateDir = tempDirs.make("openclaw-tui-exact-description-");
+  await seedRememberedSession(stateDir);
+  const fixture = await startTuiFixture({
+    env: {
+      OPENCLAW_STATE_DIR: stateDir,
+      OPENCLAW_TUI_PTY_PICKER_FIXTURE: "1",
+      OPENCLAW_TUI_PTY_DECOY_COUNT: "6",
+    },
+  });
+  try {
+    const rows = await waitForSynchronizedFrameRows(
+      fixture.run,
+      (frame) => frame.some((row) => row.includes("local ready")),
+      STARTUP_TIMEOUT_MS,
+    );
+    expect(rows.join("\n")).toContain("session picker-target");
+    await fixture.run.write("exact restore proof\r", { delay: false });
+    const sent = await fixture.waitForLogEntry(
+      (entry) =>
+        entry.method === "sendChat" && objectFieldEquals(entry, "message", "exact restore proof"),
+      STARTUP_TIMEOUT_MS,
+    );
+    expect(sent.payload).toMatchObject({ sessionKey: REMEMBERED_SESSION_KEY });
+  } finally {
+    await fixture.cleanup();
+  }
+}, 65_000);
+
+it("keeps raw unknown sessions excluded from remembered restore", async () => {
+  const stateDir = tempDirs.make("openclaw-tui-unknown-description-");
+  await seedRememberedSession(stateDir, "unknown");
+  const fixture = await startTuiFixture({
+    env: {
+      OPENCLAW_STATE_DIR: stateDir,
+      OPENCLAW_TUI_PTY_PICKER_FIXTURE: "1",
+      OPENCLAW_TUI_PTY_PICKER_SESSION_KEY: "unknown",
+    },
+  });
+  try {
+    const rows = await waitForSynchronizedFrameRows(
+      fixture.run,
+      (frame) => frame.some((row) => row.includes("local ready")),
+      STARTUP_TIMEOUT_MS,
+    );
+    expect(rows.join("\n")).toContain("session main");
+    expect(rows.join("\n")).not.toContain("session unknown");
+  } finally {
+    await fixture.cleanup();
+  }
+}, 65_000);
+
 it("refreshes the footer only for an accepted fallback destination without reloading history", async () => {
   const fixture = await startTuiFixture({
     env: {
@@ -99,7 +151,9 @@ it("refreshes the footer only for an accepted fallback destination without reloa
     expect(initialFooter).toContain("gpt-4o");
     const backendCalls = (entries: FixtureLogEntry[]) =>
       entries.filter((entry) =>
-        ["loadHistory", "listSessions", "patchSession", "sendChat"].includes(entry.method),
+        ["loadHistory", "describeSession", "listSessions", "patchSession", "sendChat"].includes(
+          entry.method,
+        ),
       );
     const initialCalls = backendCalls(await readFixtureLog(fixture.logPath));
     expect(initialCalls.filter((entry) => entry.method === "sendChat")).toHaveLength(1);
@@ -295,13 +349,12 @@ it("restores a remembered global session while keeping pre-ready input editable"
 
   try {
     const lookup = await fixture.waitForLogEntry(
-      (entry) => entry.method === "listSessions" && objectFieldEquals(entry, "search", "global"),
+      (entry) =>
+        entry.method === "describeSession" && objectFieldEquals(entry, "sessionKey", "global"),
       STARTUP_TIMEOUT_MS,
     );
     expect(lookup.payload).toMatchObject({
-      search: "global",
-      includeGlobal: true,
-      includeUnknown: false,
+      sessionKey: "global",
       agentId: "main",
     });
     const outputOffset = fixture.run.visibleOutput().length;
@@ -448,7 +501,7 @@ it("keeps an explicit launch session authoritative over remembered state", async
     expect(sent.payload).toMatchObject({ sessionKey: explicitSession });
     const entries = await readFixtureLog(fixture.logPath);
     expect(
-      entries.some((entry) => objectFieldEquals(entry, "search", REMEMBERED_SESSION_KEY)),
+      entries.some((entry) => objectFieldEquals(entry, "sessionKey", REMEMBERED_SESSION_KEY)),
     ).toBe(false);
     expect(markerSends(entries, marker)).toHaveLength(1);
   } finally {
@@ -519,7 +572,7 @@ it("falls back after a remembered lookup error and retries on reconnect", async 
 it("shows the remembered session label during startup before remote validation", async () => {
   const stateDir = tempDirs.make("openclaw-tui-provisional-label-");
   await seedRememberedSession(stateDir);
-  // 10000 ms restore delay ensures listSessions is still pending when the
+  // 10000 ms restore delay ensures describeSession is still pending when the
   // first synchronized frame renders.  The predicate timeout of 8000 ms
   // matches only frames rendered before validation completes — the pre-fix
   // code renders "session main" first and would time out.
@@ -613,8 +666,8 @@ it("abandons a stale restore generation without sending or duplicating input", a
     await waitForLogCount({
       logPath: fixture.logPath,
       predicate: (entry) =>
-        entry.method === "listSessions" &&
-        objectFieldEquals(entry, "search", REMEMBERED_SESSION_KEY),
+        entry.method === "describeSession" &&
+        objectFieldEquals(entry, "sessionKey", REMEMBERED_SESSION_KEY),
       count: 2,
     });
     const outputOffset = fixture.run.visibleOutput().length;

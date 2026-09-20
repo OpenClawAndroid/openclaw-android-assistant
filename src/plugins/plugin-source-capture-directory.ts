@@ -161,9 +161,9 @@ export function sweepPluginSourceCaptureDirectories(stateDir = resolveStateDir()
   return sweep;
 }
 
-function createCaptureDirectory(instance: Instance, stateDir: string): string {
+function createCaptureDirectory(instance: Instance, stateDir: string, prefix: string): string {
   if (instance.root) {
-    return fs.mkdtempSync(path.join(instance.root, "captures", PLUGIN_SOURCE_CAPTURE_PREFIX));
+    return fs.mkdtempSync(path.join(instance.root, "captures", prefix));
   }
   const prepare = (fallback: boolean): string => {
     let directory: string | undefined;
@@ -186,7 +186,7 @@ function createCaptureDirectory(instance: Instance, stateDir: string): string {
       }
       const captures = path.join(canonical, "captures");
       fs.mkdirSync(captures, { mode: 0o700 });
-      const capture = fs.mkdtempSync(path.join(captures, PLUGIN_SOURCE_CAPTURE_PREFIX));
+      const capture = fs.mkdtempSync(path.join(captures, prefix));
       instance.root = canonical;
       instance.lease = lease;
       ownedRoots.add(canonical);
@@ -279,11 +279,11 @@ export function retainPluginSourceCaptureInstance(stateDir = resolveStateDir()) 
     get managedRoot() {
       return retained.managedRoot;
     },
-    createDirectory() {
+    createDirectory(prefix = PLUGIN_SOURCE_CAPTURE_PREFIX) {
       if (released || retained.closing) {
         throw new Error("Plugin source instance has been released");
       }
-      return createCaptureDirectory(retained, key);
+      return createCaptureDirectory(retained, key, prefix);
     },
     release() {
       const root = retire();
@@ -298,4 +298,23 @@ export function retainPluginSourceCaptureInstance(stateDir = resolveStateDir()) 
       }
     },
   };
+}
+
+/** The producer retains this root until its worker has confirmed exit. */
+export function createPluginSourceCaptureRoot(stateDir: string, prefix: string) {
+  const instance = retainPluginSourceCaptureInstance(stateDir);
+  try {
+    const directory = instance.createDirectory(prefix);
+    return {
+      directory,
+      managedRoot: instance.managedRoot,
+      release: async () => {
+        await removeTemporaryArtifacts(directory, "Plugin source worker");
+        await instance.releaseAsync();
+      },
+    };
+  } catch (error) {
+    instance.release();
+    throw error;
+  }
 }

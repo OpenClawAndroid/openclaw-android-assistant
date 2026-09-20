@@ -22,5 +22,12 @@
     "../../src/process/**/*.test.tsx",
     "../../src/skills/**/*.test.ts",
     "../../src/skills/**/*.test.tsx"
+  ],
+  "exclude": [
+    "../../node_modules",
+    "../../dist",
+    "../../**/dist/**",
+    "../../src/infra/update-managed-service-handoff-*.test.ts",
+    "../../src/infra/update-managed-service-handoff-*.test.tsx"
   ]
 }

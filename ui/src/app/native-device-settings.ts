@@ -8,7 +8,6 @@ const permissionIdSchema = z.enum([
   "camera",
   "speechRecognition",
   "location",
-  "automation", // Swift Capability.appleScript
   "contacts",
   "calendars",
   "reminders",
@@ -77,11 +76,16 @@ const nativeDeviceSettingsSnapshotSchema = z.object({
     entries: z
       .array(
         z.object({
-          id: permissionIdSchema,
+          // v2026.9.5 native apps publish this retired entry. Accept only on input
+          // until the minimum supported app omits it; never expose a command or row.
+          id: permissionIdSchema.or(z.literal("automation")),
           status: z.enum(["granted", "denied", "notDetermined", "unavailable", "limited"]),
         }),
       )
-      .refine((entries) => new Set(entries.map((entry) => entry.id)).size === entries.length),
+      .refine((entries) => new Set(entries.map((entry) => entry.id)).size === entries.length)
+      .transform((entries) =>
+        entries.flatMap(({ id, status }) => (id === "automation" ? [] : [{ id, status }])),
+      ),
     location: z.object({
       mode: z.enum(["off", "whileUsing", "always"]),
       precise: z.boolean(),

@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import {
   createIosNativeDeviceSettingsSnapshot,
@@ -121,6 +121,13 @@ describe("native device settings wire contract", () => {
     { name: "empty", entries: [] },
     { name: "single", entries: [{ id: "camera", status: "granted" }] },
     {
+      name: "requestable macOS",
+      entries: [
+        { id: "screenRecording", status: "notDetermined" },
+        { id: "accessibility", status: "notDetermined" },
+      ],
+    },
+    {
       name: "reordered",
       entries: createNativeDeviceSettingsSnapshot().permissions.entries.toReversed(),
     },
@@ -133,6 +140,34 @@ describe("native device settings wire contract", () => {
     publish(next);
     expect(capability?.snapshot).toEqual(next);
     expect(listener).toHaveBeenCalledWith(next);
+  });
+
+  it("accepts shipped Mac snapshots without exposing their retired Terminal permission", () => {
+    const snapshot = createNativeDeviceSettingsSnapshot();
+    snapshot.device.appVersion = "2026.9.5";
+    // The v2026.9.5 native permission list always included automation, even when unavailable.
+    const shippedSnapshot = {
+      ...snapshot,
+      permissions: {
+        ...snapshot.permissions,
+        entries: [...snapshot.permissions.entries, { id: "automation", status: "unavailable" }],
+      },
+    };
+    installBridge(shippedSnapshot);
+    expect(capability?.snapshot).toEqual(snapshot);
+
+    const listener = vi.fn();
+    capability?.subscribe(listener);
+    const updated = { ...snapshot, app: { ...snapshot.app, showDockIcon: false } };
+    publish({ ...shippedSnapshot, app: updated.app });
+    expect(capability?.snapshot).toEqual(updated);
+    expect(listener).toHaveBeenCalledWith(updated);
+    expectTypeOf<
+      Extract<Parameters<NativeDeviceSettingsCapability["requestPermission"]>[0], "automation">
+    >().toBeNever();
+    expectTypeOf<
+      Extract<Parameters<NativeDeviceSettingsCapability["openSystemSettings"]>[0], "automation">
+    >().toBeNever();
   });
 
   it.each([

@@ -264,12 +264,18 @@ merge_verify() {
   local checks_err_file
   local checks_exit_status
   checks_err_file=$(mktemp)
-  # GraphQL isRequired(appId) includes rulesets and app-bound required checks;
-  # REST check-runs/status cannot provide that admission decision.
-  if checks_json=$(pr_gh_plain pr checks "$pr" --required --json name,bucket,state 2>"$checks_err_file"); then
+  if [ "${MERGE_TRANSPORT:-graphql}" = rest ]; then
+    checks_json=$(merge_rest checks "$pr") || { rm -f "$checks_err_file"; return 1; }
+    checks_exit_status=0
+  elif checks_json=$(pr_gh_quota_read pr checks "$pr" --required --json name,bucket,state 2>"$checks_err_file"); then
     checks_exit_status=0
   else
     checks_exit_status=$?
+  fi
+  if pr_gh_quota_exhausted "$checks_json"; then
+    MERGE_TRANSPORT=rest
+    echo "GraphQL quota exhausted; verifying required checks through REST."
+    checks_json=$(merge_rest checks "$pr") || { rm -f "$checks_err_file"; return 1; }
   fi
   # gh documents exit 8 for pending checks even when it emits valid JSON. Let
   # the checked evidence below reject pending checks without hiding API errors.
@@ -317,6 +323,10 @@ merge_verify() {
   fi
 
   if [ "$failed_required" -gt 0 ]; then
+    if [ "${MERGE_TRANSPORT:-graphql}" = rest ]; then
+      echo "Required checks are failing; REST fallback does not authorize an admin bypass." >&2
+      return 1
+    fi
     echo "Required checks are failing; checking the bounded Crabbox infrastructure fallback."
     if ! verify_crabbox_admin_merge_bypass "$pr" "$PREP_HEAD_SHA"; then
       echo "Crabbox merge bypass evidence is not sufficient." >&2
@@ -387,10 +397,19 @@ prepare_squash_merge_body() {
       jq --arg tree "$tree" --arg parentTree "$parent_tree" '. + {changesTree: ($tree != $parentTree)}' || exit 1
   done) || return 1
   authors=$(printf '%s\n' "$authors" | jq -s .) || return 1
-  # REST has no viewerMergeBodyText or equivalent merge-queue policy projection.
-  preview=$(pr_gh_plain api graphql \
+  if [ "${MERGE_TRANSPORT:-graphql}" = rest ]; then
+    preview=$(merge_rest preview "$pr") || return 1
+  else
+    preview=$(pr_gh_quota_read api graphql \
     -f 'query=query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){headRefOid author{login __typename} isMergeQueueEnabled viewerMergeBodyText(mergeType:SQUASH)}}}' \
     -f owner="${repo_nwo%/*}" -f name="${repo_nwo#*/}" -F number="$pr") || return 1
+    if pr_gh_quota_exhausted "$preview"; then
+      preview=$(merge_rest preview "$pr") || return 1
+    fi
+  fi
+  if [ "$(printf '%s\n' "$preview" | jq -r '.transport // "graphql"')" = rest ]; then
+    MERGE_TRANSPORT=rest
+  fi
   if ! printf '%s\n' "$preview" | jq -e --arg head "$PREP_HEAD_SHA" '
     .data.repository.pullRequest | .headRefOid == $head and
       (.viewerMergeBodyText | type == "string") and (.isMergeQueueEnabled | type == "boolean")
@@ -410,14 +429,17 @@ prepare_squash_merge_body() {
   body_file=$(mktemp .local/merge-body.XXXXXX) || return 1
   printf '%s\n' "$preview" | jq -c \
     --arg source "$source_trailers" --argjson authors "$authors" --arg captured "$captured" \
-    --argjson queue "$queue_enabled" '
-    {preview:.data.repository.pullRequest.viewerMergeBodyText,prAuthor:.data.repository.pullRequest.author,source:$source,authors:$authors,captured:$captured,queue:$queue}
+    --argjson queue "$queue_enabled" --arg transport "${MERGE_TRANSPORT:-graphql}" '
+    {preview:.data.repository.pullRequest.viewerMergeBodyText,prAuthor:.data.repository.pullRequest.author,source:$source,authors:$authors,captured:$captured,queue:$queue,sourceCredit:($transport == "rest")}
   ' | node "${BASH_SOURCE[0]%/*}/merge-body.mjs" compose > "$body_file" || return 1
   # Queue admission cannot accept an override, but its preview still needs validation.
   if [ "$queue_enabled" = true ]; then
     rm -f "$body_file" || return 1
+    MERGE_BODY_FILE=""
     return 0
   fi
+  MERGE_BODY_FILE="$body_file"
+  MERGE_BODY_TRANSPORT="${MERGE_TRANSPORT:-graphql}"
   printf '%s\n' "$body_file"
 }
 
@@ -460,7 +482,7 @@ merge_run() {
     return 2
   fi
   local MERGE_OUTCOME_REF MERGE_OUTCOME_OID MERGE_OUTCOME_RECORD MERGE_REPO
-  local MERGE_REPO_URL MERGE_REPO_HOST MERGE_REPO_NAME MERGE_OBSERVATION
+  local MERGE_REPO_URL MERGE_REPO_HOST MERGE_REPO_NAME MERGE_OBSERVATION MERGE_TRANSPORT=graphql
   merge_outcome_init "$pr" || return 1
   if [ -n "$legacy_directory" ]; then
     [ -z "$MERGE_OUTCOME_OID" ] && [ -n "$recovery_oid" ] && [ -n "$replacement_head" ] || {
@@ -598,11 +620,15 @@ merge_run() {
   fi
 
   local merge_args=(--match-head-commit "$PREP_HEAD_SHA")
+  local MERGE_BODY_FILE="" MERGE_BODY_TRANSPORT=graphql
   if [ "$merge_method" = "squash" ]; then
     local merge_body_file
-    merge_body_file=$(prepare_squash_merge_body "$pr" "$captured_body") || return 1
+    prepare_squash_merge_body "$pr" "$captured_body" >/dev/null || return 1
+    merge_body_file="$MERGE_BODY_FILE"
     [ -z "$merge_body_file" ] || merge_args+=(--body-file "$merge_body_file")
-    [ -z "$captured_body" ] || merge_body_snapshot=$(snapshot_merge_body "$merge_body_file") || return 1
+    if [ -n "$merge_body_file" ]; then
+      merge_body_snapshot=$(snapshot_merge_body "$merge_body_file") || return 1
+    fi
   fi
 
   local crabbox_final_main_sha="" route=immediate
@@ -612,6 +638,11 @@ merge_run() {
   # Pin all other facts and each projection as soon as it becomes known.
   for admission_attempt in 1 2 3; do
     merge_outcome_observe "$pr" || return 1
+    if [ "$MERGE_TRANSPORT" = rest ] &&
+      { [ "$merge_method" != squash ] || [ "$auto_merge_requested" = true ] || [ "$MERGE_USE_CRABBOX_ADMIN_BYPASS" = true ]; }; then
+      merge_outcome_stop "REST fallback supports ordinary immediate squash only; auto, queue, and admin routes require GraphQL"
+      return 1
+    fi
     if ! printf '%s\n' "$MERGE_OBSERVATION" | jq -e --arg head "$PREP_HEAD_SHA" --argjson recovery "${recovery_record:-null}" '
       .pr.state == "OPEN" and .pr.headRefOid == $head and .pr.baseRefName == "main" and
       .pr.isDraft == false and .pr.mergeable != "CONFLICTING" and
@@ -625,7 +656,10 @@ merge_run() {
       return 1
     fi
     if [ -n "$previous_observation" ] && ! printf '%s\n' "$MERGE_OBSERVATION" | jq -e --argjson previous "$previous_observation" '
-      del(.pr.mergeable,.pr.mergeStateStatus) == ($previous | del(.pr.mergeable,.pr.mergeStateStatus)) and
+      (if .transport == "rest" and ($previous.transport // "graphql") == "graphql" then
+         del(.transport,.restPolicy,.pr.mergeable,.pr.mergeStateStatus) ==
+           ($previous | del(.transport,.restPolicy,.pr.mergeable,.pr.mergeStateStatus))
+       else del(.pr.mergeable,.pr.mergeStateStatus) == ($previous | del(.pr.mergeable,.pr.mergeStateStatus)) end) and
       ($previous.pr.mergeable == "UNKNOWN" or .pr.mergeable == $previous.pr.mergeable) and
       ($previous.pr.mergeStateStatus == "UNKNOWN" or .pr.mergeStateStatus == $previous.pr.mergeStateStatus)
     ' >/dev/null; then
@@ -655,6 +689,21 @@ merge_run() {
     previous_observation="$MERGE_OBSERVATION"
     sleep "$admission_attempt"
   done
+  if [ "$MERGE_TRANSPORT" = rest ] &&
+    [ "$(printf '%s\n' "$MERGE_OBSERVATION" | jq -r .pr.mergeStateStatus)" != CLEAN ]; then
+    merge_outcome_stop "REST fallback requires a CLEAN merge projection without bypass"
+    return 1
+  fi
+  if [ "$MERGE_TRANSPORT" = rest ]; then
+    # Quota can expire after the first preview. Compose source credit through
+    # the same owner before selecting a REST mutation or retaining its intent.
+    if [ "$MERGE_BODY_TRANSPORT" != rest ]; then
+      prepare_squash_merge_body "$pr" "$captured_body" >/dev/null || return 1
+      rm -f "$merge_body_file" || return 1
+      merge_body_file="$MERGE_BODY_FILE"
+    fi
+    merge_body_snapshot=$(snapshot_merge_body "$merge_body_file") || return 1
+  fi
   if [ "$MERGE_USE_CRABBOX_ADMIN_BYPASS" = true ]; then
     route="admin"
     merge_args=(--admin "${merge_args[@]}")
@@ -730,7 +779,7 @@ merge_run() {
     fi
     verify_prep_branch_matches_prepared_head "$pr" "$LOCAL_PREP_HEAD_SHA" || return 1
   fi
-  if [ -n "$captured_body" ] &&
+  if [ -n "$merge_body_snapshot" ] &&
     [ "$merge_body_snapshot" != "$(snapshot_merge_body "$merge_body_file")" ]; then
     merge_outcome_stop "merge body changed during admission; no request was dispatched"
     return 1
@@ -739,16 +788,31 @@ merge_run() {
     [ "$legacy_refusal" != "$(node "$script_parent_dir/pr-lib/merge-legacy-refusal.mjs" "$legacy_directory" "$recovery_oid" "$MERGE_REPO_NAME" "$pr" "$MERGE_REPO_URL")" ]; then
     merge_outcome_stop "legacy evidence changed during admission"; return 1
   fi
+  # A final stability read can exhaust GraphQL after route/body selection.
+  # Revalidate the selected route before retaining any REST mutation intent.
+  if [ "$MERGE_TRANSPORT" = rest ]; then
+    if [ "$merge_method" != squash ] || [ "$route" != immediate ] ||
+      [ "$auto_merge_requested" = true ] || [ "$MERGE_USE_CRABBOX_ADMIN_BYPASS" = true ]; then
+      merge_outcome_stop "REST fallback supports ordinary immediate squash only; auto, queue, and admin routes require GraphQL"
+      return 1
+    fi
+    if [ -z "$merge_body_snapshot" ] || ! printf '%s\n' "$MERGE_OBSERVATION" | jq -e '
+      .pr.mergeable == "MERGEABLE" and .pr.mergeStateStatus == "CLEAN"
+    ' >/dev/null; then
+      merge_outcome_stop "REST fallback requires a CLEAN merge projection and verified squash body"
+      return 1
+    fi
+  fi
   local intent attempt
   attempt=$(node -e 'process.stdout.write(require("node:crypto").randomUUID())') || return 1
   intent=$(printf '%s\n' "$MERGE_OBSERVATION" | jq -c --argjson repo "$MERGE_REPO" \
     --arg method "$merge_method" --arg route "$route" --arg attempt "$attempt" \
-    --arg localHead "${LOCAL_PREP_HEAD_SHA:-$PREP_HEAD_SHA}" \
+    --arg localHead "${LOCAL_PREP_HEAD_SHA:-$PREP_HEAD_SHA}" --arg transport "$MERGE_TRANSPORT" \
     --argjson review "$CLAWSWEEPER_REVIEW_EVIDENCE" '
     {version:1,repo:$repo,pr:.pr.number,prId:.pr.id,base:.pr.baseRefName,head:.pr.headRefOid,
      localHead:$localHead,
      main:.main,method:$method,route:$route,attempt:$attempt,phase:"intent",accepted:false,landed:null,
-     clawsweeperReview:$review}
+     clawsweeperReview:$review} + (if $transport == "rest" then {transport:"rest"} else {} end)
   ') || return 1
   if [ -n "$legacy_directory" ]; then
     intent=$(printf '%s\n' "$intent" | jq -c --argjson legacy "$legacy_refusal" --arg actor "$recovery_actor" '.legacyRefusal=($legacy + {actor:$actor})') || return 1
@@ -775,7 +839,11 @@ merge_run() {
     set -o noclobber
     exec >"$merge_output" || exit 125
     exec 2>&1
-    pr_gh_plain pr merge "$pr" --repo "$MERGE_REPO_URL" "$merge_flag" "${merge_args[@]}"
+    if [ "$MERGE_TRANSPORT" = rest ]; then
+      merge_rest merge "$pr" "$PREP_HEAD_SHA" "$merge_body_snapshot" "$MERGE_OBSERVATION"
+    else
+      pr_gh_plain pr merge "$pr" --repo "$MERGE_REPO_URL" "$merge_flag" "${merge_args[@]}"
+    fi
   ); then
     merge_outcome_write "$(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -c '.accepted=true')" || return 1
   else

@@ -63,37 +63,36 @@ export type ExtensionBatchPlan = {
 type ExtensionTestShard = ExtensionBatchPlan & { checkName: string };
 
 const EXTENSION_TEST_COST_MULTIPLIERS: Record<string, number> = {
-  // Use the larger complete-family seconds/file from runs 33676780376/33747183683.
-  // Round up to 0.01s and retain prior floors; both used two CPUs and two workers.
-  // Runner setup and runtime preparation are charged separately.
-  "test/vitest/vitest.extension-acpx.config.ts": 2.3,
-  "test/vitest/vitest.extension-browser.config.ts": 0.71,
-  "test/vitest/vitest.extension-codex.config.ts": 5.28,
-  "test/vitest/vitest.extension-diffs.config.ts": 1.97,
-  "test/vitest/vitest.extension-discord.config.ts": 0.76,
-  "test/vitest/vitest.extension-feishu.config.ts": 0.72,
-  "test/vitest/vitest.extension-imessage.config.ts": 1.7,
-  "test/vitest/vitest.extension-irc.config.ts": 2.06,
-  "test/vitest/vitest.extension-line.config.ts": 1.1,
-  "test/vitest/vitest.extension-matrix.config.ts": 1.37,
-  "test/vitest/vitest.extension-mattermost.config.ts": 1.48,
-  "test/vitest/vitest.extension-media.config.ts": 1.38,
-  "test/vitest/vitest.extension-memory.config.ts": 1.57,
-  "test/vitest/vitest.extension-messaging.config.ts": 0.72,
-  "test/vitest/vitest.extension-misc.config.ts": 1.16,
-  "test/vitest/vitest.extension-msteams.config.ts": 0.62,
-  "test/vitest/vitest.extension-provider-openai.config.ts": 1.48,
-  "test/vitest/vitest.extension-providers.config.ts": 1.92,
-  "test/vitest/vitest.extension-qa.config.ts": 1.3,
-  "test/vitest/vitest.extension-signal.config.ts": 1.1,
-  "test/vitest/vitest.extension-slack.config.ts": 0.96,
-  "test/vitest/vitest.extension-telegram.config.ts": 8.98,
-  "test/vitest/vitest.extension-voice-call.config.ts": 1.38,
-  "test/vitest/vitest.extension-whatsapp.config.ts": 0.8,
-  "test/vitest/vitest.extension-zalo.config.ts": 0.94,
-  // This shared config is comparatively cheap per file, so raw file count
-  // overstates its real wall-clock cost during CI shard planning.
-  "test/vitest/vitest.extensions.config.ts": 1.1,
+  // Median wrapper seconds per counting file from PR runs 35490342736,
+  // 35490482496, 35490609684 and 35491344005 (two CPUs, two workers).
+  // oxlint-disable-next-line oxc/approx-constant -- measured seconds per file, not Euler's constant.
+  "test/vitest/vitest.extension-acpx.config.ts": 2.718,
+  "test/vitest/vitest.extension-browser.config.ts": 0.478,
+  "test/vitest/vitest.extension-codex.config.ts": 2.567,
+  "test/vitest/vitest.extension-database-workers.config.ts": 7.582,
+  "test/vitest/vitest.extension-diffs.config.ts": 0.734,
+  "test/vitest/vitest.extension-discord.config.ts": 0.55,
+  "test/vitest/vitest.extension-feishu.config.ts": 0.411,
+  "test/vitest/vitest.extension-imessage.config.ts": 0.874,
+  "test/vitest/vitest.extension-irc.config.ts": 1.117,
+  "test/vitest/vitest.extension-line.config.ts": 0.625,
+  "test/vitest/vitest.extension-matrix.config.ts": 0.788,
+  "test/vitest/vitest.extension-mattermost.config.ts": 0.997,
+  "test/vitest/vitest.extension-media.config.ts": 0.806,
+  "test/vitest/vitest.extension-memory.config.ts": 1.232,
+  "test/vitest/vitest.extension-messaging.config.ts": 0.379,
+  "test/vitest/vitest.extension-misc.config.ts": 0.73,
+  "test/vitest/vitest.extension-msteams.config.ts": 0.373,
+  "test/vitest/vitest.extension-provider-openai.config.ts": 0.912,
+  "test/vitest/vitest.extension-providers.config.ts": 1.675,
+  "test/vitest/vitest.extension-qa.config.ts": 1.125,
+  "test/vitest/vitest.extension-signal.config.ts": 1.307,
+  "test/vitest/vitest.extension-slack.config.ts": 1.375,
+  "test/vitest/vitest.extension-telegram.config.ts": 5.061,
+  "test/vitest/vitest.extension-voice-call.config.ts": 0.486,
+  "test/vitest/vitest.extension-whatsapp.config.ts": 0.511,
+  "test/vitest/vitest.extension-zalo.config.ts": 0.523,
+  "test/vitest/vitest.extensions.config.ts": 0.642,
 };
 // A 34-file changed shard starved real-time watches and the no-output watchdog.
 // Keep serial, non-isolated Codex processes small enough for prompt output (#125768, #125839).
@@ -396,9 +395,19 @@ function countTestFiles(rootPath: string) {
   return listFilesystemTestFiles(rootPath).length;
 }
 
-export function estimateExtensionTestCost(config: string, testFileCount: number) {
+export function estimateExtensionTestCost(
+  config: string,
+  testFileCount: number,
+  files: readonly string[] = [],
+) {
   const multiplier = EXTENSION_TEST_COST_MULTIPLIERS[config] ?? 1;
-  return Math.max(1, Math.ceil(testFileCount * multiplier));
+  // The 11-file app-server envelope reached 508.783s in the same cohort.
+  // Its rounded-up 46.26s/file floor must survive the mixed config's median.
+  const appServerFiles =
+    config === DATABASE_WORKER_CONFIG
+      ? files.filter((file) => file.startsWith("extensions/codex/src/app-server/")).length
+      : 0;
+  return Math.max(1, Math.ceil(testFileCount * multiplier + appServerFiles * (46.26 - multiplier)));
 }
 
 /** Resolve the dedicated Vitest config for an extension root or test file. */
@@ -486,7 +495,7 @@ export function resolveExtensionTestPlan(params: { cwd?: string; targetArg?: str
     .map((group) =>
       Object.assign({}, group, {
         extensionIds: [extensionId],
-        estimatedCost: estimateExtensionTestCost(group.config, group.testFileCount),
+        estimatedCost: estimateExtensionTestCost(group.config, group.testFileCount, group.roots),
       }),
     );
   const estimatedCost = planGroups.reduce((sum, group) => sum + group.estimatedCost, 0);

@@ -209,7 +209,9 @@
   min-height: var(--chat-composer-min-height, 112px);
   margin: 0;
   padding: 0;
-  background: var(--chat-composer-surface);
+  /* The app owns the artwork; keep one translucent writing surface, not a
+     second texture. Foreground/menu tokens retain their opaque surface color. */
+  background: color-mix(in srgb, var(--chat-composer-surface) 78%, transparent);
   border: 1px solid var(--chat-composer-hairline);
   /* Deliberately lighter than --shadow-sm: with the border and the luminance
      step already doing the separating, a heavier drop reads as a second frame. */
@@ -294,10 +296,9 @@
   z-index: 1;
 }
 
-@supports (backdrop-filter: blur(1px)) {
+@media (forced-colors: active), (prefers-contrast: more), (prefers-reduced-transparency: reduce) {
   .agent-chat__input {
-    backdrop-filter: blur(12px) saturate(1.6);
-    -webkit-backdrop-filter: blur(12px) saturate(1.6);
+    background: var(--chat-composer-surface);
   }
 }
 
@@ -369,7 +370,7 @@
 }
 
 .agent-chat__composer-combobox > :is(textarea, input)::placeholder {
-  color: var(--chat-composer-tertiary);
+  color: var(--muted);
 }
 
 /* One ellipsized line while empty: long agent names otherwise wrap the

@@ -11,6 +11,7 @@ import { buildProviderLoginRecovery } from "../../../auto-reply/provider-login-r
 import {
   copyReplyPayloadMetadata,
   getReplyPayloadMetadata,
+  hasReplyPayloadSpeechContent,
   markReplyPayloadForSourceSuppressionDelivery,
   setReplyPayloadMetadata,
   type ReplyPayload,
@@ -261,8 +262,10 @@ export function buildEmbeddedRunPayloads(params: {
             ? parseReplyDirectives(fallbackAnswerSourceText)
             : null;
       const shouldUseCanonicalFinalAnswer = Boolean(
-        fallbackAnswerDirectiveState &&
-        normalizeTextForComparison(fallbackAnswerDirectiveState.text),
+        (fallbackAnswerDirectiveState &&
+          (normalizeTextForComparison(fallbackAnswerDirectiveState.text) ||
+            fallbackAnswerDirectiveState.mediaUrls?.length)) ||
+        storedDelivery?.tts?.text?.trim(),
       );
       const hasAssistantTextPayload = nonEmptyAssistantTexts.length > 0;
       const answerTexts =
@@ -501,7 +504,7 @@ export function buildEmbeddedRunPayloads(params: {
       if (payload.text && isSilentReplyPayloadText(payload.text, SILENT_REPLY_TOKEN)) {
         const silentText = payload.text;
         payload.text = undefined;
-        if (hasReplyPayloadContent(payload)) {
+        if (hasReplyPayloadContent(payload) || hasReplyPayloadSpeechContent(payload)) {
           return payload;
         }
         payload.text = silentText;
@@ -509,7 +512,7 @@ export function buildEmbeddedRunPayloads(params: {
       return payload;
     })
     .filter((p) => {
-      if (!hasReplyPayloadContent(p) && !getReplyPayloadMetadata(p)?.tts) {
+      if (!hasReplyPayloadContent(p) && !hasReplyPayloadSpeechContent(p)) {
         return false;
       }
       if (p.text && isSilentReplyPayloadText(p.text, SILENT_REPLY_TOKEN)) {

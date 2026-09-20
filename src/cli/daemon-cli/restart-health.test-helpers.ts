@@ -263,7 +263,9 @@ export function resetRestartHealthMocks() {
   vi.spyOn(performance, "now").mockImplementation(() => monotonicClock.nowMs);
   inspectPortUsage.mockReset();
   readBestEffortConfig.mockReset();
-  readBestEffortConfig.mockResolvedValue({});
+  // These transport-mocked lifecycle tests spoof OS state; they must not load
+  // native credential storage under a platform different from the running host.
+  readBestEffortConfig.mockResolvedValue({ gateway: { auth: { mode: "none" } } });
   createConfigIO.mockReset();
   createConfigIO.mockReturnValue({
     readBestEffortConfig: () => readBestEffortConfig(),

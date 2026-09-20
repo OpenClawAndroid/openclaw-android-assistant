@@ -14,6 +14,7 @@ import {
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { finalizeInboundContext, resetInboundDedupe } from "openclaw/plugin-sdk/reply-runtime";
 import type { GetReplyOptions, MsgContext } from "openclaw/plugin-sdk/reply-runtime";
+import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, vi, type Mock } from "vitest";
 import type { TelegramBotDeps } from "./bot-deps.js";
 import { runTelegramChannelInboundEventWithHarness } from "./bot.test-helpers.js";
@@ -91,10 +92,11 @@ function ensureMediaHarnessStoreRoot(): string {
   return mediaHarnessStoreRoot;
 }
 
-function cleanupMediaHarnessStoreRoot(): void {
+async function cleanupMediaHarnessStoreRoot(): Promise<void> {
   if (!mediaHarnessStoreRoot) {
     return;
   }
+  await closeOpenClawStateDatabaseAsync();
   rmSync(mediaHarnessStoreRoot, { recursive: true, force: true });
   mediaHarnessStoreRoot = undefined;
 }
@@ -267,7 +269,7 @@ export const telegramBotDepsForTest: TelegramBotDeps = {
   wasSentByBot: vi.fn(() => false) as TelegramBotDeps["wasSentByBot"],
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   // Gateway starts the bot after registering this hook; direct harness construction must
   // preserve that boundary so topic routing does not bootstrap bundled plugins mid-turn.
   setActivePluginRegistry(
@@ -283,8 +285,8 @@ beforeEach(() => {
       },
     ]),
   );
+  await cleanupMediaHarnessStoreRoot();
   resetPluginStateStoreForTests();
-  cleanupMediaHarnessStoreRoot();
   process.env.OPENCLAW_STATE_DIR = ensureMediaHarnessStoreRoot();
   telegramBotDepsForTest.getRuntimeConfig = defaultRuntimeConfig;
   resetInboundDedupe();
@@ -295,7 +297,8 @@ beforeEach(() => {
   resetReadRemoteMediaBufferMock();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await cleanupMediaHarnessStoreRoot();
   resetPluginRuntimeStateForTest();
   resetPluginStateStoreForTests();
   if (originalStateDir === undefined) {
@@ -303,7 +306,6 @@ afterEach(() => {
   } else {
     process.env.OPENCLAW_STATE_DIR = originalStateDir;
   }
-  cleanupMediaHarnessStoreRoot();
 });
 
 vi.doMock("./bot.runtime.js", () => ({

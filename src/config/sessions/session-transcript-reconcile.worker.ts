@@ -134,10 +134,18 @@ function resolveLeaseEnvironment(owner: ReconcileWorkerOwner) {
   };
 }
 
-function releaseLease(owner: ReconcileWorkerOwner & { leaseId: string }, port: MessagePort): void {
+function releaseLease(
+  owner: ReconcileWorkerOwner & { leaseId: string },
+  port: MessagePort,
+  readOnlyClosed = false,
+): void {
   let failure: Error | undefined;
   try {
-    releaseOpenClawAgentDatabaseLease(owner.leaseId, { env: resolveLeaseEnvironment(owner) });
+    releaseOpenClawAgentDatabaseLease(
+      owner.leaseId,
+      { env: resolveLeaseEnvironment(owner) },
+      readOnlyClosed ? "read-only" : undefined,
+    );
   } catch (error) {
     failure = error instanceof Error ? error : new Error(String(error));
   } finally {
@@ -351,7 +359,7 @@ async function run(input: SessionTranscriptReconcileWorkerInput, port: MessagePo
         });
       });
       // Port callbacks do not inherit the delegate's runtime and live custody.
-      releaseLease(reconcileInput, port);
+      releaseLease(reconcileInput, port, closeDatabase !== undefined);
     }
   } finally {
     if (reconcileInput.mode === "memory") {

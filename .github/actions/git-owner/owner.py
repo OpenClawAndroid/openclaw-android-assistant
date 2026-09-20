@@ -151,19 +151,25 @@ def group_signal(pgid, signum, deadline):
     except ProcessLookupError:
         return False
     except PermissionError:
-        # Darwin can report EPERM for a zombie-only group. Only a checked
-        # census proving no live members can authorize continuing.
-        if group_alive(pgid, deadline):
+        # Darwin can refuse signals while members are exiting but not yet zombies.
+        # Keep those members pending until drain proves termination; never accept a live denial.
+        states = group_states(pgid, deadline)
+        if any(not state.startswith("Z") and not (sys.platform == "darwin" and "E" in state)
+               for state in states):
             raise
-        return False
+        return any(not state.startswith("Z") for state in states)
     return True
 
 
 def group_alive(pgid, deadline):
+    return any(not state.startswith("Z") for state in group_states(pgid, deadline))
+
+
+def group_states(pgid, deadline):
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
-        return False
+        return []
     except PermissionError:
         pass  # EPERM can mean zombie-only; the census must still prove extinction.
     # Darwin -g selects a group; procps selects its session (a superset because
@@ -192,13 +198,13 @@ def group_alive(pgid, deadline):
         states = [state for group, state in (line.split() for line in result.stdout.splitlines())
                   if int(group) == pgid]
     if states:
-        return any(not state.startswith("Z") for state in states)
+        return states
     # Empty selection (exit 1), or a session with only other groups, can race
     # extinction. Require native ESRCH; a bare status 1 or EPERM proves nothing.
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
-        return False
+        return []
     raise RuntimeError("Process group census missed a present group")
 
 

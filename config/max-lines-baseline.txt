@@ -335,7 +335,6 @@ src/agents/embedded-agent-subscribe.handlers.tools.test.ts
 src/agents/embedded-agent-subscribe.subscribe-embedded-agent-session.subscribeembeddedagentsession.test.ts
 src/agents/harness/native-hook-relay.test.ts
 src/agents/harness/selection.test.ts
-src/agents/harness/selection.ts
 src/agents/main-session-recovery/main-session-restart-recovery.test.ts
 src/agents/model-auth-availability.ts
 src/agents/model-auth.profiles.test.ts
@@ -507,7 +506,6 @@ src/commands/onboarding-plugin-install.ts
 src/commands/status.test.ts
 src/config/config-misc.test.ts
 src/config/config.plugin-validation.test.ts
-src/config/env-preserve.ts
 src/config/io.observe-recovery.test.ts
 src/config/io.write-config.test.ts
 src/config/io.write-prepare.test.ts
@@ -750,7 +748,6 @@ src/security/audit-extra.async.ts
 src/security/audit-extra.sync.ts
 src/security/audit.ts
 src/shared/json-schema-defaults.ts
-src/shared/text/assistant-visible-text.ts
 src/skills/lifecycle/clawhub.test.ts
 src/skills/security/scanner.ts
 src/skills/workshop/service.test.ts

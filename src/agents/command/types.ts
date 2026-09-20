@@ -143,8 +143,8 @@ export type AgentCommandOpts = {
   runId?: string;
   /** Immutable gateway lifecycle ownership captured when this run was admitted. */
   lifecycleGeneration?: string;
-  /** Called once when the selected runtime actually admits the prompt for execution. */
-  onExecutionStarted?: () => void;
+  /** Startup awaits returned work; incidental synchronous return values are ignored. */
+  onExecutionStarted?: () => unknown;
   extraSystemPrompt?: string;
   /** Bootstrap workspace context injection mode for this run. */
   bootstrapContextMode?: "full" | "lightweight";
@@ -215,7 +215,7 @@ export type AgentCommandOpts = {
   /** Private owner binding hook invoked only after exact admission has resolved. */
   onPostAdmittedRunContext?: (
     context: import("../admitted-run-context.js").AdmittedRunContext,
-  ) => void;
+  ) => void | Promise<void>;
   /** Called when the actual run model is selected, including fallback retries. */
   onActiveModelSelected?: (ctx: { provider: string; model: string }) => void | Promise<void>;
   /** Called when every candidate in the run's model fallback chain failed. */

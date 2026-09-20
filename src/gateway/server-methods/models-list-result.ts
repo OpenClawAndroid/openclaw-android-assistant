@@ -5,7 +5,7 @@ import type {
   ModelRuntimeChoice,
   ModelsListParams,
   ModelsListResult,
-} from "../../../packages/gateway-protocol/src/schema/agents-models-skills.js";
+} from "../../../packages/gateway-protocol/src/schema/model-catalog.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import type { RuntimeAuthMaterialization } from "../../agents/auth-profiles/runtime-materializations.js";
 import { resolveConfiguredModelEntries } from "../../agents/configured-model-entries.js";
@@ -22,7 +22,7 @@ import {
 import {
   createModelCatalogView,
   selectModelCatalogRuntimeEntry,
-  loadPreparedModelCatalogView,
+  prepareModelCatalogView,
 } from "../../agents/model-catalog-view.js";
 import {
   resolveLogicalModelCatalogEntryState,
@@ -340,7 +340,7 @@ export async function prepareModelsListResult(
   ) {
     return { read: () => ({ models: [] }), isCurrent: () => true };
   }
-  let snapshot =
+  const snapshot =
     publishedOwner?.modelCatalog ??
     (usedPreloadedCatalog ? preloadedCatalog.snapshot : ownerSnapshot);
   if (!snapshot) {
@@ -376,8 +376,7 @@ export async function prepareModelsListResult(
           allowPluginNormalization: false,
         })
       : undefined;
-  const preparedCatalog = await loadPreparedModelCatalogView({
-    kind: "prepared",
+  const preparedCatalog = prepareModelCatalogView({
     cfg,
     agentId,
     agentDir: sourceOwner?.agentDir,
@@ -389,17 +388,7 @@ export async function prepareModelsListResult(
     pluginRegistry: preparedPluginRegistry,
     isCurrent,
     observationConfig: preparedProjectionOwner?.observationConfig,
-    refreshNative: refresh && source.kind !== "gateway" && params.preloadedOnly !== true,
-    ...(source.kind === "gateway"
-      ? {
-          onError: (error: unknown) =>
-            source.context.logGateway.debug(
-              `models.list continuing without harness catalog: ${String(error)}`,
-            ),
-        }
-      : {}),
   });
-  snapshot = preparedCatalog.snapshot;
   const { defaultModel } = preparedCatalog;
   const preparedRuntimeAuthModes = preparedProjectionOwner?.authModes;
   const preparedRuntimeAuthMaterializations = preparedProjectionOwner?.authMaterializations;

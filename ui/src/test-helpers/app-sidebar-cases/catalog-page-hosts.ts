@@ -63,6 +63,7 @@ export function registerCatalogPageHostTests() {
         agentId: "main",
         limitPerHost: 40,
         progressId: expect.any(String),
+        allowPartialResults: true,
       });
       expect(catalogRows()).toHaveLength(2);
       loadMore()?.click();
@@ -87,6 +88,7 @@ export function registerCatalogPageHostTests() {
         agentId: "main",
         limitPerHost: 40,
         progressId: expect.any(String),
+        allowPartialResults: true,
       });
       expect(request).toHaveBeenNthCalledWith(4, "sessions.catalog.list", {
         agentId: "main",

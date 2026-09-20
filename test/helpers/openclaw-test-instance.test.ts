@@ -796,15 +796,35 @@ describe("openclaw test instance", () => {
       finally { await fixture.cleanup(); }
     `;
       const runContender = async (source: string) => {
+        const args = [
+          "--experimental-test-module-mocks",
+          "--import",
+          new URL("../../scripts/tsx.mjs", import.meta.url).href,
+          "--input-type=module",
+          "-e",
+          source,
+        ];
+        const launcher = `
+          import { spawnOwnedVitestProcess } from ${JSON.stringify(new URL("../../scripts/lib/vitest-process.mts", import.meta.url).href)};
+          import { installVitestProcessGroupCleanup } from ${JSON.stringify(new URL("../../scripts/vitest-process-group.mts", import.meta.url).href)};
+          const { child, completion } = spawnOwnedVitestProcess({
+            command: process.execPath,
+            args: ${JSON.stringify(args)},
+            options: { cwd: process.cwd(), stdio: "inherit" },
+            homeMode: "tooling",
+          });
+          const cleanup = installVitestProcessGroupCleanup({ child, forceSignal: "SIGKILL" });
+          const result = await completion.finally(() => cleanup.teardown());
+          process.exitCode = result.code ?? 1;
+        `;
         const result = await promisify(execFile)(
           resolveTestNodeExecPath(),
           [
-            "--experimental-test-module-mocks",
             "--import",
             new URL("../../scripts/tsx.mjs", import.meta.url).href,
             "--input-type=module",
             "-e",
-            source,
+            launcher,
           ],
           { cwd: process.cwd(), timeout: 20_000 },
         );
@@ -829,7 +849,7 @@ describe("openclaw test instance", () => {
           causeCode: FILE_LOCK_TIMEOUT_ERROR_CODE,
         });
         const contender = await allocateContender();
-        expect(contender.tempRoot).toBe(await fs.realpath(tmpdir()));
+        expect(contender.tempRoot).not.toBe(await fs.realpath(tmpdir()));
         expect(contender.pid).not.toBe(process.pid);
         expect([instance.port, instance.port + 1]).not.toContain(contender.port);
         expect(contender.attempted.slice(0, 2)).toEqual([

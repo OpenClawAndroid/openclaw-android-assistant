@@ -9,7 +9,7 @@ import { pruneMapToMaxSize } from "../infra/map-size.js";
 import { createLazyPromise, getOrCreatePromise } from "../shared/lazy-promise.js";
 import { resolveCachedGitHubIdentity } from "../state/user-profile-github-identity.js";
 import { classifyTailscaleLogin } from "../state/user-profiles-tailscale-login.js";
-import { syncGitHubIdentity } from "../state/user-profiles.js";
+import { ensureProfileForEmail, syncGitHubIdentity } from "../state/user-profiles.js";
 import { normalizeGitHubLogin } from "../utils/github-login.js";
 import type { GatewayAuthResult } from "./auth.js";
 import { gitHubPublicApi, githubApiToken } from "./github-public-api.js";
@@ -27,6 +27,9 @@ const GITHUB_IDENTITY_CACHE_LIMIT = 200;
 const GITHUB_ETAG_MAX_LENGTH = 1_024;
 
 type ResolvedGitHubUserIdentity = { accountId: number; login: string; name?: string };
+type ResolvedCloudflareAccessIdentity =
+  | { provider: "github"; accountId: number; initialDisplayName?: string }
+  | { provider: "oidc"; email: string };
 type GitHubIdentityLookup = { identity: ResolvedGitHubUserIdentity; refreshed: boolean };
 type GitHubIdentityMetadataCache = {
   values: Map<string, { identity: ResolvedGitHubUserIdentity; expiresAt: number; etag?: string }>;
@@ -79,7 +82,7 @@ function cloudflareAccessIssuer(assertion: string): URL {
 async function resolveCloudflareAccessIdentity(
   assertion: string,
   authenticatedPrincipal: string,
-): Promise<{ accountId: number; initialDisplayName?: string }> {
+): Promise<ResolvedCloudflareAccessIdentity> {
   const issuer = cloudflareAccessIssuer(assertion);
   let payload: unknown;
   try {
@@ -105,15 +108,25 @@ async function resolveCloudflareAccessIdentity(
   if (!email || email.toLowerCase() !== authenticatedPrincipal.trim().toLowerCase()) {
     throw new Error("Cloudflare Access identity principal did not match");
   }
-  if (!isRecord(payload.idp) || payload.idp.type !== "github") {
-    throw new Error("Cloudflare Access identity is not GitHub-backed");
+  if (!isRecord(payload.idp)) {
+    throw new Error("Cloudflare Access identity provider is invalid");
+  }
+  if (payload.idp.type === "oidc") {
+    return { provider: "oidc", email };
+  }
+  if (payload.idp.type !== "github") {
+    throw new Error("Cloudflare Access identity provider is unsupported");
   }
   if (typeof payload.id !== "number" || !Number.isSafeInteger(payload.id) || payload.id <= 0) {
     throw new Error("Cloudflare Access GitHub account id is invalid");
   }
   const initialDisplayName =
     typeof payload.name === "string" && payload.name.trim() ? payload.name : undefined;
-  return { accountId: payload.id, ...(initialDisplayName ? { initialDisplayName } : {}) };
+  return {
+    provider: "github",
+    accountId: payload.id,
+    ...(initialDisplayName ? { initialDisplayName } : {}),
+  };
 }
 
 async function resolveGitHubUserIdentityByLogin(
@@ -283,6 +296,10 @@ export function createAuthenticatedGitHubIdentitySync(params: {
       access.assertion,
       access.principal,
     );
+    if (accessIdentity.provider === "oidc") {
+      const profile = ensureProfileForEmail(accessIdentity.email);
+      return { profileId: profile.id, updatedAt: profile.updatedAt };
+    }
     const identityBinding = { accountId: accessIdentity.accountId, email: access.principal };
     // Service auth raises public-data quota; Access still owns the signed-in account id.
     const token = githubApiToken();

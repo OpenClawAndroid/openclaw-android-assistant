@@ -41,6 +41,61 @@ export function parseGithubResponse(response) {
   return { status, body, remaining, limit, resetUtc, retryAfter, resource };
 }
 
+export function isGraphqlQuotaExhausted(error) {
+  const failure = error && typeof error === "object" ? error : {};
+  const text = (value) =>
+    typeof value === "string" ? value : Buffer.isBuffer(value) ? value.toString("utf8") : "";
+  const stdout = text(typeof error === "string" ? error : failure.stdout);
+  const stderr = text(failure.stderr);
+  const response = parseGithubResponse(stdout);
+  if (
+    failure.status === 0 ||
+    failure.signal ||
+    failure.killed ||
+    (typeof failure.code === "string" && /^E[A-Z]+$/.test(failure.code)) ||
+    (response.status && !["200", "403"].includes(response.status)) ||
+    response.resource === "core" ||
+    (response.remaining !== undefined && response.remaining !== 0) ||
+    /\b(?:secondary rate limit|abuse detection|retry-after|proxy authentication required)\b/i.test(
+      `${stdout}\n${stderr}`,
+    ) ||
+    [...stderr.matchAll(/\bHTTP(?:\/\d+(?:\.\d+)?)?\s+([1-5]\d{2})\b/gi)].some(
+      ([, status]) => !["200", "403"].includes(status),
+    )
+  ) {
+    return false;
+  }
+
+  let body = response.body;
+  if (response.status && !body) {
+    return false;
+  }
+  if (!response.status && stdout.trim()) {
+    try {
+      body = JSON.parse(stdout);
+    } catch {
+      return false;
+    }
+  }
+  const primary = (message) =>
+    typeof message === "string" && /^API rate limit (?:already )?exceeded\b/i.test(message);
+  if (body?.errors !== undefined) {
+    return (
+      Array.isArray(body.errors) &&
+      body.errors.length > 0 &&
+      body.errors.every(
+        (entry) => ["RATE_LIMIT", "RATE_LIMITED"].includes(entry?.type) && primary(entry?.message),
+      )
+    );
+  }
+  if (body) {
+    return primary(body.message);
+  }
+  // gh emits this exact prefix; arbitrary error messages and supplemental quota
+  // probes cannot establish which credential or budget rejected the request.
+  return /^gh: API rate limit (?:already )?exceeded[^\r\n]*\s*$/i.test(stderr);
+}
+
 export function rateLimitRetryGuidance({ remaining, resetUtc, retryAfter }) {
   const waits = [];
   if (retryAfter !== undefined) {

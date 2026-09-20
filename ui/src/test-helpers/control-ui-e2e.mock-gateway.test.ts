@@ -166,7 +166,7 @@ describe("mock gateway stateful config", () => {
       // Execute the generated init script the way the browser <script> tag does.
       execute(script);
 
-      const { request } = gatewayPage.connect();
+      const { request, send, frames } = gatewayPage.connect();
       await flushMockTimers();
 
       const initial = await request("get-1", "config.get", {});
@@ -240,14 +240,25 @@ describe("mock gateway stateful config", () => {
         throw new Error("Mock Gateway was not installed");
       }
       const replacement = { logging: { level: "error" } };
+      gateway.deferNext("config.patch");
+      send("pending-replacement", "config.patch", {
+        raw: JSON.stringify(replacement),
+        baseHash: "mock-config-hash-3",
+      });
+      await flushMockTimers();
       gateway.setMethodResponse("config.get", {
         raw: JSON.stringify(replacement),
         config: replacement,
         hash: "replacement-hash",
+        appliedConfigHash: "replacement-applied-hash",
         valid: true,
         issues: [],
       });
-      // Reload before any read can materialize the replacement fixture.
+      gateway.resolveDeferred("config.patch", { ok: true, hash: "replacement-hash" });
+      expect(frames.find((frame) => frame.id === "pending-replacement")).toMatchObject({
+        ok: true,
+      });
+      // Reload before any read can materialize the acknowledged replacement fixture.
       execute(script);
       const reconnected = gatewayPage.connect();
       await flushMockTimers();
@@ -255,8 +266,14 @@ describe("mock gateway stateful config", () => {
         raw: JSON.stringify(replacement),
         config: replacement,
         hash: "replacement-hash",
-        appliedConfigHash: "replacement-hash",
+        appliedConfigHash: "replacement-applied-hash",
       });
+      expect(
+        await reconnected.request("set-after-replacement", "config.set", {
+          raw: JSON.stringify(replacement),
+          baseHash: "replacement-hash",
+        }),
+      ).toMatchObject({ ok: true, hash: "mock-config-hash-4" });
     },
   );
 

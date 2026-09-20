@@ -27,7 +27,7 @@ import { readSessionRowFacts } from "./session-placement-read-projection.js";
 
 afterEach(() => vi.restoreAllMocks());
 
-it("refreshes current placement facts through one store admission per resident row", async () => {
+it("refreshes current placement facts with one placement read per resident row", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async () => {
     const identity = {
       agentId: "main",
@@ -50,14 +50,31 @@ it("refreshes current placement facts through one store admission per resident r
     const projection = await createSessionRowProjection(options);
     const refresh = async () => {
       const reads = vi.spyOn(stateDatabase, "openOpenClawStateDatabase");
+      let placementReads = 0;
+      const statements = (["get", "all", "iterate"] as const).map((method) => {
+        const execute = StatementSync.prototype[method];
+        return vi.spyOn(StatementSync.prototype, method).mockImplementation(function (
+          this: StatementSync,
+          ...args: unknown[]
+        ) {
+          if (/\bfrom\s+"?worker_session_placements\b/i.test(this.sourceSQL)) {
+            placementReads++;
+          }
+          return Reflect.apply(execute, this, args);
+        });
+      });
       try {
         sessionChanges.emit({ agentId: identity.agentId, sessionKey: identity.sessionKey });
         await projection.ensureMaterialized();
         const result = projection.snapshot({ agentId: identity.agentId, key: identity.sessionKey });
         expect(reads).toHaveBeenCalledTimes(1);
+        expect(placementReads).toBe(1);
         return result.row?.placement;
       } finally {
         reads.mockRestore();
+        for (const statement of statements) {
+          statement.mockRestore();
+        }
       }
     };
     try {

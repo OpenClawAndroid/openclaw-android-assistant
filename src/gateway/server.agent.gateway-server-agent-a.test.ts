@@ -760,14 +760,29 @@ describe("gateway server agent", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test("agent rejects malformed agent-prefixed session keys", async () => {
+  test.each([
+    {
+      name: "malformed-key",
+      sessionKey: "agent:main",
+      agentId: undefined,
+      message: "malformed session key",
+    },
+    {
+      name: "unrepresentable-agent",
+      sessionKey: "agent:main:main",
+      agentId: "!!!",
+      message: 'Unknown agent id "!!!"',
+    },
+  ])("agent rejects invalid selectors: $name", async ({ name, sessionKey, agentId, message }) => {
     const res = await rpcReq(gatewaySuite.ws, "agent", {
       message: "hi",
-      sessionKey: "agent:main",
-      idempotencyKey: "idem-agent-malformed-key",
+      sessionKey,
+      agentId,
+      idempotencyKey: `idem-agent-invalid-${name}`,
     });
     expect(res.ok).toBe(false);
-    expect(res.error?.message).toContain("malformed session key");
+    expect(res.error?.code).toBe("INVALID_REQUEST");
+    expect(res.error?.message).toContain(message);
 
     const spy = vi.mocked(agentCommandMock);
     expect(spy).not.toHaveBeenCalled();

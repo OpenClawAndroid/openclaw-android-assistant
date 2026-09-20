@@ -138,6 +138,11 @@ JavaScript `process.env` does not change native thread home lookup. Per-worker a
 per-test fixture homes remain separate. Installed Corepack and Playwright browser
 caches retain their caller-selected locations.
 
+Gateway port claims remain in the common temporary directory outside all enclosing
+Vitest namespaces, found through their explicit resource owners. Parallel invocations
+therefore share port ownership while a fixture hands its reserved socket to a child;
+removing one invocation's files cannot remove another fixture's port claim.
+
 Live-aware setup still loads the original profile and stages live state when
 requested. A bounded invocation artifact carries the original home to that setup;
 it does not grant live access, and hermetic setup never consults it. Known

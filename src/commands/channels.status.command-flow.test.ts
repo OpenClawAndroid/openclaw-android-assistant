@@ -219,6 +219,8 @@ describe("channelsStatusCommand SecretRef fallback flow", () => {
     const request = mocks.callGateway.mock.calls[0]?.[0];
     expect(validateChannelsStatusParams(request?.params)).toBe(true);
     expect(request?.params.timeoutMs).toBe(3750);
+    expect(request?.timeoutMs).toBe(3750);
+    expect(request?.sharedStateMode).toBe("read-only");
   });
 
   afterEach(() => {
@@ -258,6 +260,7 @@ describe("channelsStatusCommand SecretRef fallback flow", () => {
       method: "channels.status",
       params: { channel: "imsg", probe: true, timeoutMs: 60000 },
       timeoutMs: 60000,
+      sharedStateMode: "read-only",
     });
   });
 

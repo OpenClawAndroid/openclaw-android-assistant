@@ -212,9 +212,14 @@ export function cloneTaskRecordForObserver(record: TaskRecord): Omit<TaskRecord,
   return snapshot;
 }
 
-export function normalizeTaskTimestamps<
-  T extends Pick<TaskRecord, "status" | "createdAt" | "startedAt" | "endedAt" | "lastEventAt">,
+export function normalizeTaskRecord<
+  T extends Pick<
+    TaskRecord,
+    "status" | "createdAt" | "startedAt" | "endedAt" | "lastEventAt" | "runId" | "childSessionKey"
+  >,
 >(task: T): T {
+  const runId = normalizeOptionalString(task.runId);
+  const childSessionKey = normalizeOptionalString(task.childSessionKey);
   // Detached runtimes can report lifecycle times captured before the registry
   // inserted or restored the row; keep createdAt as the visible lifecycle floor.
   let createdAt = task.createdAt;
@@ -240,7 +245,9 @@ export function normalizeTaskTimestamps<
     createdAt === task.createdAt &&
     startedAt === task.startedAt &&
     lastEventAt === task.lastEventAt &&
-    endedAt === task.endedAt
+    endedAt === task.endedAt &&
+    runId === task.runId &&
+    childSessionKey === task.childSessionKey
   ) {
     return task;
   }
@@ -249,6 +256,16 @@ export function normalizeTaskTimestamps<
     ...task,
     createdAt,
   };
+  if (runId !== undefined) {
+    normalized.runId = runId;
+  } else {
+    delete normalized.runId;
+  }
+  if (childSessionKey !== undefined) {
+    normalized.childSessionKey = childSessionKey;
+  } else {
+    delete normalized.childSessionKey;
+  }
   if (typeof startedAt === "number") {
     normalized.startedAt = startedAt;
   }
@@ -366,7 +383,7 @@ export function buildTaskRecordForCreate(
     scopeKind,
   });
   const lastEventAt = params.lastEventAt ?? params.startedAt ?? now;
-  const record: TaskRecord = normalizeTaskTimestamps({
+  const record: TaskRecord = normalizeTaskRecord({
     taskId,
     ...(params.executionOwner ? { executionOwner: { ...params.executionOwner } } : {}),
     runtime: params.runtime,
@@ -380,7 +397,7 @@ export function buildTaskRecordForCreate(
     parentTaskId: normalizeOptionalString(params.parentTaskId),
     agentId,
     requesterAgentId,
-    runId: normalizeOptionalString(params.runId),
+    runId: params.runId,
     label: normalizeOptionalString(params.label),
     task: params.task,
     status,
@@ -437,7 +454,7 @@ export function applyTaskRecordPatch(
   ) {
     updated.lastEventAt = current.lastEventAt;
   }
-  const next = normalizeTaskTimestamps(updated);
+  const next = normalizeTaskRecord(updated);
   if (Object.hasOwn(patch, "error") && patch.error === undefined) {
     delete next.error;
   }

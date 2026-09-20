@@ -240,12 +240,12 @@ function createSkillsPathWatcher(
     subscribers: new Set<string>(),
   };
   const isCurrent = () => !state.closed && pathWatchers.get(target.path) === state;
-  const reconcileRoot = (changedPath?: string) => {
+  const reconcileRoot = (changedPath?: string, replaceContent = false) => {
     if (!isCurrent()) {
       return true;
     }
     const nextTarget = makeSkillsWatchTarget(target.path, state.depth, state.ancestorRoot);
-    if (nextTarget.watchRoot === state.watchRoot) {
+    if (nextTarget.watchRoot === state.watchRoot && !replaceContent) {
       return false;
     }
     for (const subscriber of state.subscribers) {
@@ -258,7 +258,7 @@ function createSkillsPathWatcher(
     }
     const subscriber = state.subscribers.values().next().value;
     if (subscriber !== undefined) {
-      subscribeWorkspaceToPath(subscriber, nextTarget);
+      subscribeWorkspaceToPath(subscriber, nextTarget, replaceContent);
       if (changedPath) {
         pathWatchers.get(target.path)?.schedule(changedPath);
       }
@@ -373,19 +373,23 @@ function createSkillsPathWatcher(
     ready();
   });
   const onChange = (event: string, changedPath: string) => {
+    const ancestorChanged = event === "ancestor";
     if (
       !isCurrent() ||
-      ((!watcher || event === "addDir" || event === "unlinkDir") && reconcileRoot(changedPath))
+      ((!watcher || ancestorChanged || event === "addDir" || event === "unlinkDir") &&
+        // A coalesced native rename can replace an ancestor and recreate this
+        // same path before delivery, leaving the content watch on the old inode.
+        reconcileRoot(changedPath, ancestorChanged && Boolean(watcher)))
     ) {
       return;
     }
-    const skillsRelevant = pathFilter.isRelevant(event, changedPath);
+    const skillsRelevant = ancestorChanged || pathFilter.isRelevant(event, changedPath);
     if (skillsRelevant || pathFilter.isSupportingPath(changedPath)) {
       schedule(changedPath, skillsRelevant ? "skills" : "supporting");
     }
   };
   watcher?.on("all", onChange);
-  const onRaw = (_eventName: string, rawPath: unknown, details: unknown) => {
+  const handleRaw = (_eventName: string, rawPath: unknown, details: unknown) => {
     if (!isCurrent()) {
       return;
     }
@@ -415,6 +419,15 @@ function createSkillsPathWatcher(
       scheduleRawSkillFile(changedPath);
     } else if (pathFilter.isSupportingPath(changedPath)) {
       schedule(changedPath, "supporting");
+    }
+  };
+  const onRaw = (...args: Parameters<typeof handleRaw>) => {
+    if (usePolling) {
+      // Chokidar's watchFile callback reads its listeners after emitting raw.
+      // Reconciliation can retire its last subscription, so finish delivery first.
+      queueMicrotask(() => handleRaw(...args));
+    } else {
+      handleRaw(...args);
     }
   };
   watcher?.on("raw", onRaw);
@@ -472,10 +485,15 @@ function createSkillsPathWatcher(
   return state;
 }
 
-function subscribeWorkspaceToPath(workspaceDir: string, watchTarget: WatchTarget): void {
+function subscribeWorkspaceToPath(
+  workspaceDir: string,
+  watchTarget: WatchTarget,
+  replaceContent = false,
+): void {
   const existing = pathWatchers.get(watchTarget.path);
   if (
     existing &&
+    !replaceContent &&
     existing.watchRoot === watchTarget.watchRoot &&
     existing.depth >= watchTarget.depth
   ) {

@@ -17,7 +17,11 @@ import {
 } from "./kysely-sync.js";
 import { inspectUpdateRunAbandonment } from "./update-run-activity.js";
 import { decodeRun } from "./update-run-codec.js";
-import type { UpdateFetchFailure, UpdateRunRecord } from "./update-run-record.js";
+import {
+  isAcknowledgedAbandonedUpdateRun,
+  type UpdateFetchFailure,
+  type UpdateRunRecord,
+} from "./update-run-record.js";
 import { hasStoredUpdateRecovery } from "./update-run-recovery-store.js";
 import { ABANDONED_UPDATE_RUN_MS } from "./update-run-timeouts.js";
 
@@ -46,6 +50,36 @@ export function findActiveUpdateRun(
   return withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(
     ({ db }) => readActiveUpdateRun(db),
     options,
+  );
+}
+
+/** Previews and acknowledged abandonment cannot replace failure or completion evidence. */
+export function readUpdateRunResolutionHistory(options: OpenClawStateDatabaseOptions = {}): {
+  failure?: UpdateRunRecord;
+  outcome?: UpdateRunRecord;
+} {
+  return (
+    withExistingOpenClawStateDatabaseArtifactPreservingReadOnly(({ db }) => {
+      if (!tableExists(db, "update_runs")) {
+        return {};
+      }
+      const latest = (failedOnly: boolean) => {
+        const query = getNodeSqliteKysely<Pick<DB, "update_runs">>(db)
+          .selectFrom("update_runs")
+          .selectAll()
+          .where("status", failedOnly ? "=" : "!=", failedOnly ? "failed" : "skipped")
+          .orderBy("created_at_ms", "desc")
+          .orderBy("run_id", "desc");
+        for (const row of iterateSqliteQuerySync(db, query)) {
+          const run = decodeRun(row);
+          if (!isAcknowledgedAbandonedUpdateRun(run)) {
+            return run;
+          }
+        }
+        return undefined;
+      };
+      return { failure: latest(true), outcome: latest(false) };
+    }, options) ?? {}
   );
 }
 

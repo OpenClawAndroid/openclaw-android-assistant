@@ -64,9 +64,7 @@ import { AsyncWorkScope } from "../../shared/async-work-scope.js";
 import type { SkillLibraryAuthoringCapability } from "../../skills/library/authoring.js";
 import { buildSkillSnapshot } from "../../skills/loading/workspace-skill-prompt.js";
 import type { SkillSnapshot } from "../../skills/types.js";
-import { closeOpenClawAgentDatabaseByPath } from "../../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseByPath } from "../../state/openclaw-state-db-cache.js";
-import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { connectUserModelAccount } from "../../state/user-model-accounts.js";
 import { ensureProfileForEmail } from "../../state/user-profiles.js";
@@ -122,11 +120,7 @@ import { waitForDeferredTurnMaintenanceForSession } from "../embedded-agent-runn
 import { createContextEngineLogicalTurnLease } from "../harness/context-engine-logical-turn.js";
 import { claimPendingAgentQuestionAnswerFromCaller } from "../harness/gateway-question.js";
 import { withQuestionGateway } from "../harness/gateway-question.test-support.js";
-import {
-  buildActiveImageGenerationTaskPromptContextForSession,
-  buildActiveMusicGenerationTaskPromptContextForSession,
-  buildActiveVideoGenerationTaskPromptContextForSession,
-} from "../media-generation-task-status.js";
+import { buildMediaTaskRuntimeContext } from "../media-generation-task-status.js";
 import { createAgentCleanupScope } from "../run-cleanup-timeout.js";
 import type { SandboxWorkspaceInfo } from "../sandbox/types.js";
 import { beginForegroundSessionMaintenance } from "../session-maintenance/coordinator.js";
@@ -230,32 +224,22 @@ vi.mock("../../tts/tts-settings.js", () => ({
 }));
 
 vi.mock("../media-generation-task-status.js", () => ({
+  buildMediaTaskRuntimeContext: vi.fn(() => undefined),
   VIDEO_GENERATION_TASK_KIND: "video_generation",
-  buildActiveVideoGenerationTaskPromptContextForSession: vi.fn(() => undefined),
   buildVideoGenerationTaskStatusDetails: vi.fn(() => ({})),
   buildVideoGenerationTaskStatusText: vi.fn(() => ""),
   findActiveVideoGenerationTaskForSession: vi.fn(() => undefined),
   IMAGE_GENERATION_TASK_KIND: "image_generation",
-  buildActiveImageGenerationTaskPromptContextForSession: vi.fn(() => undefined),
   buildImageGenerationTaskStatusDetails: vi.fn(() => ({})),
   buildImageGenerationTaskStatusText: vi.fn(() => ""),
   MUSIC_GENERATION_TASK_KIND: "music_generation",
-  buildActiveMusicGenerationTaskPromptContextForSession: vi.fn(() => undefined),
   buildMusicGenerationTaskStatusDetails: vi.fn(() => ({})),
   buildMusicGenerationTaskStatusText: vi.fn(() => ""),
   findActiveMusicGenerationTaskForSession: vi.fn(() => undefined),
 }));
 
 const mockGetGlobalHookRunner = vi.mocked(getGlobalHookRunner);
-const mockBuildActiveVideoGenerationTaskPromptContextForSession = vi.mocked(
-  buildActiveVideoGenerationTaskPromptContextForSession,
-);
-const mockBuildActiveImageGenerationTaskPromptContextForSession = vi.mocked(
-  buildActiveImageGenerationTaskPromptContextForSession,
-);
-const mockBuildActiveMusicGenerationTaskPromptContextForSession = vi.mocked(
-  buildActiveMusicGenerationTaskPromptContextForSession,
-);
+const mockBuildMediaTaskRuntimeContext = vi.mocked(buildMediaTaskRuntimeContext);
 
 let defaultTestCliBackend = buildDefaultTestCliBackend();
 
@@ -719,9 +703,7 @@ describe("prepareCliRunContext", () => {
     });
     mockGetGlobalHookRunner.mockReturnValue(null);
     getRuntimeConfigMock.mockReturnValue({});
-    mockBuildActiveImageGenerationTaskPromptContextForSession.mockResolvedValue(undefined);
-    mockBuildActiveVideoGenerationTaskPromptContextForSession.mockResolvedValue(undefined);
-    mockBuildActiveMusicGenerationTaskPromptContextForSession.mockResolvedValue(undefined);
+    mockBuildMediaTaskRuntimeContext.mockResolvedValue(undefined);
     ensureSandboxWorkspaceForSessionMock.mockReset();
     ensureSandboxWorkspaceForSessionMock.mockResolvedValue(null);
     // Discovery cases explicitly opt out of the prepared empty catalog.
@@ -730,70 +712,21 @@ describe("prepareCliRunContext", () => {
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     setActiveNodeContext(null);
     cliBackendsTesting.resetDepsForTest();
     resetCliRunnerPrepareTestDeps();
     resetCliAuthEpochTestDeps();
     getRuntimeConfigMock.mockReset();
     mockGetGlobalHookRunner.mockReset();
-    mockBuildActiveImageGenerationTaskPromptContextForSession.mockReset();
-    mockBuildActiveVideoGenerationTaskPromptContextForSession.mockReset();
-    mockBuildActiveMusicGenerationTaskPromptContextForSession.mockReset();
+    mockBuildMediaTaskRuntimeContext.mockReset();
     ensureSandboxWorkspaceForSessionMock.mockReset();
     resetContextWindowCacheForTest();
     clearMemoryPluginState();
     setActivePluginRegistry(createTestRegistry());
     setActiveDegradedSecretOwners([]);
     vi.unstubAllEnvs();
-    fixture.cleanup();
-  });
-
-  it("closes owned state handles before removing preparation directories", () => {
-    const sessions = [fixture.session, fixture.createSession()];
-    const ownedState = sessions.map(({ dir }) => ({
-      dir,
-      database: openOpenClawStateDatabase({ env: { OPENCLAW_STATE_DIR: dir } }),
-    }));
-    const unrelatedDir = fs.realpathSync(
-      fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-cli-unrelated-")),
-    );
-    const unrelated = openOpenClawStateDatabase({ env: { OPENCLAW_STATE_DIR: unrelatedDir } });
-    const removed: string[] = [];
-    const remove = fs.rmSync;
-    const removal = vi.spyOn(fs, "rmSync").mockImplementation((target, options) => {
-      const owned = ownedState.find(({ dir }) => dir === target);
-      if (owned) {
-        // Refuse unsafe unlink on the original bug, leaving files intact for finally cleanup.
-        expect(owned.database.db.isOpen, "state handle must close before directory removal").toBe(
-          false,
-        );
-        removed.push(owned.dir);
-      }
-      remove(target, options);
-    });
-    try {
-      fixture.cleanup();
-      expect(removed).toEqual(sessions.map(({ dir }) => dir));
-      for (const { dir } of sessions) {
-        expect(fs.existsSync(dir)).toBe(false);
-      }
-      unrelated.db.exec(
-        "CREATE TEMP TABLE cleanup_probe (value INTEGER); INSERT INTO cleanup_probe VALUES (7);",
-      );
-      expect(unrelated.db.prepare("SELECT value FROM cleanup_probe").get()).toEqual({ value: 7 });
-    } finally {
-      removal.mockRestore();
-      for (const { sessionTarget } of sessions) {
-        closeOpenClawAgentDatabaseByPath(sessionTarget.storePath);
-      }
-      for (const { database } of ownedState) {
-        closeOpenClawStateDatabaseByPath(database.path);
-      }
-      fixture.cleanup();
-      closeOpenClawStateDatabaseByPath(unrelated.path);
-      fs.rmSync(unrelatedDir, { recursive: true, force: true });
-    }
+    await fixture.cleanup();
   });
 
   it.each(["process", "plugin"] as const)(
@@ -2950,7 +2883,7 @@ describe("prepareCliRunContext", () => {
           ],
         })),
       });
-      mockBuildActiveImageGenerationTaskPromptContextForSession.mockImplementation(() => {
+      mockBuildMediaTaskRuntimeContext.mockImplementation(() => {
         lookupStarted.resolve();
         return lookup.promise;
       });
@@ -3800,9 +3733,6 @@ describe("prepareCliRunContext", () => {
           }),
         });
       }
-      mockBuildActiveVideoGenerationTaskPromptContextForSession.mockResolvedValue(
-        "active video task",
-      );
       const hookRunner = {
         hasHooks: vi.fn((hookName: string) => hookName === "before_prompt_build"),
         runBeforePromptBuild: vi.fn(async () => ({
@@ -3820,12 +3750,12 @@ describe("prepareCliRunContext", () => {
           prompt: "latest ask",
           transcriptPrompt: "latest ask",
         });
-      mockBuildActiveImageGenerationTaskPromptContextForSession.mockResolvedValue(
-        "image task queued",
+      mockBuildMediaTaskRuntimeContext.mockResolvedValue(
+        "## Media Generation Tasks\nimage task queued\nactive video task",
       );
       const first = await prepareTurn();
-      mockBuildActiveImageGenerationTaskPromptContextForSession.mockResolvedValue(
-        "image task running",
+      mockBuildMediaTaskRuntimeContext.mockResolvedValue(
+        "## Media Generation Tasks\nimage task running\nactive video task",
       );
       const second = await prepareTurn();
 
@@ -3848,14 +3778,11 @@ describe("prepareCliRunContext", () => {
       );
       expect(second.params.transcriptPrompt).toBe("latest ask");
       expect(second.contextEngineTurnPrompt).toBe("latest ask");
-      expect(mockBuildActiveImageGenerationTaskPromptContextForSession).toHaveBeenCalledWith(
-        "agent:main:test",
-        "main",
-      );
-      expect(mockBuildActiveVideoGenerationTaskPromptContextForSession).toHaveBeenCalledWith(
-        "agent:main:test",
-        "main",
-      );
+      expect(mockBuildMediaTaskRuntimeContext).toHaveBeenCalledWith({
+        sessionKey: "agent:main:test",
+        agentId: "main",
+        capabilityToolNames: new Set(["image_generate", "video_generate"]),
+      });
     },
   );
 

@@ -236,8 +236,10 @@ async function fixture({
     "update-command-service",
     "update-command-post-update",
     "update-command-result",
+    "../../infra/update-run-step",
     ...(main
       ? [
+          "update-command-verification",
           "update-command-terminal",
           "update-command-terminal-publication",
           "update-command-post-update-maintenance",
@@ -286,7 +288,10 @@ async function fixture({
   }
   const stubs = new Map();
   for (const [specifier, namesSet] of external) {
-    if (modules.has(path.basename(specifier))) {
+    if (
+      modules.has(path.basename(specifier)) &&
+      path.basename(specifier) !== "update-command-verification.js"
+    ) {
       continue;
     }
     const names = [...namesSet];
@@ -313,8 +318,21 @@ async function fixture({
       ),
     );
   }
+  const link = (specifier) =>
+    path.basename(specifier) === "update-command-verification.js"
+      ? stubs.get(specifier)
+      : (modules.get(path.basename(specifier)) ?? stubs.get(specifier));
+  if (main) {
+    // The recorder moved out of the restart owner; keep its real ledger writes
+    // while injecting only the Gateway verification seam.
+    const verificationOwner = modules.get("update-command-verification.js");
+    await verificationOwner.link(link);
+    await verificationOwner.evaluate();
+    values.recordFailedUpdateGatewayState =
+      verificationOwner.namespace.recordFailedUpdateGatewayState;
+  }
   const entry = modules.get("update-command-post-update.js");
-  await entry.link((specifier) => modules.get(path.basename(specifier)) ?? stubs.get(specifier));
+  await entry.link(link);
   await entry.evaluate();
   if (serviceLoadBoundaryFailure) {
     const { UpdateServiceLoadBoundaryError } = modules.get(

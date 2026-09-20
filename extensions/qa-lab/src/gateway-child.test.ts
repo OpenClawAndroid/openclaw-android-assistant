@@ -1278,7 +1278,7 @@ describe("buildQaRuntimeEnv", () => {
       timeoutMs: 100,
     });
 
-    logs += "signal SIGUSR1 received\nrestart mode: in-process restart\n";
+    logs += "signal SIGUSR2 received\nrestart mode: in-process restart\n";
 
     await expect(wait).resolves.toBeUndefined();
   });
@@ -1375,10 +1375,10 @@ describe("buildQaRuntimeEnv", () => {
     expect(output.text()).not.toContain("�");
   });
 
-  it("times out when a SIGUSR1 restart never reaches the boundary", async () => {
+  it("times out when a SIGUSR2 restart never reaches the boundary", async () => {
     await expect(
       waitForQaGatewayRestartBoundary({
-        readLogsSince: () => "signal SIGUSR1 received\n",
+        readLogsSince: () => "signal SIGUSR2 received\n",
         mark: 0,
         pollMs: 1,
         timeoutMs: 1,
@@ -1389,7 +1389,7 @@ describe("buildQaRuntimeEnv", () => {
   it("keeps oversized restart-boundary poll intervals within the timeout", async () => {
     await expect(
       waitForQaGatewayRestartBoundary({
-        readLogsSince: () => "signal SIGUSR1 received\n",
+        readLogsSince: () => "signal SIGUSR2 received\n",
         mark: 0,
         pollMs: Number.MAX_SAFE_INTEGER,
         timeoutMs: 5,

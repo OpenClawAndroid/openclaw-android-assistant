@@ -100,6 +100,7 @@ describe("AppSidebar hidden catalog discovery", () => {
           agentId: scope === "agent" ? "research" : "main",
           limitPerHost: 40,
           progressId: expect.any(String),
+          allowPartialResults: true,
         });
 
         retiredPage.resolve(

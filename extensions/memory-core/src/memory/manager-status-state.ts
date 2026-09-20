@@ -47,7 +47,7 @@ export function resolveStatusProviderInfo(params: {
   provider: StatusProvider | null;
   providerInitialized: boolean;
   requestedProvider: string;
-  configuredModel?: string;
+  resolveConfiguredModel?: () => string | undefined;
 }): {
   provider: string;
   model?: string;
@@ -69,7 +69,7 @@ export function resolveStatusProviderInfo(params: {
   }
   return {
     provider: params.requestedProvider,
-    model: params.configuredModel || undefined,
+    model: params.resolveConfiguredModel?.() || undefined,
     searchMode: "hybrid",
   };
 }

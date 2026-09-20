@@ -225,7 +225,7 @@ export function emitSessionsChanged(
   if (!catalogOnly) {
     invalidateSessionSharingSnapshot(payload.sessionKey);
     // Inbox subscriptions are independent of session-list subscriptions, including a closed sidebar.
-    context.mentionInbox?.invalidate();
+    context.mentionInbox?.invalidate(payload.sessionKey);
   }
   const connIds = context.getSessionEventSubscriberConnIds();
   if (!hasSessionChangeReceivers(connIds)) {

@@ -98,7 +98,7 @@ public enum DeviceSettingsPanel: String, CaseIterable, Sendable {
 
 public enum DeviceSettingsPermission: String, CaseIterable, Encodable, Sendable {
     case notifications, accessibility, screenRecording, microphone
-    case camera, speechRecognition, location, automation
+    case camera, speechRecognition, location
     case contacts, calendars, reminders, photos
 }
 

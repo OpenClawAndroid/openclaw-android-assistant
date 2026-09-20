@@ -141,7 +141,7 @@ it.each(["runtime", "status", "delivery_status", "notify_policy"] as const)(
   },
 );
 
-it("keeps the first cron match in raw SQLite order, including nonterminal blockers and exact run IDs", () => {
+it("keeps the first cron match in raw SQLite order, including nonterminal blockers and canonical run IDs", () => {
   const cron = (
     taskId: string,
     sourceId: string,
@@ -164,6 +164,7 @@ it("keeps the first cron match in raw SQLite order, including nonterminal blocke
   cron("tie-\ue000", "tie", "shared", "failed", 10);
   cron("tie-target", "tie", "shared", "running", 30);
   cron("trimmed-run", "whitespace", "run", "failed", 10);
+  cron("different-run", "whitespace", "different-run", "succeeded", 0);
   cron("exact-run", "whitespace", " run ", "succeeded", 20);
   cron("whitespace-target", " whitespace ", " run ", "running", 30);
   cron("blank-target", " missing ", " ", "queued", 30);
@@ -175,8 +176,19 @@ it("keeps the first cron match in raw SQLite order, including nonterminal blocke
   );
   cron("lost-recovered", "lost", "same", "succeeded", 10);
   store("other-runtime", { runtime: "cli", sourceId: "raw", runId: "shared", createdAt: 0 });
+  // Read-only status inspection can precede registry restore on a published database.
+  db.prepare("UPDATE task_runs SET run_id = ?, child_session_key = ? WHERE task_id = ?").run(
+    "\t run \u00a0",
+    " legacy-child ",
+    "whitespace-target",
+  );
+  db.prepare("UPDATE task_runs SET run_id = ? WHERE task_id = ?").run(" run ", "trimmed-run");
 
   const result = snapshot();
+  expect(result.candidates.find((row) => row.taskId === "whitespace-target")).toMatchObject({
+    runId: "run",
+    childSessionKey: "legacy-child",
+  });
   for (const candidate of result.candidates) {
     const sourceId = candidate.sourceId?.trim();
     if (candidate.runtime !== "cron" || !sourceId) {
@@ -204,7 +216,7 @@ it("keeps the first cron match in raw SQLite order, including nonterminal blocke
   expect(result.cronRecoveryRows.get("blocked-target")?.status).toBe("queued");
   expect(result.cronRecoveryRows.get("raw-target")?.taskId).toBe("raw-first");
   expect(result.cronRecoveryRows.get("tie-target")?.taskId).toBe("tie-\ue000");
-  expect(result.cronRecoveryRows.get("whitespace-target")?.taskId).toBe("exact-run");
+  expect(result.cronRecoveryRows.get("whitespace-target")?.taskId).toBe("trimmed-run");
   expect(result.cronRecoveryRows.has("blank-target")).toBe(false);
   expect(result.cronRecoveryRows.get("lost-target")?.status).toBe("succeeded");
 });

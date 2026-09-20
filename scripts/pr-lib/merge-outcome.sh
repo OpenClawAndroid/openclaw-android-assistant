@@ -131,6 +131,7 @@ merge_outcome_init() {
     MERGE_REPO=$(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -ce --argjson identities "$identities" '
       .repo | select(. == $identities[0] or . == $identities[1])
     ') || { merge_outcome_stop "retained repository identity does not match authoritative repository"; return 1; }
+    MERGE_TRANSPORT=$(printf '%s\n' "$MERGE_OUTCOME_RECORD" | jq -r '.transport // "graphql"') || return 1
   else
     MERGE_REPO=$(printf '%s\n' "$identities" | jq -c '.[0]') || return 1
   fi
@@ -177,6 +178,7 @@ merge_outcome_load_local() {
          else true end) and
         (.method == "squash" or .method == "merge" or .method == "rebase") and
         (.route == "immediate" or .route == "admin" or .route == "auto" or .route == "queue") and
+        (if has("transport") then .transport == "rest" and .method == "squash" and .route == "immediate" else true end) and
         (.accepted | type == "boolean") and
         (if .phase == "intent" then .landed == null else
           (.phase == "merged" or .phase == "commenting" or .phase == "commented" or .phase == "complete") and (.landed | oid) end))
@@ -268,21 +270,36 @@ merge_outcome_write() {
   MERGE_OUTCOME_RECORD="$record"
 }
 
+merge_rest() {
+  local mode="$1" pr="$2" repo="${MERGE_REPO:-}"
+  shift 2
+  [ -n "$repo" ] || repo=$(pr_gh_plain repo view --json id,nameWithOwner,url) || return 1
+  node "${BASH_SOURCE[0]%/*}/merge-rest.mjs" "$mode" "$repo" "$pr" "$@"
+}
+
 merge_outcome_read_remote() {
   local response
-  # REST lacks queue/auto admission facts. Preserve the single PR/main snapshot
-  # that binds those facts to the outcome owner's existing stability contract.
-  response=$(pr_gh_plain api graphql --hostname "$MERGE_REPO_HOST" \
+  if [ "${MERGE_TRANSPORT:-graphql}" = rest ]; then
+    response=$(merge_rest observe "$1") || return 1
+  else
+    response=$(pr_gh_quota_read api graphql --hostname "$MERGE_REPO_HOST" \
     -f owner="${MERGE_REPO_NAME%/*}" -f name="${MERGE_REPO_NAME#*/}" -F number="$1" \
     -f 'query=query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){id databaseId url nameWithOwner ref(qualifiedName:"refs/heads/main"){target{oid}} pullRequest(number:$number){id number url state headRefOid baseRefName isDraft mergeCommit{oid} autoMergeRequest{mergeMethod} isInMergeQueue isMergeQueueEnabled mergeable mergeStateStatus}}}') || return 1
+    if pr_gh_quota_exhausted "$response"; then
+      response=$(merge_rest observe "$1") || return 1
+    fi
+  fi
   printf '%s\n' "$response" | jq -ce --argjson repo "$MERGE_REPO" --argjson pr "$1" '
     def oid: type == "string" and test("^[0-9a-f]{40}$");
-    select(.errors == null) | .data.repository |
+    select(.errors == null) | . as $response | .data.repository |
     # Initialization binds the retained typed ID to the authoritative pair. Recheck
     # that identity along with the exact name and URL on every remote observation.
     select(.url == $repo.url and .nameWithOwner == $repo.nameWithOwner and
       ($repo.id == .id or $repo.id == .databaseId) and (.ref.target.oid | oid)) |
-    {main:.ref.target.oid, pr:.pullRequest} |
+    {main:.ref.target.oid, pr:(.pullRequest |
+      {id,number,url,state,headRefOid,baseRefName,isDraft,mergeCommit,autoMergeRequest,
+       isInMergeQueue,isMergeQueueEnabled,mergeable,mergeStateStatus})} +
+      (if $response.transport == "rest" then {transport:"rest",restPolicy:$response.restPolicy} else {} end) |
     select(.pr.number == $pr and (.pr.id | type == "string" and length > 0) and
       .pr.url == ($repo.url + "/pull/" + ($pr|tostring)) and
       (.pr.headRefOid | oid) and (.pr.baseRefName | type == "string" and length > 0) and
@@ -311,6 +328,9 @@ merge_outcome_observe() {
   MERGE_OBSERVATION=$(merge_outcome_read_remote "$1") || {
     merge_outcome_stop "PR/main metadata: observed=unavailable or invalid; expected=authoritative valid snapshot"; return 1;
   }
+  if [ "$(printf '%s\n' "$MERGE_OBSERVATION" | jq -r '.transport // "graphql"')" = rest ]; then
+    MERGE_TRANSPORT=rest
+  fi
   merge_outcome_require_main "$(printf '%s\n' "$MERGE_OBSERVATION" | jq -r .main)"
 }
 
@@ -320,6 +340,16 @@ merge_outcome_stable() {
     merge_outcome_stop "observation reread: observed=unavailable or invalid; expected=authoritative PR/main metadata"; return 1;
   }
   [ "$reread" = "$MERGE_OBSERVATION" ] && return 0
+  # The first REST observation adds policy evidence without changing shared
+  # PR/main facts. Retain it so subsequent stability reads compare that policy.
+  if printf '%s\n' "$reread" | jq -e --argjson observed "$MERGE_OBSERVATION" '
+    .transport == "rest" and ($observed.transport // "graphql") == "graphql" and
+    del(.transport,.restPolicy) == ($observed | del(.transport,.restPolicy))
+  ' >/dev/null; then
+    MERGE_OBSERVATION="$reread"
+    MERGE_TRANSPORT=rest
+    return 0
+  fi
   # Only finish an already-proven MERGED receipt; this never admits a future merge.
   # Keep both snapshots pinned: later forward work cannot restart historical proof.
   if printf '%s\n' "$reread" | jq -e --argjson observed "$MERGE_OBSERVATION" '

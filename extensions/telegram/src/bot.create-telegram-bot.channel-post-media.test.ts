@@ -369,10 +369,11 @@ describe("createTelegramBot channel_post media", () => {
     setOpenChannelPostConfig();
 
     const fetchSpy = createImageFetchSpy();
-
-    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const enqueueSpy = vi.spyOn(KeyedAsyncQueue.prototype, "enqueue");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const handler = getChannelPostHandler();
+      // State writes may outlast the debounce; admit the complete fixture before advancing it.
       await queueChannelPostAlbum(handler, {
         caption: "album caption",
         mediaGroupId: "channel-album-1",
@@ -380,14 +381,27 @@ describe("createTelegramBot channel_post media", () => {
         secondMessageId: 202,
       });
       expect(replySpy).not.toHaveBeenCalled();
-      await flushChannelPostMediaGroup(setTimeoutSpy, 3_075);
+      enqueueSpy.mockClear();
+      vi.advanceTimersByTime(TELEGRAM_TEST_TIMINGS.mediaGroupFlushMs);
+      vi.useRealTimers();
+      expect(enqueueSpy).toHaveBeenCalledOnce();
+      const completion = enqueueSpy.mock.results[0];
+      expect(completion?.type).toBe("return");
+      await withTimeout(Promise.resolve(completion?.value), 3_075, {
+        message: "Telegram buffered flush for the 20 ms timer did not complete",
+      });
 
       expect(replySpy).toHaveBeenCalledTimes(1);
       const payload = replyPayload() as { Body?: string };
       expect(payload.Body).toContain("album caption");
     } finally {
-      setTimeoutSpy.mockRestore();
-      fetchSpy.mockRestore();
+      vi.useRealTimers();
+      try {
+        await Promise.all(enqueueSpy.mock.results.map((result) => result.value));
+      } finally {
+        enqueueSpy.mockRestore();
+        fetchSpy.mockRestore();
+      }
     }
   });
 
@@ -697,8 +711,6 @@ describe("createTelegramBot channel_post media", () => {
     });
     rejectFirstTelegramAlbumDownloadWhen(testCase.partial);
     const fetchSpy = createImageFetchSpy();
-    const realSetTimeout = globalThis.setTimeout;
-    const realClearTimeout = globalThis.clearTimeout;
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     const enqueueSpy = vi.spyOn(KeyedAsyncQueue.prototype, "enqueue");
     const albumWork = () =>
@@ -737,23 +749,8 @@ describe("createTelegramBot channel_post media", () => {
       expect(getFile).not.toHaveBeenCalled();
       vi.advanceTimersByTime(TELEGRAM_TEST_TIMINGS.mediaGroupFlushMs);
       expect(albumWork()).toHaveLength(1);
-      let completionTimer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          Promise.all(albumWork()),
-          new Promise<never>((_resolve, reject) => {
-            completionTimer = realSetTimeout(
-              () =>
-                reject(new Error("Telegram buffered flush for the 20 ms timer did not complete")),
-              75,
-            );
-          }),
-        ]);
-      } finally {
-        if (completionTimer !== undefined) {
-          realClearTimeout(completionTimer);
-        }
-      }
+      // Queue settlement includes real state-worker writes after the controlled debounce.
+      await Promise.all(albumWork());
       expect(getFile).toHaveBeenCalledTimes(unauthorizedCommand ? 0 : 2);
       expect(fetchSpy).toHaveBeenCalledTimes(unauthorizedCommand ? 0 : testCase.partial ? 1 : 2);
       const ingestedIds = testCase.partial ? testCase.messageIds.slice(1) : testCase.messageIds;
@@ -763,7 +760,7 @@ describe("createTelegramBot channel_post media", () => {
     } finally {
       try {
         vi.advanceTimersByTime(TELEGRAM_TEST_TIMINGS.mediaGroupFlushMs);
-        // Completion has a deadline; admitted work still owns these mocks until it settles.
+        // Admitted work still owns these mocks if an assertion fails before settlement.
         await Promise.all(albumWork());
       } finally {
         enqueueSpy.mockRestore();

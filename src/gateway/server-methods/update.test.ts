@@ -37,7 +37,7 @@ import {
   cancelManagedServiceUpdateHandoffMock,
   sendGatewayLifecycleNoticeMock,
   resolveGatewayLifecycleNoticeRouteMock,
-  scheduleGatewaySigusr1RestartMock,
+  scheduleGatewayRestartMock,
   runPostCoreFinalizeAfterGatewayUpdateMock,
   invokeUpdateRun,
   captureUpdateRunPayload,
@@ -220,7 +220,7 @@ describe("update.run acknowledgement", () => {
       deliveryContext: { to: "slack:C0456DEF" },
     });
     expect(response?.ackDelivered).toBe(true);
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(resolveGatewayLifecycleNoticeRouteMock).toHaveBeenCalledOnce();
     expect(sendGatewayLifecycleNoticeMock).toHaveBeenCalledTimes(2);
     expect(sendGatewayLifecycleNoticeMock).toHaveBeenLastCalledWith(
@@ -423,7 +423,7 @@ describe("update.run restart scheduling", () => {
   it("schedules restart when update succeeds", async () => {
     const payload = await captureUpdateRunPayload();
 
-    expect(scheduleGatewaySigusr1RestartMock).toHaveBeenCalledTimes(1);
+    expect(scheduleGatewayRestartMock).toHaveBeenCalledTimes(1);
     expect(payload?.ok).toBe(true);
     expect(payload?.restart).toEqual({ scheduled: true });
   });
@@ -449,7 +449,7 @@ describe("update.run restart scheduling", () => {
       continuationMessage: "This should not run after a failed update.",
     });
 
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(payload?.ok).toBe(false);
     expect(payload?.restart).toBeNull();
     expect(readCapturedPayload().continuation).toBeUndefined();
@@ -487,7 +487,7 @@ describe("update.run restart scheduling", () => {
       }),
     );
     expect(runPostCoreFinalizeAfterGatewayUpdateMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(transferManagedServiceUpdateHandoffMock).toHaveBeenCalledExactlyOnceWith({
       kind: "managed-update-handoff",
       handoffId,
@@ -545,7 +545,7 @@ describe("update.run restart scheduling", () => {
       }),
     );
 
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(transferManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
     expect(recordLatestUpdateRestartSentinelMock).not.toHaveBeenCalled();
     expect(sentinelState.capturedPayload).toBeUndefined();
@@ -575,7 +575,7 @@ describe("update.run restart scheduling", () => {
     const payload = await captureUpdateRunPayload();
 
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).toHaveBeenCalledOnce();
+    expect(scheduleGatewayRestartMock).toHaveBeenCalledOnce();
     expect(payload?.sentinel?.persisted).toBe(false);
     expect(payload?.ok).toBe(true);
     const run = getUpdateRun(payload!.runId);
@@ -621,7 +621,7 @@ describe("update.run restart scheduling", () => {
         }),
       );
       expect(transferManagedServiceUpdateHandoffMock).toHaveBeenCalledOnce();
-      expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+      expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
       expect(payload).toMatchObject({ ok: true, restart: null });
     },
   );
@@ -672,7 +672,7 @@ describe("update.run restart scheduling", () => {
         }),
       }),
     );
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(transferManagedServiceUpdateHandoffMock).toHaveBeenCalledOnce();
     expect(payload?.ok).toBe(true);
     expect(payload?.result?.status).toBe("skipped");
@@ -712,7 +712,7 @@ describe("update.run restart scheduling", () => {
     );
 
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(payload?.result).toMatchObject({
       status: "error",
       reason: "preflight-no-good-commit",
@@ -768,7 +768,7 @@ describe("update.run restart scheduling", () => {
 
     expect(runGatewayUpdateMock).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(payload?.ok).toBe(false);
     expect(payload?.result).toMatchObject({
       status: "error",
@@ -856,7 +856,7 @@ describe("update.run restart scheduling", () => {
     expect(startManagedServiceUpdateHandoffMock).toHaveBeenCalledWith(
       expect.objectContaining({ root: "/tmp/openclaw-git", supervisor: "systemd" }),
     );
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(transferManagedServiceUpdateHandoffMock).toHaveBeenCalledOnce();
     expect(payload?.ok).toBe(true);
     expect(payload?.result?.status).toBe("skipped");
@@ -872,7 +872,7 @@ describe("update.run restart scheduling", () => {
 
     expect(runGatewayUpdateMock).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(payload?.ok).toBe(false);
     expect(payload?.restart).toBeNull();
     expect(payload?.result?.status).toBe("skipped");
@@ -894,7 +894,7 @@ describe("update.run restart scheduling", () => {
     const payload = await captureUpdateRunPayload();
 
     expect(runGatewayUpdateMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(payload?.ok).toBe(false);
     expect(payload?.result?.status).toBe("skipped");
     expect(payload?.result?.reason).toBe("restart-unavailable");
@@ -915,7 +915,7 @@ describe("update.run restart scheduling", () => {
 
     expect(runGatewayUpdateMock).not.toHaveBeenCalled();
     expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(payload?.ok).toBe(false);
     expect(payload?.restart).toBeNull();
     expect(payload?.result).toMatchObject({
@@ -955,7 +955,7 @@ describe("update.run post-core plugin finalize", () => {
         serviceRepairPolicy: "external",
       }),
     );
-    expect(scheduleGatewaySigusr1RestartMock).toHaveBeenCalledTimes(1);
+    expect(scheduleGatewayRestartMock).toHaveBeenCalledTimes(1);
     expect(payload?.ok).toBe(true);
     expect(payload?.result?.status).toBe("ok");
   });
@@ -1009,7 +1009,7 @@ describe("update.run post-core plugin finalize", () => {
     const payload = await captureUpdateRunPayload();
 
     // Restarting onto the new core with unreconciled plugins is the bug we avoid.
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(payload?.ok).toBe(false);
     expect(payload?.result?.status).toBe("error");
     expect(payload?.result?.reason).toBe("post-core-plugin-finalize-failed");
@@ -1036,7 +1036,7 @@ describe("update.run post-core plugin finalize", () => {
     );
     mockGitOkUpdate("/tmp/openclaw-git");
     const deferred = expectDefined(await captureUpdateRunPayload(), "deferred update response");
-    expect(scheduleGatewaySigusr1RestartMock).not.toHaveBeenCalled();
+    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
     expect(deferred.result).toMatchObject({ status: "skipped", reason: "update-ledger-busy" });
     expect(getUpdateRun(deferred.runId)).toMatchObject({
       status: "skipped",
@@ -1050,6 +1050,6 @@ describe("update.run post-core plugin finalize", () => {
     mockGitOkUpdate("/tmp/openclaw-git");
     await captureUpdateRunPayload();
     expect(runPostCoreFinalizeAfterGatewayUpdateMock).toHaveBeenCalledTimes(2);
-    expect(scheduleGatewaySigusr1RestartMock).toHaveBeenCalledOnce();
+    expect(scheduleGatewayRestartMock).toHaveBeenCalledOnce();
   });
 });

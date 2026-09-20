@@ -15,6 +15,7 @@ import {
   closeOpenClawAgentDatabasesForTest,
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
+import { clearOpenClawAgentIntegrityVerification } from "../../state/openclaw-quarantine-store.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../config.js";
 import {
@@ -91,6 +92,7 @@ function fixture() {
   };
   closeOpenClawAgentDatabaseByPath(database.path);
   invalidateOpenClawAgentDatabaseValidation(database.path);
+  clearOpenClawAgentIntegrityVerification(database.path, databaseOptions.env);
   return { scope, databaseOptions };
 }
 
@@ -346,6 +348,7 @@ it("keeps historical preparation asynchronous after materialization evicts its p
       eviction: true,
     });
     invalidateOpenClawAgentDatabaseValidation(f.databaseOptions.path);
+    clearOpenClawAgentIntegrityVerification(f.databaseOptions.path, f.databaseOptions.env);
   };
   const work = own(
     deleteSessionEntryLifecycle({

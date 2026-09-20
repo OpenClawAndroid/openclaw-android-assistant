@@ -17,6 +17,26 @@ export const TUI_PTY_STARTUP_SESSION_FIXTURE = {
       let restoreAttempts = 0;
       let reconnectDuringRestore = process.env.OPENCLAW_TUI_PTY_RECONNECT_DURING_RESTORE === "1";
   `,
+  sessionInventory: `
+      const sessionDefaults = () => ({
+        model: currentModel,
+        modelProvider: "fixture-provider",
+        contextTokens: 128,
+        thinkingLevels,
+      });
+      const fixtureSessions = () => enablePickerFixture ? [
+        sessionEntry("main"),
+        ...Array.from({ length: Number(process.env.OPENCLAW_TUI_PTY_DECOY_COUNT ?? 0) }, (_, index) => ({
+          ...sessionEntry(pickerSessionKey + "-decoy-" + index),
+          label: pickerSessionKey + " label " + index,
+        })),
+        {
+          ...sessionEntry(pickerSessionKey),
+          derivedTitle: pickerSessionTitle,
+          lastMessagePreview: pickerSessionPreview,
+        },
+      ] : [];
+  `,
   loadHistory: `
           if (reconnectHistoryReady && reconnectHistoryDelayMs > 0) {
             reconnectHistoryReady = false;
@@ -32,20 +52,17 @@ export const TUI_PTY_STARTUP_SESSION_FIXTURE = {
             }
             record("startupHistoryReleased", { sessionKey });
           }`,
-  listSessionsSetup: `
-          const isRestore = Boolean(opts?.search);
-  `,
-  listSessionsDelay: `
-          if (isRestore && reconnectDuringRestore) {
+  describeSessionDelay: `
+          if (reconnectDuringRestore) {
             reconnectDuringRestore = false;
             record("restoreReconnect");
             this.onDisconnected?.("fixture reconnect during restore");
             queueMicrotask(() => this.onConnected?.());
           }
-          if (isRestore && restoreDelayMs > 0) {
+          if (restoreDelayMs > 0) {
             await new Promise((resolve) => setTimeout(resolve, restoreDelayMs));
           }
-          if (isRestore && restoreAttempts++ < restoreFailures) {
+          if (restoreAttempts++ < restoreFailures) {
             throw new Error("fixture remembered-session lookup failed");
           }
   `,

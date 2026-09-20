@@ -1,3 +1,4 @@
+import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
 import type { Result } from "@openclaw/normalization-core/result";
 import { createSqliteLifecycleAggregateError } from "../infra/sqlite-coordinator.js";
 import { assertTransactionUsable } from "../infra/sqlite-transaction.js";
@@ -21,6 +22,7 @@ import {
   retainAgentDatabase,
 } from "./openclaw-agent-db-lifecycle.js";
 import { ensureOpenClawAgentDatabasePermissions } from "./openclaw-agent-db-permissions.js";
+import type { OpenClawAgentDatabaseValidation } from "./openclaw-agent-db-validation-cache.js";
 import { getOpenClawAgentDatabaseIfOpen, openOpenClawAgentDatabase } from "./openclaw-agent-db.js";
 import type {
   AgentDatabaseExecutionIdentity,
@@ -83,17 +85,30 @@ export function openExistingSqliteWorkerBackend(
         sharedBorrow = retainOpenClawStateDatabase(shared);
       }
       const lease = prepareOpenClawAgentDatabaseWorkerLease(options, shared, input.leaseId);
+      const { port1, port2 } = new MessageChannel();
       try {
-        requestSqliteWorkerOperationAdmission({
-          stage: "prepare",
-          facts: {
-            kind: "shared-owner",
-            identity: requireOpenClawStateDatabaseIdentity(shared),
-            lease: lease.receipt,
+        requestSqliteWorkerOperationAdmission(
+          {
+            stage: "prepare",
+            facts: {
+              kind: "shared-owner",
+              identity: requireOpenClawStateDatabaseIdentity(shared),
+              lease: lease.receipt,
+              validationPort: port2,
+            },
           },
-        });
+          [port2],
+        );
+        // The host posts before granting admission; shared revocation remains live after transfer.
+        // SAFETY: this private port receives only the host's typed validation receipt.
+        lease.validation = receiveMessageOnPort(port1)?.message as
+          | OpenClawAgentDatabaseValidation
+          | undefined;
       } catch (error) {
         throw new SqliteWorkerOpenRefusedError(error);
+      } finally {
+        port1.close();
+        port2.close();
       }
       assertFileIdentity();
       let registration: OpenClawAgentDatabaseRegistrationCommit | undefined;

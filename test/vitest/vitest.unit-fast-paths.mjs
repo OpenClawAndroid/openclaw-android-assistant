@@ -175,6 +175,15 @@ const ownerRoutedUnitTestPatterns = [
   "test/scripts/release-workflow-git-lifecycle.test.ts",
   "test/scripts/ci-linux-git.test.ts",
   "test/scripts/ci-platform-checkout.test.ts",
+  // Detached handoff and service-manager fixtures retain their infra owner when shared.
+  "src/infra/update-managed-service-handoff-lifecycle.test.ts",
+  "src/infra/update-managed-service-handoff-native-lifecycle.test.ts",
+  "src/infra/update-managed-service-handoff-recovery-systemd.test.ts",
+  "src/infra/update-managed-service-handoff-recovery-launchd.test.ts",
+  "src/infra/update-managed-service-handoff-terminal-result.test.ts",
+  "src/infra/update-managed-service-handoff-triage.test.ts",
+  "src/infra/update-managed-service-handoff-repair-validating.test.ts",
+  "src/infra/update-managed-service-handoff-repair-verifying.test.ts",
   // Command compaction tests need the scoped runtime registry even when their
   // mocks live in a shared helper.
   // Completion custody tests use real session/task SQLite and process-scoped state cleanup.

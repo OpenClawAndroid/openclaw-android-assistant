@@ -29,7 +29,8 @@ export async function runUpdateRepairWorker(
     redactSupportString(
       value instanceof Error ? value.message : String(value),
       { env: process.env, stateDir: params.target.stateDir },
-      { maxLength: 1024 },
+      // The wire limit includes any truncation suffix.
+      { maxLength: 1024, truncationSuffix: "" },
     );
   const stopped = (status: "unavailable" | "aborted", reason: string): UpdateRepairResult => {
     params.onEvent?.({ type: "stopped", status, reason });

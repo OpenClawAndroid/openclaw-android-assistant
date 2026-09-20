@@ -479,7 +479,7 @@ export async function maybeRepairGatewayDaemon(params: {
       return;
     }
 
-    // Check if the gateway was recently restarted (e.g., via SIGUSR1 after an update).
+    // Check if the gateway was recently restarted (e.g., via SIGUSR2 after an update).
     // If a restart handoff exists and the gateway reports healthy, skip the restart prompt
     // to avoid racing with the system supervisor and causing a restart loop.
     const recentRestart = readGatewayRestartHandoffSync(serviceEnv);

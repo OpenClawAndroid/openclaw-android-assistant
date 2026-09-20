@@ -47,7 +47,7 @@ import {
   assertOpenClawAgentCurrentRuntimeSchema,
   assertSupportedAgentSchemaVersion,
   assertAgentSchemaVersion,
-  hasRetiredAgentStateLeaseSchema,
+  hasPendingCurrentVersionAgentDatabaseMigration,
   hasPendingMemoryChunkMetadataMigration,
   migrateRetiredAgentStateLeaseSchema,
   migratedSessionColumn,
@@ -61,9 +61,6 @@ import {
   dropLegacySessionTranscriptSearchSchema,
   ensureSessionAdditiveColumns,
   ensureSessionEntryValidityProjection,
-  hasPendingSessionConversationRouteContextColumn,
-  hasPendingSessionProjectColumn,
-  hasPendingSessionTranscriptContextEligibilityColumn,
   migrateConversationDeliveryTargetColumn,
   migrateSessionCreatorNamespaces,
   migrateSessionEntryStatusProjection,
@@ -82,8 +79,11 @@ import {
   migrateSessionParticipantsSchema,
   withLegacySessionParticipantsSchema,
 } from "./openclaw-agent-participants-migration.js";
-import { hasPendingInputConsumptionColumnMigration } from "./openclaw-agent-pending-inputs-schema.js";
 import { OPENCLAW_AGENT_SCHEMA_SQL } from "./openclaw-agent-schema.js";
+import {
+  canReuseOpenClawAgentIntegrityVerification,
+  type OpenClawAgentIntegrityVerification,
+} from "./openclaw-quarantine-store.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db.js";
 
 type MigratedSessionEntry = Record<string, unknown>;
@@ -104,19 +104,6 @@ function dropLegacyMemoryIndexSchema(db: DatabaseSync): void {
     DROP TABLE IF EXISTS memory_index_chunks;
     DROP TABLE IF EXISTS memory_index_sources;
   `);
-}
-
-function hasPendingSessionKeyContractSchemaMigration(db: DatabaseSync): boolean {
-  const sessionNodeColumns = readSqliteTableColumns(db, "session_nodes");
-  if (!sessionNodeColumns) {
-    return false;
-  }
-  const hasContractTable = Boolean(
-    db
-      .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'session_key_contract'")
-      .get(),
-  );
-  return !sessionNodeColumns.has("entry_valid") || !hasContractTable;
 }
 
 function migrateMemoryChunkMetadataSchema(db: DatabaseSync): void {
@@ -422,7 +409,8 @@ export function* agentDatabaseIntegrityBeforeMutationSteps(
   agentId: string,
   pathname: string,
   diagnostics?: SqliteIntegrityDiagnostics,
-  reuseIntegrity = false,
+  verification?: OpenClawAgentIntegrityVerification,
+  reuseRuntimeIntegrity = false,
 ): SqliteIntegrityOperation<boolean> {
   database.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
   const userVersion = readSqliteUserVersion(database);
@@ -430,7 +418,7 @@ export function* agentDatabaseIntegrityBeforeMutationSteps(
     .prepare("SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1")
     .get();
   const migrationPending =
-    (userVersion === 0 && hasApplicationSchema) ||
+    (userVersion === 0 && hasApplicationSchema !== undefined) ||
     (userVersion > 0 && userVersion < OPENCLAW_AGENT_SCHEMA_VERSION);
   if (migrationPending) {
     agentDbLog.info("agent database schema migration pending; verifying integrity first", {
@@ -441,13 +429,7 @@ export function* agentDatabaseIntegrityBeforeMutationSteps(
   }
   const hasPendingCurrentVersionMigration =
     userVersion === OPENCLAW_AGENT_SCHEMA_VERSION &&
-    (hasPendingMemoryChunkMetadataMigration(database) ||
-      hasPendingSessionKeyContractSchemaMigration(database) ||
-      hasRetiredAgentStateLeaseSchema(database) ||
-      hasPendingSessionConversationRouteContextColumn(database) ||
-      hasPendingSessionTranscriptContextEligibilityColumn(database) ||
-      hasPendingInputConsumptionColumnMigration(database) ||
-      hasPendingSessionProjectColumn(database));
+    hasPendingCurrentVersionAgentDatabaseMigration(database);
   if (userVersion === OPENCLAW_AGENT_SCHEMA_VERSION && !hasPendingCurrentVersionMigration) {
     const startedAt = performance.now();
     const rebuiltIndexes = yield* verifyAndRepairCanonicalSqliteIndexSteps(
@@ -459,7 +441,12 @@ export function* agentDatabaseIntegrityBeforeMutationSteps(
         validateAfterRepair: () =>
           assertOpenClawAgentCurrentRuntimeSchema(database, { agentId, pathname }),
         diagnostics,
-        reuseIntegrity,
+        reuseIntegrity: canReuseOpenClawAgentIntegrityVerification(
+          pathname,
+          verification,
+          migrationPending || hasPendingCurrentVersionMigration,
+          reuseRuntimeIntegrity,
+        ),
       },
     );
     if (rebuiltIndexes.length > 0) {
@@ -679,6 +666,12 @@ export function* ensureOpenClawAgentDatabaseSchemaSteps(
   const agentId = normalizeAgentId(options.agentId);
   const databaseOptions = { ...options, agentId };
   const pathname = resolveOpenClawAgentSqlitePath(databaseOptions);
+  if (db.location()) {
+    maintenanceAuthority.invalidateOpenClawAgentDatabaseIntegrityBeforeMutation(
+      pathname,
+      databaseOptions.env,
+    );
+  }
   ensureOpenClawAgentDatabasePermissions(pathname, databaseOptions);
   db.exec(`PRAGMA busy_timeout = ${OPENCLAW_SQLITE_BUSY_TIMEOUT_MS};`);
   assertSupportedAgentSchemaVersion(db, pathname);
@@ -707,6 +700,12 @@ export function migrateOpenClawAgentDatabaseToMediaPrerequisiteSchema(
   }
   const agentId = normalizeAgentId(options.agentId);
   const pathname = resolveOpenClawAgentSqlitePath({ ...options, agentId });
+  if (db.location()) {
+    maintenanceAuthority.invalidateOpenClawAgentDatabaseIntegrityBeforeMutation(
+      pathname,
+      options.env,
+    );
+  }
   runSqliteIntegrityOperationSync(agentDatabaseIntegrityBeforeMutationSteps(db, agentId, pathname));
   configureSqlitePreSchemaPragmas(db, {
     busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,

@@ -15,6 +15,7 @@ import {
   withOpenClawAgentDatabaseAdmission,
   type OpenClawAgentDatabaseWriteAdmission,
 } from "./openclaw-agent-db.js";
+import { clearOpenClawAgentIntegrityVerification } from "./openclaw-quarantine-store.js";
 import {
   closeOpenClawStateDatabaseForTest,
   openOpenClawStateDatabase,
@@ -94,6 +95,7 @@ describe("agent database lease acquisition owner", () => {
     `);
     expect(closeOpenClawAgentDatabaseByPath(original.path)).toBe(true);
     closeOpenClawAgentDatabasesForTest(owner.stateDir);
+    clearOpenClawAgentIntegrityVerification(original.path, owner.env);
     const nativeOpen = nodeSqlite.openNodeSqliteDatabase;
     let opened: DatabaseSync | undefined;
     const open = vi

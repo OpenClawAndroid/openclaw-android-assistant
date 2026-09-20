@@ -1,3 +1,4 @@
+import type { Page } from "playwright";
 import { expect, it } from "vitest";
 import {
   controlUiBundledSettingsStorageKey,
@@ -6,6 +7,7 @@ import {
 } from "../test-helpers/control-ui-e2e.ts";
 import {
   createChatFlowE2eSuite,
+  captureUiProof,
   installMockGateway,
   waitForChatScrollIdle,
 } from "./chat-flow.test-support.ts";
@@ -13,7 +15,114 @@ import {
 const suite = createChatFlowE2eSuite();
 const POSITION_RAIL_MIN_TRANSCRIPT_HEIGHT = 360;
 
+function readPositionRailGeometry(page: Page) {
+  return page.locator(".chat-position-rail__marks").evaluate((element) => {
+    const thread = element.closest(".chat-thread")!;
+    const current = element.querySelector('[aria-current="true"]');
+    const activeId = current?.getAttribute("data-position-marker-id") ?? null;
+    const message = activeId
+      ? thread.querySelector(`.chat-bubble[data-entry-id="${activeId}"]`)
+      : null;
+    const marker = current?.getBoundingClientRect();
+    const viewport = element.getBoundingClientRect();
+    const reader = thread.getBoundingClientRect();
+    const bubble = message?.getBoundingClientRect();
+    const distanceFromEnd = thread.scrollHeight - thread.clientHeight - thread.scrollTop;
+    return {
+      activeId,
+      atEnd: Math.abs(distanceFromEnd) <= 1,
+      currentVisible: current?.hasAttribute("data-visible") ?? false,
+      messageInViewport: Boolean(
+        bubble && bubble.bottom > reader.top && bubble.top < reader.bottom,
+      ),
+      markerInViewport: Boolean(
+        marker &&
+        marker.top >= viewport.top &&
+        marker.bottom <= viewport.top + element.clientHeight,
+      ),
+      distanceFromEnd,
+      transcript: {
+        scrollTop: thread.scrollTop,
+        clientHeight: thread.clientHeight,
+        scrollHeight: thread.scrollHeight,
+      },
+      rail: {
+        scrollTop: element.scrollTop,
+        clientHeight: element.clientHeight,
+        top: viewport.top,
+        bottom: viewport.bottom,
+      },
+      marker: marker?.toJSON() ?? null,
+      bubble: bubble?.toJSON() ?? null,
+    };
+  });
+}
+
+async function expectPositionRailAtEnd(page: Page) {
+  try {
+    await expect
+      .poll(() => readPositionRailGeometry(page))
+      .toMatchObject({
+        atEnd: true,
+        currentVisible: true,
+        messageInViewport: true,
+        markerInViewport: true,
+      });
+  } catch (error) {
+    console.error("[chat-position-rail] geometry", await readPositionRailGeometry(page));
+    throw error;
+  }
+}
+
 suite.define(() => {
+  it("reveals the current marker when navigation and composer resize share a frame", async () => {
+    await suite.withPage(
+      { colorScheme: "dark", viewport: { width: 1440, height: 900 } },
+      async ({ page }) => {
+        await installMockGateway(page, {
+          historyMessages: Array.from({ length: 80 }, (_, index) => ({
+            __openclaw: { id: `resize-navigation-${index}`, seq: index + 1 },
+            role: index % 2 === 0 ? "user" : "assistant",
+            content: [
+              {
+                type: "text",
+                text: `Conversation checkpoint ${index + 1}: review the notes and confirm the next step.`,
+              },
+            ],
+          })),
+        });
+        await page.addInitScript(createControlUiMockSameOriginGatewayScript());
+        await page.goto(`${suite.server.baseUrl}chat`);
+        await page.locator(".chat-position-rail__track").waitFor();
+        await waitForChatScrollIdle(page);
+        await expectPositionRailAtEnd(page);
+        const transcript = page.locator(".chat-thread");
+        await transcript.hover();
+        await page.mouse.wheel(0, -30000);
+        await expect.poll(() => transcript.evaluate((element) => element.scrollTop)).toBe(0);
+        await expect
+          .poll(() => readPositionRailGeometry(page))
+          .toMatchObject({
+            currentVisible: true,
+            messageInViewport: true,
+            markerInViewport: true,
+          });
+        await waitForChatScrollIdle(page);
+        // Resize through the real input handler, then navigate before observer delivery.
+        await page.locator(".agent-chat__composer-combobox textarea").evaluate((element) => {
+          const textarea = element as HTMLTextAreaElement;
+          textarea.value = "Keep the review notes available.\n".repeat(6);
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
+          const thread = document.querySelector(".chat-thread")!;
+          thread.scrollTop = thread.scrollHeight;
+        });
+        await waitForChatScrollIdle(page);
+        await captureUiProof(suite, page, "rail-resize-navigation", "settled.png");
+        await expectPositionRailAtEnd(page);
+      },
+    );
+  });
+
   it.each([
     { count: 1, direction: "ltr" },
     { count: 2, direction: "ltr" },
@@ -87,33 +196,7 @@ suite.define(() => {
           const markerForIndex = (index: number) =>
             marks.locator(`[data-position-marker-id="stable-rail-${index}"]`);
           // Wait for the rail to reflect the visible reader before recording its anchor.
-          await expect
-            .poll(() =>
-              marks.evaluate((element) => {
-                const thread = element.closest(".chat-thread")!;
-                const current = element.querySelector('[aria-current="true"]');
-                const message = current
-                  ? thread.querySelector(
-                      `.chat-bubble[data-entry-id="${current.getAttribute("data-position-marker-id")}"]`,
-                    )
-                  : null;
-                if (!current?.hasAttribute("data-visible") || !message) {
-                  return false;
-                }
-                const marker = current.getBoundingClientRect();
-                const viewport = element.getBoundingClientRect();
-                const reader = thread.getBoundingClientRect();
-                const bubble = message.getBoundingClientRect();
-                return (
-                  Math.abs(thread.scrollHeight - thread.clientHeight - thread.scrollTop) <= 1 &&
-                  bubble.bottom > reader.top &&
-                  bubble.top < reader.bottom &&
-                  marker.top >= viewport.top &&
-                  marker.bottom <= viewport.top + element.clientHeight
-                );
-              }),
-            )
-            .toBe(true);
+          await expectPositionRailAtEnd(page);
           const bounds = () =>
             track.evaluate((element) => element.getBoundingClientRect().toJSON());
           const collapsed = await bounds();

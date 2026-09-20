@@ -10,7 +10,7 @@ import {
   resolveUpdateInstallSurfaceMock,
   runGatewayUpdateMock,
   runPostCoreFinalizeAfterGatewayUpdateMock,
-  scheduleGatewaySigusr1RestartMock,
+  scheduleGatewayRestartMock,
   sentinelState,
 } from "./update.test-harness.js";
 
@@ -92,7 +92,7 @@ describe("update.run unexpected-error diagnostics", () => {
           stats: { reason: result.reason ?? null },
         });
       }
-      expect(scheduleGatewaySigusr1RestartMock).toHaveBeenCalledTimes(status === "ok" ? 1 : 0);
+      expect(scheduleGatewayRestartMock).toHaveBeenCalledTimes(status === "ok" ? 1 : 0);
       expect(getUpdateRun(response.runId)).toMatchObject({
         status: status === "ok" && !sentinelFailure ? "running" : "failed",
       });

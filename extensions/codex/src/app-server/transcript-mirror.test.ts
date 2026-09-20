@@ -16,6 +16,7 @@ import type { AssistantMessage } from "openclaw/plugin-sdk/llm";
 import { createMockPluginRegistry } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
 import { readSessionTranscriptEvents } from "openclaw/plugin-sdk/session-transcript-runtime";
+import { closeOpenClawAgentDatabasesAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   castAgentMessage,
@@ -80,6 +81,7 @@ afterEach(async () => {
   resetGlobalHookRunner();
   publishSessionTranscriptUpdateByIdentityMock.mockReset();
   for (const dir of tempDirs.splice(0)) {
+    await closeOpenClawAgentDatabasesAsync(dir);
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
@@ -183,22 +185,15 @@ async function createSqliteMirrorTarget(prefix: string, options: { sessionId?: s
   };
 }
 
-async function readMirrorEvents(target: {
-  agentId: string;
-  sessionId: string;
-  sessionKey: string;
-  storePath: string;
-}): Promise<unknown[]> {
-  return await readSessionTranscriptEvents(target);
-}
-
 async function readMirrorRaw(target: {
   agentId: string;
   sessionId: string;
   sessionKey: string;
   storePath: string;
 }): Promise<string> {
-  return (await readMirrorEvents(target)).map((event) => JSON.stringify(event)).join("\n");
+  return (await readSessionTranscriptEvents(target))
+    .map((event) => JSON.stringify(event))
+    .join("\n");
 }
 
 async function readMirrorMessages(target: {
@@ -207,7 +202,7 @@ async function readMirrorMessages(target: {
   sessionKey: string;
   storePath: string;
 }): Promise<Array<{ role?: string; text?: string }>> {
-  return readEventMessages(await readMirrorEvents(target));
+  return readEventMessages(await readSessionTranscriptEvents(target));
 }
 
 describe("importCodexThreadHistoryToTranscript", () => {
@@ -408,7 +403,7 @@ describe("importCodexThreadHistoryToTranscript", () => {
       }),
     ).resolves.toEqual({ importedMessages: 2, omittedMessages: 0 });
 
-    const events = await readMirrorEvents(target);
+    const events = await readSessionTranscriptEvents(target);
     const raw = events.map((event) => JSON.stringify(event)).join("\n");
     const messages = (events as Array<{ message?: AgentMessage; type?: string }>)
       .filter((event) => event.type === "message")
@@ -493,7 +488,7 @@ describe("importCodexThreadHistoryToTranscript", () => {
       omittedMessages: 5,
     });
 
-    const events = await readMirrorEvents(target);
+    const events = await readSessionTranscriptEvents(target);
     const messages = (events as Array<{ message?: AgentMessage; type?: string }>)
       .filter((event) => event.type === "message")
       .map((event) => event.message);
@@ -583,7 +578,7 @@ describe("mirrorCodexAppServerTranscript", () => {
             const { display: _display, ...message } = (
               event as { message: Record<string, unknown> }
             ).message;
-            return { message: castAgentMessage(message) };
+            return { message: castAgentMessage({ ...message, display: true }) };
           },
         },
       ]),
@@ -642,7 +637,7 @@ describe("mirrorCodexAppServerTranscript", () => {
       prepareAssistantTranscriptMessage,
     });
 
-    const persistedMessages = (await readMirrorEvents(target))
+    const persistedMessages = (await readSessionTranscriptEvents(target))
       .map((event) =>
         event && typeof event === "object" ? (event as { message?: unknown }).message : undefined,
       )
@@ -1166,7 +1161,7 @@ describe("mirrorCodexAppServerTranscript", () => {
         content: [{ type: "text", text: rewrittenText }],
         openclawDelivery: { mediaUrls: ["./artifact.json"] },
       });
-      const persisted = (await readMirrorEvents(target)).flatMap((event) =>
+      const persisted = (await readSessionTranscriptEvents(target)).flatMap((event) =>
         event && typeof event === "object" && "message" in event ? [event.message] : [],
       );
       expect(persisted).toEqual(published);
@@ -1333,7 +1328,7 @@ describe("mirrorCodexAppServerTranscript", () => {
           }),
         ],
       });
-      const entries = (await readMirrorEvents(target)) as Array<{
+      const entries = (await readSessionTranscriptEvents(target)) as Array<{
         type: string;
         message?: { role: string; __openclaw?: Record<string, unknown> };
       }>;
@@ -1719,7 +1714,7 @@ describe("mirrorCodexAppServerTranscript", () => {
       threadId: "thread-1",
       turnId: "turn-1",
     });
-    const terminalEvent = (await readMirrorEvents(target)).find(
+    const terminalEvent = (await readSessionTranscriptEvents(target)).find(
       (event): event is { id: string; message: { role: string } } =>
         Boolean(
           event &&
@@ -1761,7 +1756,7 @@ describe("mirrorCodexAppServerTranscript", () => {
       threadId: "thread-1",
       turnId: "turn-1",
     });
-    const terminalEvent = (await readMirrorEvents(target)).find(
+    const terminalEvent = (await readSessionTranscriptEvents(target)).find(
       (event): event is { id: string; message: { role: string } } =>
         Boolean(
           event &&

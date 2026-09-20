@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mockNodeBuiltinModule } from "../plugin-sdk/test-helpers/node-builtin-mocks.js";
 import { ServiceOwnershipRefusalError } from "./service-inspection-error.js";
-import { withGatewayServiceUpdateAuthority } from "./service-update-authority.js";
+import {
+  GatewayServiceAuthorityError,
+  withGatewayServiceUpdateAuthority,
+} from "./service-update-authority.js";
 import {
   openSystemdBroker,
   openSystemdPrivatePeer,
@@ -136,6 +139,8 @@ it("rejects an initial private manager authenticated as another account", async 
 
 it("checks inherited update authority before loading or opening a native transport", async () => {
   const denied = new Error("original update grant retired");
+  const isAuthorityRevocation = (error: unknown) =>
+    error instanceof GatewayServiceAuthorityError && error.cause === denied;
   let active = true;
   let transportFailure: unknown;
   await expect(
@@ -157,6 +162,6 @@ it("checks inherited update authority before loading or opening a native transpo
         }
       },
     ),
-  ).rejects.toBe(denied);
-  expect(transportFailure).toBe(denied);
+  ).rejects.toSatisfy(isAuthorityRevocation);
+  expect(transportFailure).toSatisfy(isAuthorityRevocation);
 });

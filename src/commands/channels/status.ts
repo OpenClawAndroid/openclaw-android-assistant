@@ -75,6 +75,7 @@ export async function channelsStatusCommand(
           method: "channels.status",
           params,
           timeoutMs: remainingMs,
+          sharedStateMode: "read-only",
         });
       },
     );

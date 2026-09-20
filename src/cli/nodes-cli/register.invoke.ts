@@ -53,6 +53,9 @@ export function registerNodesInvokeCommands(nodes: Command) {
             opts.invokeTimeout,
             "--invoke-timeout",
           );
+          if (opts.idempotencyKey === "") {
+            throw new Error("--idempotency-key must not be empty.");
+          }
           const nodeId = await resolveCliNodeId(opts, nodeQuery);
 
           const invokeParams: Record<string, unknown> = {

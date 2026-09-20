@@ -1,6 +1,6 @@
 // Exercises control-command reachability without relaxing ordinary reply admission.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { createDeferred } from "../../../test/helpers/promise.js";
+import { createDeferred, raceWithTimeoutResult } from "../../../test/helpers/promise.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { markCommandReplyForDelivery } from "../reply-payload.js";
 import {
@@ -26,26 +26,6 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-async function raceWithTimeoutResult<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  timeoutResult: T,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(timeoutResult), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-}
-
 describe("dispatch active command admission", () => {
   it("delivers an authorized text command acknowledgement while its session operation is active", async () => {
     const sessionKey = "agent:main:command-reply-active";
@@ -56,6 +36,14 @@ describe("dispatch active command admission", () => {
     });
     activeOperation.setPhase("running");
     onTestFinished(() => activeOperation.complete());
+    const waitingForActive = createDeferred<{ status: "waiting_for_active" }>();
+    const waitForIdle = replyRunRegistry.waitForIdle.bind(replyRunRegistry);
+    vi.spyOn(replyRunRegistry, "waitForIdle").mockImplementation((key, ...args) => {
+      if (key === sessionKey) {
+        waitingForActive.resolve({ status: "waiting_for_active" });
+      }
+      return waitForIdle(key, ...args);
+    });
 
     const acknowledgement = { text: "Thinking level set to high." };
     const replyResolver = vi.fn(async () => markCommandReplyForDelivery(acknowledgement));
@@ -86,7 +74,15 @@ describe("dispatch active command admission", () => {
     });
 
     try {
-      await expect(dispatchPromise).resolves.toMatchObject({ queuedFinal: true });
+      const outcome = await Promise.race([
+        dispatchPromise.then((result) => ({ status: "settled" as const, result })),
+        waitingForActive.promise,
+      ]);
+
+      expect(outcome).toMatchObject({
+        status: "settled",
+        result: { queuedFinal: true },
+      });
       expect(replyResolver).toHaveBeenCalledOnce();
       expect(dispatcher.sendFinalReply).toHaveBeenCalledWith(acknowledgement);
       expect(replyRunRegistry.get(sessionKey)).toBe(activeOperation);

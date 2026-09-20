@@ -125,6 +125,7 @@ function buildToolsEffectiveCacheKey(params: {
     // layer is applied after the base cache, so warm/stale runtime state alone
     // never invalidates base entries.
     sessionKey: params.sessionKey,
+    sessionId: context.sessionId,
     workspaceDir: optionalCacheString(context.workspaceDir),
     agentId: context.agentId,
     modelProvider: optionalCacheString(context.modelProvider),
@@ -357,6 +358,7 @@ async function resolveBaseToolsEffectiveInventory(
         agentId: context.agentId,
         agentDir,
         sessionKey: context.sessionKey,
+        sessionId: context.sessionId,
         workspaceDir: context.workspaceDir,
         messageProvider: context.messageProvider,
         modelProvider: context.modelProvider,

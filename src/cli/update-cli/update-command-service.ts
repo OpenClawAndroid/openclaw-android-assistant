@@ -10,13 +10,7 @@ import {
 import { readGatewayServiceState, resolveGatewayService } from "../../daemon/service.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { readGatewayOwnerLease } from "../../infra/gateway-owner-lease.js";
-import {
-  getUpdateRun,
-  recordUpdateRunPhase,
-  recordUpdateRunStep,
-  recordUpdateRunVerification,
-} from "../../infra/update-run-ledger.js";
-import { updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
+import { recordUpdateRunPhase } from "../../infra/update-run-ledger.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { defaultRuntime } from "../../runtime.js";
 import { CLI_NAME } from "../cli-name.js";
@@ -32,6 +26,10 @@ import { tryWriteCompletionCache, type UpdateCommandOptions } from "./shared.js"
 import { createUpdateConfigSnapshot } from "./update-command-config-snapshot.js";
 import type { PluginUpdateWarning } from "./update-command-plugins-internals.js";
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery.js";
+import {
+  recordServiceReconciliationWarning,
+  recordServiceReconciliationWarnings,
+} from "./update-command-result.js";
 import {
   DEFINITION_DENIAL,
   GatewayRestartHealthError,
@@ -57,7 +55,11 @@ import {
 } from "./update-command-service-plan.js";
 import { recoverLaunchAgentAndRecheckGatewayHealth } from "./update-command-service-recovery.js";
 import { hasLoadedLaunchdKeepAliveSupervisor } from "./update-command-supervisor.js";
-import { recordUpdateGatewayHealth, verifyUpdatedGateway } from "./update-command-verification.js";
+import {
+  recordFailedUpdateGatewayState,
+  recordUpdateGatewayHealth,
+  verifyUpdatedGateway,
+} from "./update-command-verification.js";
 
 export {
   maybeResumeWindowsTaskAutoStartAfterPackageUpdate,
@@ -175,47 +177,6 @@ export async function tryInstallShellCompletion(opts: {
   }
 }
 
-/** A restart command can throw before health probes; replace pre-activation facts at that boundary. */
-export async function recordFailedUpdateGatewayState(
-  run: UpdateCommandOptions["run"],
-  env: NodeJS.ProcessEnv,
-): Promise<void> {
-  if (!run) {
-    return;
-  }
-  const executor = run.executorFence;
-  executor?.assertCurrent();
-  const runtime = await resolveGatewayService()
-    .readRuntime(env)
-    .catch(() => undefined);
-  executor?.assertCurrent();
-  const verified = getUpdateRun(run.runId, { env: run.env })?.verification;
-  // A failed readiness check does not invalidate health/version facts for the same process.
-  if (
-    runtime?.status === "running" &&
-    typeof runtime.pid === "number" &&
-    verified?.serviceRunning === true &&
-    verified.pid === runtime.pid
-  ) {
-    return;
-  }
-  recordUpdateRunVerification(
-    run.runId,
-    {
-      serviceRunning:
-        runtime?.status === "running" ? true : runtime?.status === "stopped" ? false : undefined,
-      pid: typeof runtime?.pid === "number" ? runtime.pid : undefined,
-      runningVersion: undefined,
-      runningBuildId: undefined,
-      versionMatch: undefined,
-      readyz: false,
-      settled: false,
-      channelsReady: false,
-    },
-    { env: run.env },
-  );
-}
-
 export async function maybeRestartService(params: {
   originalManagedServiceRuntime?: OriginalManagedServiceRuntime;
   serviceLoadBoundary?: UpdateServiceLoadBoundary;
@@ -240,7 +201,10 @@ export async function maybeRestartService(params: {
   onPluginWarnings?: (warnings: readonly PluginUpdateWarning[]) => void;
   onVerified?: (verifiedAtMs: number) => void;
   definitionRecovery?: UpdateServiceDefinitionRecovery;
-}): Promise<"ok" | "readiness-pending" | "failed" | "restart-health-failed"> {
+  expectedGatewayIdentity?: { version: string; buildId?: string };
+}): Promise<
+  "ok" | "readiness-pending" | "reconciliation-pending" | "failed" | "restart-health-failed"
+> {
   const run = params.opts.run;
   const executor = run?.executorFence;
   const assertCurrent = () => {
@@ -282,28 +246,8 @@ export async function maybeRestartService(params: {
     invocationEnv,
     serviceEnv,
     assertCurrent,
-    onWarnings: (warnings: string[]) => {
-      assertCurrent();
-      const step = {
-        name: "managed-service-reconciliation",
-        command: "openclaw gateway install --force",
-        cwd: params.result.root ?? "",
-        durationMs: 0,
-        exitCode: 0,
-        warnings,
-      };
-      params.result.steps.push(step);
-      if (run) {
-        try {
-          for (const row of updateRunStepsFromResultStep(step)) {
-            recordUpdateRunStep(run.runId, { ...row, endedAtMs: Date.now() }, { env: run.env });
-          }
-        } catch {
-          assertCurrent();
-          warnings.push("Could not record the service definition warning in update history.");
-        }
-      }
-    },
+    onWarnings: (warnings: string[]) =>
+      recordServiceReconciliationWarnings(params.result, warnings, run, assertCurrent),
   };
   const verdict = activation.serviceUpdateVerdict;
   let preserveDefinition =
@@ -328,9 +272,25 @@ export async function maybeRestartService(params: {
     );
   }
   if (activation.serviceMutationSkipMessage) {
-    defaultRuntime.error(activation.serviceMutationSkipMessage);
+    recordServiceReconciliationWarning(
+      activation.result,
+      activation.serviceEnv,
+      activation.serviceMutationSkipMessage,
+    );
     return "ok";
   }
+  const reconciliationPending = async () => {
+    if (activation.requireRunningServiceAfterRestart) {
+      recordServiceReconciliationWarning(
+        activation.result,
+        activation.serviceEnv,
+        `The previous service installation was not restarted automatically because update state may have changed. Inspect \`${formatCliCommand("openclaw gateway status --deep", activation.serviceEnv)}\` before choosing a recovery installation.`,
+      );
+    }
+    await recordFailedUpdateGatewayState(params.opts.run, activation.serviceEnv);
+    assertCurrent();
+    return "reconciliation-pending" as const;
+  };
   let activationAccepted = false;
   let childReadinessPending = false;
   let updatedInstallRestartNeedsServiceRootProof = false;
@@ -449,8 +409,9 @@ export async function maybeRestartService(params: {
     }
 
     try {
-      let expectedGatewayVersion = normalizeOptionalString(activation.result.after?.version);
-      const expectedGatewayBuildId = normalizeOptionalString(activation.result.after?.buildId);
+      const expectedIdentity = activation.expectedGatewayIdentity ?? activation.result.after;
+      let expectedGatewayVersion = normalizeOptionalString(expectedIdentity?.version);
+      const expectedGatewayBuildId = normalizeOptionalString(expectedIdentity?.buildId);
       const canVerifyUpdatedGatewayByVersion =
         expectedGatewayVersion !== undefined &&
         expectedGatewayVersion !== normalizeOptionalString(activation.result.before?.version);
@@ -462,7 +423,13 @@ export async function maybeRestartService(params: {
         try {
           recordPhase("restarting");
           await runUpdatedInstallGatewayCommand(activation, "install");
-          if (expectedGatewayVersion && (isPackageUpdate || expectedGatewayBuildId)) {
+          // Windows /Run can retain A even after the task script points at B.
+          // Reconcile its process with an explicit restart before accepting health.
+          if (
+            expectedGatewayVersion &&
+            (isPackageUpdate || expectedGatewayBuildId) &&
+            !(process.platform === "win32" && requiresInstallRootRefresh)
+          ) {
             recordPhase("verifying");
             const service = resolveGatewayService();
             const supervisorKeepsAlive = await hasLoadedLaunchdKeepAliveSupervisor({
@@ -499,17 +466,25 @@ export async function maybeRestartService(params: {
           ) {
             throw err;
           }
+          const warning =
+            `Failed to reconcile gateway service with ${activation.result.root ?? "the updated install"}: ${String(err)}. ` +
+            `Run \`${formatCliCommand("openclaw gateway install --force", activation.serviceEnv)}\`, then \`${formatCliCommand("openclaw gateway restart", activation.serviceEnv)}\`.`;
+          recordServiceReconciliationWarning(activation.result, activation.serviceEnv, warning);
           if (activation.serviceLoadBoundary) {
             throw new UpdateServiceLoadBoundaryError("Service staging or sealing failed.", {
               cause: err,
             });
           }
-          defaultRuntime.error(
-            `Failed to refresh gateway service environment from updated install: ${String(err)}`,
-          );
           if (activation.serviceRuntimeRefreshRequired) {
             params.onVerificationFailure?.("service-runtime-refresh-failed");
             throw err;
+          }
+          if (activation.definitionRecovery?.unverified) {
+            params.onVerificationFailure?.("service-definition-rollback-unverified");
+            throw err;
+          }
+          if (requiresInstallRootRefresh) {
+            return await reconciliationPending();
           }
           if (DEFINITION_DENIAL.test(String(err))) {
             // A writer denial is not a lifecycle grant: revalidate the retained
@@ -560,10 +535,13 @@ export async function maybeRestartService(params: {
             env: activation.serviceEnv,
           })) !== true
         ) {
-          defaultRuntime.error(
-            "Gateway service did not point at the updated install after refresh.",
+          recordServiceReconciliationWarning(
+            activation.result,
+            activation.serviceEnv,
+            `Gateway service still points outside the updated install ${activation.result.root}. ` +
+              `Run \`${formatCliCommand("openclaw gateway install --force", activation.serviceEnv)}\`, then \`${formatCliCommand("openclaw gateway restart", activation.serviceEnv)}\`.`,
           );
-          return await failed();
+          return await reconciliationPending();
         }
       }
       // Keep the install's observation, including a pending startup, without restarting it again.
@@ -674,34 +652,35 @@ export async function maybeRestartService(params: {
         // The installed CLI owns restart retries; observe its final health result
         // without another native mutation.
         const healthy = await verifyRestartedGateway(
-          normalizeOptionalString(activation.result.after?.version),
-          normalizeOptionalString(activation.result.after?.buildId),
+          normalizeOptionalString(
+            (activation.expectedGatewayIdentity ?? activation.result.after)?.version,
+          ),
+          normalizeOptionalString(
+            (activation.expectedGatewayIdentity ?? activation.result.after)?.buildId,
+          ),
           { requireRunningService: true, recoverHealth: false },
         );
         return healthy ?? (await failed("restart-health-failed"));
       }
       defaultRuntime.error(
         `Gateway: restart failed: ${String(err)}. Code update remains installed; a service stopped for update may still be stopped. ` +
-          "Run `openclaw gateway status --deep` and ask its service owner to restart it manually.",
+          `Run \`${formatCliCommand("openclaw gateway status --deep", activation.serviceEnv)}\` and ask its service owner to restart it manually.`,
       );
       return await failed();
     }
-    return "ok";
-  }
-
-  if (!activation.opts.json) {
+  } else if (!activation.opts.json) {
     defaultRuntime.log("");
     defaultRuntime.log(theme.muted("Gateway: restart skipped (--no-restart)."));
     if (activation.result.mode === "npm" || activation.result.mode === "pnpm") {
       defaultRuntime.log(
         theme.muted(
-          `Tip: Run \`${formatCliCommand("openclaw doctor")}\`, then \`${formatCliCommand("openclaw gateway restart")}\` to apply updates to a running gateway.`,
+          `Tip: Run \`${formatCliCommand("openclaw doctor", activation.serviceEnv)}\`, then \`${formatCliCommand("openclaw gateway restart", activation.serviceEnv)}\` to apply updates to a running gateway.`,
         ),
       );
     } else {
       defaultRuntime.log(
         theme.muted(
-          `Tip: Run \`${formatCliCommand("openclaw gateway restart")}\` to apply updates to a running gateway.`,
+          `Tip: Run \`${formatCliCommand("openclaw gateway restart", activation.serviceEnv)}\` to apply updates to a running gateway.`,
         ),
       );
     }

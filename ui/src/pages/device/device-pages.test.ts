@@ -715,7 +715,9 @@ describe("native device settings pages", () => {
   });
 
   it("keeps permission order and maps each native status to the correct action", async () => {
-    const { capability } = createCapability();
+    const snapshot = createNativeDeviceSettingsSnapshot();
+    snapshot.permissions.entries.find(({ id }) => id === "microphone")!.status = "unavailable";
+    const { capability } = createCapability(snapshot);
     const page = await mount("openclaw-device-permissions-page", capability);
     const permissions = page.querySelector(".settings-group");
     expect(
@@ -730,7 +732,6 @@ describe("native device settings pages", () => {
       "Camera",
       "Speech Recognition",
       "Location",
-      "Automation (Terminal)",
     ]);
     expect(row(page, "Notifications").textContent).toContain("Not determined");
     row(page, "Notifications").querySelector<HTMLButtonElement>("button")!.click();
@@ -740,12 +741,43 @@ describe("native device settings pages", () => {
     expect(capability.openSystemSettings).toHaveBeenCalledExactlyOnceWith("accessibility");
     for (const [title, label] of [
       ["Screen Recording", "Granted"],
-      ["Automation (Terminal)", "Unavailable"],
+      ["Microphone", "Unavailable"],
     ] as const) {
       expect(row(page, title).textContent).toContain(label);
       expect(row(page, title).querySelector("button")).toBeNull();
     }
   });
+
+  it.each([
+    ["screenRecording", "Screen Recording", "notDetermined", "Not granted", "Grant…"],
+    ["accessibility", "Accessibility", "notDetermined", "Not granted", "Grant…"],
+  ] as const)(
+    "requests %s access and retains explicit settings recovery without assuming a prior denial",
+    async (id, title, status, label, action) => {
+      const snapshot = createNativeDeviceSettingsSnapshot();
+      snapshot.permissions.entries = [{ id, status }];
+      const native = createCapability(snapshot);
+      const page = await mount("openclaw-device-permissions-page", native.capability);
+      const permission = row(page, title);
+      expect(permission.textContent).toContain(label);
+      const button = permission.querySelector<HTMLButtonElement>("button");
+      expect(button?.textContent?.trim()).toBe(action);
+      expect(native.capability.requestPermission).not.toHaveBeenCalled();
+      button!.click();
+      expect(native.capability.requestPermission).toHaveBeenCalledExactlyOnceWith(id);
+      expect(native.capability.openSystemSettings).not.toHaveBeenCalled();
+      const recovery = permission.querySelector<HTMLButtonElement>(".settings-permission-recovery");
+      expect(recovery?.textContent?.trim()).toBe("Open System Settings…");
+      recovery!.click();
+      expect(native.capability.openSystemSettings).toHaveBeenCalledExactlyOnceWith(id);
+      expect(native.capability.requestPermission).toHaveBeenCalledTimes(1);
+      snapshot.permissions.entries = [{ id, status: "granted" }];
+      native.publish(snapshot);
+      await page.updateComplete;
+      expect(permission.textContent).toContain("Granted");
+      expect(permission.querySelector("button")).toBeNull();
+    },
+  );
 
   it.each([false, undefined])(
     "keeps iOS permission order and system-owned precision read-only (editable: %s)",

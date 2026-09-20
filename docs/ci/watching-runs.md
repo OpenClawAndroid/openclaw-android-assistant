@@ -83,6 +83,32 @@ after CI succeeds still collect complete details, reporting the effective
 the PR lifecycle and head; a summary success also requires the aggregate to remain
 successful after observing the attached run.
 
+If the primary GraphQL budget is exhausted, the watcher switches to REST for the
+rest of that invocation. It collects check runs, latest status contexts, and
+workflow identities with complete, bounded pagination, then revalidates the PR.
+REST uses more requests and response data; the normal path retains the compact
+GraphQL query. In REST mode the raw aggregate and counts are derived from the
+collected checks. Missing or ambiguous workflow identity never permits dropping
+a check, and GitHub's check-suite limit cannot silently turn a partial list green.
+Secondary throttling, authentication failures, malformed responses, and transport
+errors do not trigger this fallback or change the CLI's authentication route.
+
+Native immediate squash landing can also use REST after primary GraphQL
+exhaustion. This requires explicit evidence that classic branch protection is
+absent, effective rules do not require a merge queue, required checks match their
+configured publishers, the authenticated writer has repository admin access to
+read that policy, and the exact PR head is eligible to merge. Queue, auto,
+admin-bypass, or unverifiable policy states remain blocking. The selected transport is
+recorded before dispatch; an uncertain merge request is reconciled through the
+existing retained outcome instead of retried through another API.
+Because REST has no GitHub squash-message preview, its default message uses the
+current PR description and verified source credit. An explicit `--body-file`
+continues to supply the reviewed message, with required human credit preserved.
+Publishing an unsigned prepared commit through GitHub's `createCommitOnBranch`
+still requires GraphQL; the existing Git transport for verified signed commits
+is unchanged. A failed or uncertain publication never triggers another mutation
+through the fallback.
+
 An HTTP 407 proxy-authentication refusal exits immediately with
 `PROXY-AUTH-FAILED` and exit code 2. Retrying the same command cannot renew its
 proxy access. Start a new watcher from an active authenticated run, or repair the

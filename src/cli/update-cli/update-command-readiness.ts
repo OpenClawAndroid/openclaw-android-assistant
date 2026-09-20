@@ -32,6 +32,7 @@ export async function verifyPreviousGatewayForUpdate(params: {
   signal?: AbortSignal;
   requirePluginHealth?: boolean;
   expectedVersion?: string;
+  gatewayPort?: number;
 }): Promise<boolean> {
   const { config, env } = params;
   const readiness = captureUpdateGatewayReadinessOwner({
@@ -42,7 +43,8 @@ export async function verifyPreviousGatewayForUpdate(params: {
     readiness.assertCurrent();
     params.assertCurrent?.();
   };
-  const port = await resolveUpdatedGatewayRestartPort({ config, serviceEnv: env });
+  const port =
+    params.gatewayPort ?? (await resolveUpdatedGatewayRestartPort({ config, serviceEnv: env }));
   const [installedVersion, expectedBuildId] = await Promise.all([
     readPackageVersion(params.root),
     readBuiltGatewayBuildId(params.root),

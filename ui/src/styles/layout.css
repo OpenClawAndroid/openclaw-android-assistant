@@ -5,6 +5,13 @@
    =========================================== */
 
 .shell {
+  /* One fixed canvas shared by routes; panels keep their own reading surfaces. */
+  background-color: var(--bg-content, var(--bg));
+  background-image: var(--app-background-image);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+
   --shell-pad: 16px;
   --shell-gap: 16px;
   --shell-nav-expanded-width: 258px;
@@ -4606,8 +4613,10 @@ wa-dropdown.sidebar-identity-menu::part(menu) {
   min-height: 0;
 }
 
-:root[data-theme-mode="light"] .content {
-  background: var(--bg-content);
+@media (forced-colors: active), (prefers-contrast: more) {
+  .shell {
+    background-image: none;
+  }
 }
 
 /* Content header */

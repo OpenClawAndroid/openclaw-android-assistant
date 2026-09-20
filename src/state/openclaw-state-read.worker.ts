@@ -1,9 +1,16 @@
 import { toStringifiedError } from "@openclaw/normalization-core/error-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import {
+  readSandboxBrowserRegistryInDatabase,
+  readSandboxRegistryEntryInDatabase,
+  readSandboxRegistryInDatabase,
+  readSandboxRuntimeIdsInDatabase,
+} from "../agents/sandbox/registry.kernel.js";
 import { readWorkspaceStateSnapshotForDirectoryInDatabase } from "../agents/workspace-state-store.kernel.js";
 import { ExecutionDecisionCursorError } from "../audit/execution-decision-receipts.js";
 import { inspectExecutionIdentityRunInDatabase } from "../audit/execution-identity-context.js";
 import { getFleetCellInDatabase, listFleetCellsInDatabase } from "../fleet/registry.kernel.js";
+import { readExecApprovalsConfigRow } from "../infra/exec-approvals-sqlite.js";
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
 import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { withStateDatabaseCoordinatorRuntimeDirectory } from "../infra/state-database-coordinator.js";
@@ -44,6 +51,7 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
     typeof coordinatorRuntime.directory === "string" &&
     typeof coordinatorRuntime.keepAlive === "boolean" &&
     (input.command.type === "admit" ||
+      input.command.type === "exec-approvals.read" ||
       input.command.type === "agentDatabaseRegistry.read" ||
       (input.command.type === "userProfiles.avatar.reconcile" &&
         typeof input.command.profileId === "string") ||
@@ -58,6 +66,13 @@ function isReadRequest(input: unknown): input is OpenClawStateReadRequest {
       input.command.type === "nodeHost.config" ||
       (input.command.type === "onboardingRecommendations.read" &&
         typeof input.command.configKey === "string") ||
+      input.command.type === "sandboxRegistry.list" ||
+      input.command.type === "sandboxRegistry.browsers" ||
+      (input.command.type === "sandboxRegistry.get" &&
+        typeof input.command.containerName === "string") ||
+      (input.command.type === "sandboxRegistry.runtimeIds" &&
+        typeof input.command.backendId === "string" &&
+        typeof input.command.scopeKey === "string") ||
       (input.command.type === "fleet.get" && typeof input.command.tenantId === "string"))
   );
 }
@@ -113,6 +128,14 @@ serveWorkerTasks((input): OpenClawStateReadReply => {
           return withOpenClawStateReadOnlyLocation(
             ({ db }) => {
               sourceAdmitted = true;
+              if (command.type === "exec-approvals.read") {
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  row: readExecApprovalsConfigRow(db),
+                };
+              }
               if (command.type === "onboardingRecommendations.read") {
                 return {
                   ok: true,
@@ -172,6 +195,38 @@ serveWorkerTasks((input): OpenClawStateReadReply => {
                     db,
                     () => selectProfileDisplayEntries(db, [command.profileId])[0]?.[1],
                   ),
+                };
+              }
+              if (command.type === "sandboxRegistry.list") {
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  entries: readSandboxRegistryInDatabase(db),
+                };
+              }
+              if (command.type === "sandboxRegistry.get") {
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  entry: readSandboxRegistryEntryInDatabase(db, command.containerName),
+                };
+              }
+              if (command.type === "sandboxRegistry.runtimeIds") {
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  runtimeIds: readSandboxRuntimeIdsInDatabase(db, command),
+                };
+              }
+              if (command.type === "sandboxRegistry.browsers") {
+                return {
+                  ok: true,
+                  type: command.type,
+                  sourceAdmitted,
+                  entries: readSandboxBrowserRegistryInDatabase(db),
                 };
               }
               return command.type === "fleet.list"

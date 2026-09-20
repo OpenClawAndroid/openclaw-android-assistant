@@ -16,6 +16,7 @@ import {
   ensureOperatorApprovalResolutionRefs,
   repairLegacyTaskAgentAttribution,
   repairLegacyTaskDeliveryStatuses,
+  repairLegacyTaskIdentifiers,
   repairLegacySubagentExecutionPayloads,
   repairLegacySubagentRetainedResults,
   repairLegacySubagentSuspensionReasons,
@@ -372,6 +373,7 @@ export function ensureAdditiveStateColumns(db: DatabaseSync, scope: "runtime" | 
     repairLegacyTaskAgentAttribution(db);
   }
   if (repairHistoricalRows) {
+    repairLegacyTaskIdentifiers(db);
     repairLegacyTaskDeliveryStatuses(db);
   }
   ensureColumns(db, columns.taskRunDetails);

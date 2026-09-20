@@ -5,9 +5,10 @@ export function testApiLifecycleFixtureFiles(repoRoot: string): Record<string, s
   const files: Record<string, string> = {};
   for (const generation of ["producer", "observer"]) {
     files[`05-${generation === "producer" ? "c" : "d"}-task-registry.test.ts`] = `
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { emitAgentEvent } from ${sourcePath("infra/agent-events.ts")};
 import { prepareTaskRegistryRead } from ${sourcePath("tasks/task-registry-read.ts")};
+import * as listenerState from ${sourcePath("tasks/task-registry-listener-state.ts")};
 import { configureInMemoryTaskStoresForTests, createTaskFixture } from ${sourcePath("tasks/task-registry.test-support.ts")};
 it("receives task events in the ${generation} file", async () => {
   configureInMemoryTaskStoresForTests();
@@ -20,6 +21,16 @@ it("receives task events in the ${generation} file", async () => {
   emitAgentEvent({ runId, stream: "tool", data: { phase: "start", name: "read" } });
   const read = await prepareTaskRegistryRead();
   expect(read?.getTaskById(task.taskId)).toMatchObject({ toolUseCount: 1, lastToolName: "read" });
+  ${
+    generation === "producer"
+      ? `vi.spyOn(listenerState, "resetTaskRegistryListenerState").mockImplementation(() => {});
+  vi.spyOn(vi, "resetModules");
+  expect(vi.resetModules()).toBe(vi);
+  emitAgentEvent({ runId, stream: "tool", data: { phase: "start", name: "after-reset" } });
+  const afterReset = await prepareTaskRegistryRead();
+  expect(afterReset?.getTaskById(task.taskId)).toMatchObject({ toolUseCount: 2, lastToolName: "after-reset" });`
+      : ""
+  }
 });
 `;
   }

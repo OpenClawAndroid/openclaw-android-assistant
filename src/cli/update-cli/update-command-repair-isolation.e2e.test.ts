@@ -154,12 +154,14 @@ describe("staged CLI repair isolation", () => {
                 env: state.env,
                 run: updateRun,
                 phase: "validating",
-                result: {
+                mode: "npm",
+                validation: {
                   status: "error",
-                  mode: "npm",
-                  reason: "candidate-proof-missing",
+                  reason: "runtime-verification-failed",
+                  phase: "runtime",
                   steps: [],
                   durationMs: 0,
+                  logTail: ["Candidate repair marker is absent."],
                 },
                 validate: async (_signal, assertCurrent, rehearsal) => {
                   assertCurrent();

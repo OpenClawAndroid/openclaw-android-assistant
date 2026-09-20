@@ -26,9 +26,14 @@ import {
 } from "./openclaw-agent-db-schema-read.js";
 import {
   ensureSessionAdditiveColumns,
+  readSqliteTableColumns,
+  hasPendingSessionConversationRouteContextColumn,
+  hasPendingSessionProjectColumn,
+  hasPendingSessionTranscriptContextEligibilityColumn,
   ensureSessionEntryValidityProjection,
 } from "./openclaw-agent-db-session-migrations.js";
 import { LEGACY_PARTICIPANT_OPTIONAL_COLUMNS } from "./openclaw-agent-participants-migration.js";
+import { hasPendingInputConsumptionColumnMigration } from "./openclaw-agent-pending-inputs-schema.js";
 import {
   ensureOpenClawAgentProgressCardSchemaInTransaction,
   AGENT_PROGRESS_CARD_SCHEMA_SQL,
@@ -55,7 +60,7 @@ export function migratedSessionColumn(
   return columns.has(columnName) ? columnName : fallback;
 }
 
-export function hasRetiredAgentStateLeaseSchema(database: DatabaseSync): boolean {
+function hasRetiredAgentStateLeaseSchema(database: DatabaseSync): boolean {
   return Boolean(
     database.prepare("SELECT 1 FROM main.sqlite_schema WHERE name = 'state_leases'").get(),
   );
@@ -280,4 +285,29 @@ function hasLegacyMemoryChunkProvenanceTrigger(db: DatabaseSync): boolean {
 
 export function hasPendingMemoryChunkMetadataMigration(db: DatabaseSync): boolean {
   return hasLegacyMemoryRecallMetadataColumns(db) || hasLegacyMemoryChunkProvenanceTrigger(db);
+}
+
+function hasPendingSessionKeyContractSchemaMigration(db: DatabaseSync): boolean {
+  const sessionNodeColumns = readSqliteTableColumns(db, "session_nodes");
+  if (!sessionNodeColumns) {
+    return false;
+  }
+  const hasContractTable = Boolean(
+    db
+      .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'session_key_contract'")
+      .get(),
+  );
+  return !sessionNodeColumns.has("entry_valid") || !hasContractTable;
+}
+
+export function hasPendingCurrentVersionAgentDatabaseMigration(database: DatabaseSync): boolean {
+  return (
+    hasPendingMemoryChunkMetadataMigration(database) ||
+    hasPendingSessionKeyContractSchemaMigration(database) ||
+    hasRetiredAgentStateLeaseSchema(database) ||
+    hasPendingSessionConversationRouteContextColumn(database) ||
+    hasPendingSessionTranscriptContextEligibilityColumn(database) ||
+    hasPendingInputConsumptionColumnMigration(database) ||
+    hasPendingSessionProjectColumn(database)
+  );
 }

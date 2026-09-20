@@ -21,6 +21,7 @@ import {
   OPENCLAW_AGENT_SCHEMA_VERSION,
   runOpenClawAgentWriteTransaction,
 } from "../../state/openclaw-agent-db.js";
+import { clearOpenClawAgentIntegrityVerification } from "../../state/openclaw-quarantine-store.js";
 import { closeOpenClawStateDatabaseAsync } from "../../state/openclaw-state-db.js";
 import { replaceSessionEntry } from "./session-accessor.js";
 import * as archiveWorkers from "./session-accessor.sqlite-archive.js";
@@ -316,6 +317,7 @@ describe("cold transcript storage workers", () => {
     process.on("worker", observeWorker);
     try {
       closeOpenClawAgentDatabasesForTest();
+      clearOpenClawAgentIntegrityVerification(fixture.options.path);
       await expect(runSessionColdStorageMaintenance({ config: fixture.config })).resolves.toEqual({
         archivedTranscripts: 2,
         externalizedTranscripts: 0,
@@ -326,9 +328,11 @@ describe("cold transcript storage workers", () => {
       ).toBeDefined();
       await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
       closeOpenClawAgentDatabasesForTest();
+      clearOpenClawAgentIntegrityVerification(fixture.options.path);
       await restoreSessionColdTranscript(fixture.scope);
       await closeOpenClawAgentDatabaseByPathAsync(fixture.options.path);
       closeOpenClawAgentDatabasesForTest();
+      clearOpenClawAgentIntegrityVerification(fixture.options.path);
       await restoreSessionColdTranscript(fixture.secondScope);
       expect(fixture.snapshot()).toEqual(fixture.original);
       await flushLogger();

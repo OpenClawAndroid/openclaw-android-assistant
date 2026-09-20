@@ -12,7 +12,7 @@
   width: fit-content;
   max-width: 100%;
   min-width: 0;
-  padding: 4px 0;
+  padding: 4px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -100,7 +100,7 @@
   gap: 7px;
   width: fit-content;
   max-width: 100%;
-  padding: 3px 0;
+  padding-block: 3px;
   list-style: none;
   appearance: none;
   -webkit-appearance: none;

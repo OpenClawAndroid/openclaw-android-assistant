@@ -10,12 +10,12 @@ import type { TaskRegistryControlRuntime } from "./task-registry-control.types.j
 import { ensureLinkedTaskFlowRegistryReady } from "./task-registry-flow-link.js";
 import { clearTaskFlowSyncRetries } from "./task-registry-flow-sync.js";
 import { resetTaskRegistryListenerState } from "./task-registry-listener-state.js";
-import { prepareTaskRegistryRead } from "./task-registry-read.js";
+import { prepareTaskRegistryRead, prepareTaskRegistryReadOwner } from "./task-registry-read.js";
 import {
   cloneTaskRecord,
   listTasksFromIndex,
   cloneTaskRecordForObserver,
-  normalizeTaskTimestamps,
+  normalizeTaskRecord,
   compareTasksNewestFirst,
   pickPreferredRunIdTask,
   snapshotTaskRecords,
@@ -424,30 +424,31 @@ export async function listFreshTasksForOwnerKey(ownerKey: string): Promise<TaskR
   if (!key) {
     return [];
   }
-  const read = await prepareTaskRegistryRead();
-  if (!read) {
-    throw new Error("Task activity did not stabilize. Retry the owner lookup.");
-  }
-  const store = getTaskRegistryStore();
+  const owner = await prepareTaskRegistryReadOwner();
+  const { store } = owner;
   if (store.listTasksForOwnerKey) {
     try {
       const merged = new Map<string, TaskRecord>();
-      const records = await store.listTasksForOwnerKey(key);
-      read.assertCurrent();
+      const records = await store.listTasksForOwnerKey(owner.context, key, owner.assertCurrent);
+      owner.assertCurrent();
       for (const task of records) {
-        merged.set(task.taskId, cloneTaskRecord(normalizeTaskTimestamps(task)));
+        merged.set(task.taskId, cloneTaskRecord(normalizeTaskRecord(task)));
       }
       return [...merged.values()]
         .map((task, insertionIndex) => Object.assign({}, task, { insertionIndex }))
         .toSorted(compareTasksNewestFirst)
         .map(({ insertionIndex: _insertionIndex, ...task }) => task);
     } catch (error) {
-      read.assertCurrent();
+      owner.assertCurrent();
       taskRegistryLog.warn("Failed to read fresh owner task registry records", {
         ownerKey: key,
         error,
       });
     }
+  }
+  const read = await prepareTaskRegistryRead(owner);
+  if (!read) {
+    throw new Error("Task activity did not stabilize. Retry the owner lookup.");
   }
   read.assertCurrent();
   return listTasksFromIndex(tasks, taskIdsByOwnerKey, key);

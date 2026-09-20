@@ -146,6 +146,8 @@ live bucket. With the current 10,000-registration bucket, keep planned
 Blacksmith burst load under 6,000 registrations per 5 minutes with headroom for
 ClawSweeper, ClawHub, Clownfish, OpenClaw RTT, and Clawbench.
 
+The compact cap is 90 rows; the final Node matrix caps are 70 push and 130 PR rows. With the conservative 80 potentially eligible non-Node jobs, this bounds main at 150 registrations and PRs at 210. The retained four-main/21-PR arrival envelope is `4 × 150 + 21 × 210 = 5,010`, leaving 990 below the 6,000 reference target for adjacent repositories, releases and carryover. Relative to the former 64/120 Node caps, this reserves six additional registrations per push or ten per PR: `4 × 6 + 21 × 10 = 234` per envelope. Compact rows are part of the final Node matrix, so do not count their ten-row increase again. This is a conditional arrival bound, not live organization-wide capacity proof.
+
 ## Safe Levers
 
 Prefer these in order:
@@ -201,7 +203,7 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   outage override remains intact. Budget two control-job registrations per eligible
   hybrid first attempt when optional hosted admission is closed, one when admitted,
   and one per normal Blacksmith run. Both jobs already occur in the retained
-  conservative non-Node inventory, preserving the 4,776-registration cap model.
+  conservative non-Node inventory, preserving the 5,010-registration cap model.
   The aggregate uses `!cancelled()` to report failed prerequisites without
   holding a superseded run open after workflow cancellation.
 - Automatic canonical hybrid first attempts count every selected hosted row in
@@ -222,9 +224,9 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   one worker per project. Any nonzero exit stops admission of the next envelope.
   Frozen targets retain their original separate rows.
 - CI matrix caps: fast/check lanes at 12, Node test shards at 96, Windows at 2,
-  and Android at 2. Every compact profile has an enforced 80-row budget, plugin
-  fallback has a 50-row budget, and the final Node matrix enforces 64 push or
-  120 PR rows, including precise plans. Excess inventory fails preflight.
+  and Android at 2. Every compact profile has an enforced 90-row budget, plugin
+  fallback has a 50-row budget, and the final Node matrix enforces 70 push or
+  130 PR rows, including precise plans. Excess inventory fails preflight.
 - Windows keeps two disjoint file inventories and at most two concurrent jobs.
   Each job runs project processes serially with one Vitest worker on every
   backend, after runtime preparation completes. Native allocation can be smaller
@@ -252,9 +254,9 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
   86 rows, or 87 for historical UI targets. Excluding those four hosted rows
   plus both macOS Swift phases and the always-hosted aggregate gate leaves at
   most 80 potentially eligible jobs. The enforced Node caps therefore give
-  144 registrations per main run and 200 per PR:
-  `4 × 144 + 21 × 200 = 4,776` in the retained peak arrival envelope.
-  The old 19-arrival estimate is obsolete. The remaining 1,224 below
+  150 registrations per main run and 210 per PR:
+  `4 × 150 + 21 × 210 = 5,010` in the retained peak arrival envelope.
+  The old 19-arrival estimate is obsolete. The remaining 990 below
   the 6,000 reference target must cover adjacent repositories, releases and
   carryover; the bounded 2026-09-02 census did not prove that upper bound.
   Treat a single PR concurrency trial separately from a global rollout.
@@ -275,7 +277,10 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
 - Precise and fallback plugin groups retain separate child processes, including process-bounded
   configs. Compatible envelopes, including repeated configs, run one at a time
   within 240 predicted seconds without a pair-count limit; expanded serial compact
-  jobs use 210. Runtime preparation stays separate. Each original envelope retains
+  jobs use 210. The rebased 124-envelope inventory emits 50 extension rows and
+  125/119/130 PR Node rows on Blacksmith/hybrid/GitHub; push Node rows are
+  57/46/55 and compact PR rows are 77/71/82. These fit the landed 130/70/90
+  PR/push/compact caps without another increase. Runtime preparation stays separate. Each original envelope retains
   its file/process bounds, native shard arguments and worker limits. The complete supplemental boundary list runs in one job
   with four concurrent checks and one full-root focused-rule scan.
 - Measured Blacksmith chat/session, Gateway core-3 and infrastructure storage/state

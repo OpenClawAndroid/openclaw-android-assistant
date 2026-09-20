@@ -32,6 +32,7 @@ describe("restart verifier local control identity", () => {
     { mode: "password", requirePluginHealth: true },
     { mode: "none", requirePluginHealth: true },
     { mode: "token", requirePluginHealth: false },
+    { mode: "trusted-proxy", requirePluginHealth: false },
   ] as const)(
     "reads health with $mode auth without creating device state (requirePluginHealth=$requirePluginHealth)",
     async ({ mode, requirePluginHealth }) => {
@@ -44,8 +45,15 @@ describe("restart verifier local control identity", () => {
           },
         },
         async (state) => {
+          const credential = mode === "trusted-proxy" ? "password" : mode;
           const auth: GatewayAuthConfig =
-            mode === "none" ? { mode } : { mode, [mode]: "fixture-restart-secret" };
+            mode === "none"
+              ? { mode }
+              : {
+                  mode,
+                  [credential]: "fixture-restart-secret",
+                  ...(mode === "trusted-proxy" ? { trustedProxy: { userHeader: "x-user" } } : {}),
+                };
           const gateway = new WebSocketServer({ host: "127.0.0.1", port: 0 });
           await once(gateway, "listening");
           const port = (gateway.address() as AddressInfo).port;
@@ -76,13 +84,13 @@ describe("restart verifier local control identity", () => {
                 const connect = request.params as ConnectParams;
                 connections.push(connect);
                 const sharedAuthOk =
-                  mode !== "none" && connect.auth?.[mode] === "fixture-restart-secret";
+                  credential !== "none" && connect.auth?.[credential] === "fixture-restart-secret";
                 const policy = {
                   connectParams: connect,
                   locality: "direct_local" as const,
                   hasBrowserOriginHeader: false,
                   sharedAuthOk,
-                  authMethod: mode,
+                  authMethod: credential,
                 };
                 const backend = shouldSkipLocalBackendSelfPairing(policy);
                 const decision = evaluateMissingDeviceIdentity({
@@ -103,7 +111,10 @@ describe("restart verifier local control identity", () => {
                 const clearScopes =
                   !backend &&
                   !shouldPreserveLocalCliSharedAuthScopes(policy) &&
-                  shouldClearUnboundScopesForMissingDeviceIdentity({ decision, authMethod: mode });
+                  shouldClearUnboundScopesForMissingDeviceIdentity({
+                    decision,
+                    authMethod: credential,
+                  });
                 scopes = clearScopes ? [] : (connect.scopes ?? []);
                 const hello = buildMinimalGatewayHelloOkPayload({
                   auth: { role: "operator", scopes },
@@ -196,7 +207,7 @@ describe("restart verifier local control identity", () => {
             expect(connections).toHaveLength(1);
             expect(connections[0]?.device).toBeUndefined();
             expect(connections[0]?.auth).toEqual(
-              mode === "none" ? undefined : { [mode]: "fixture-restart-secret" },
+              credential === "none" ? undefined : { [credential]: "fixture-restart-secret" },
             );
             expect(connections[0]?.client).toMatchObject(
               mode === "none"

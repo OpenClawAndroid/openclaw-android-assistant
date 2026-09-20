@@ -287,6 +287,7 @@ export type SessionsPatchResult = SessionsPatchResultBase<{
   lastActivityAt?: number;
   lastInteractionAt?: number;
   permissionMode?: GatewaySessionRow["permissionMode"];
+  nativeRuntimeConsent?: string;
   modelOverrideSource?: GatewayWireSessionsPatchResult["entry"]["modelOverrideSource"];
   boardPresentation?: GatewaySessionRow["boardPresentation"];
   archivedAt?: number;
@@ -339,8 +340,10 @@ export type CronRunResult =
     }
   | { ok: false };
 
-export type CronJobsListResult = {
-  jobs: ProtocolCronJob[];
+export type { CronCompactJob } from "../../../packages/gateway-protocol/src/index.js";
+
+export type CronJobsListResult<Row = ProtocolCronJob> = {
+  jobs: Row[];
   snapshotRevision: string;
   total: number;
   limit: number;

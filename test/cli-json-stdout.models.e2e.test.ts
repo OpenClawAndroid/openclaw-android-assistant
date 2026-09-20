@@ -13,7 +13,7 @@ async function seedPendingStateMigration(stateDir: string) {
   const database = new DatabaseSync(databasePath);
   try {
     database.exec(OPENCLAW_STATE_SCHEMA_SQL);
-    database.exec("PRAGMA user_version = 0;");
+    database.exec("DROP INDEX idx_worker_session_placements_environment; PRAGMA user_version = 0;");
   } finally {
     database.close();
   }

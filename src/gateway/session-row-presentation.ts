@@ -18,7 +18,9 @@ import { prepareProjectedSessionSharing } from "./session-sharing.js";
 import { projectGatewaySessionActiveRun } from "./session-utils-display.js";
 import type { GatewaySessionRow } from "./session-utils.types.js";
 
-type PresentationOptions = Omit<records.SnapshotOptions, "now" | "active" | "subagentRuns">;
+type PresentationOptions = Omit<records.SnapshotOptions, "now" | "active" | "subagentRuns"> & {
+  includeActivitySummary?: boolean;
+};
 
 function toProjectedSessionSharingTarget(record: records.MaterializedRow): SessionSharingTarget {
   return {
@@ -78,12 +80,6 @@ export function prepareProjectedSessionPresentation(
         }
       : {}),
     sharingRole: sharing.roleForTarget(value),
-    canEnsure:
-      !authorizeIncognitoSessionTarget({
-        client: client ?? null,
-        sessionKey: value.canonicalKey,
-        target: value,
-      }) && !sharing.authorizeTarget(value),
   });
   const present = (
     captured: records.MaterializedRow,
@@ -134,11 +130,22 @@ export function prepareProjectedSessionPresentation(
         run.runIds === undefined ? {} : { activeRunIds: run.runIds },
       );
     }
+    if (options.includeActivitySummary === false) {
+      delete row.activitySummary;
+    }
     if (client !== undefined) {
-      const { canEnsure, ...fields } = viewer(toProjectedSessionSharingTarget(record));
-      Object.assign(row, fields);
+      const value = toProjectedSessionSharingTarget(record);
+      Object.assign(row, viewer(value));
       if (row.activitySummary) {
-        row.activitySummary = { ...row.activitySummary, canEnsure };
+        row.activitySummary = {
+          ...row.activitySummary,
+          canEnsure:
+            !authorizeIncognitoSessionTarget({
+              client: client ?? null,
+              sessionKey: value.canonicalKey,
+              target: value,
+            }) && !sharing.authorizeTarget(value),
+        };
       }
     }
     return row;

@@ -208,11 +208,14 @@ suite.define(() => {
       });
       await page.goto(suite.server.baseUrl + "chat");
       const link = page.getByRole("link", { name: "Field guide", exact: true });
-      const failed = page.waitForEvent("requestfailed", (request) =>
-        request.url().includes("link-reader-hovercard-"),
-      );
-      await link.hover();
-      await failed;
+      // A missing hashed chunk reloads the page; wait before hovering the new document.
+      await Promise.all([
+        page.waitForEvent("requestfailed", (request) =>
+          request.url().includes("link-reader-hovercard-"),
+        ),
+        page.waitForEvent("domcontentloaded"),
+        link.hover(),
+      ]);
       await page.mouse.move(0, 0);
       await link.hover();
       await page.locator(".tooltip-content").filter({ hasText: "Guide details" }).waitFor();

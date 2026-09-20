@@ -194,7 +194,7 @@ function normalizeSource(
   if (normalized === "update.run") {
     return "gateway-update";
   }
-  if (normalized === "sigusr1") {
+  if (normalized === "sigusr2" || normalized === "sigusr1") {
     return "signal";
   }
   if (normalized === "gateway.restart") {

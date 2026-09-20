@@ -7,6 +7,7 @@ import { SqliteCoordinatorError, throwSqliteLifecycleErrors } from "../infra/sql
 import {
   retainSnapshotTempDirectory,
   retainSnapshotWork,
+  SqliteSnapshotCleanupError,
 } from "../infra/sqlite-readonly-location-cleanup.js";
 import { prepareSqliteReadOnlyLocationFromOwnedDatabase } from "../infra/sqlite-readonly-location.js";
 import type {
@@ -86,9 +87,8 @@ const stateSnapshotReads = resolveGlobalSingleton(
 export function getActiveOpenClawStateDatabaseReadSnapshot(
   options: OpenClawStateDatabaseOptions = {},
 ): object | undefined {
-  const pathname = resolveReadOnlyPath(options);
   const current = stateSnapshotReads.getStore();
-  return current?.path === pathname ? current : undefined;
+  return current?.path === resolveReadOnlyPath(options) ? current : undefined;
 }
 
 /** Resolve a composite read from one online snapshot without redirecting live writers. */
@@ -127,11 +127,18 @@ export async function withOpenClawStateDatabaseReadSnapshot<T>(
     const snapshot = Object.assign(
       createRetainedReadScope(pathname, admission.identity, async () => {
         releaseSource();
-        if (!(await prepared.cleanupAsync())) {
-          throw new Error(
-            `Shared-state discovery snapshot cleanup failed: ${prepared.cleanupRoot ?? pathname}`,
-          );
+        let cause: unknown;
+        try {
+          if (await prepared.cleanupAsync()) {
+            return;
+          }
+        } catch (error) {
+          cause = error;
         }
+        throw new SqliteSnapshotCleanupError(
+          `Shared-state discovery snapshot cleanup failed: ${prepared.cleanupRoot ?? pathname}`,
+          { cause },
+        );
       }),
       { location: prepared.location, env },
     );

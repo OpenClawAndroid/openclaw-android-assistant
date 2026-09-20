@@ -49,7 +49,7 @@ import {
   resolveTelegramButtonsFromParams,
   type TelegramDroppedControl,
 } from "./button-types.js";
-import type { TelegramDraftPreview } from "./draft-stream.js";
+import type { TelegramDraftPreview } from "./draft-stream-message.js";
 import { readTelegramHistoryAction } from "./history-read.js";
 import { telegramInboundEventDelivery } from "./inbound-event-delivery.js";
 import {

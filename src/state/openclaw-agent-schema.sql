@@ -82,6 +82,10 @@ CREATE INDEX IF NOT EXISTS idx_agent_session_nodes_entry_valid_pending
   ON session_nodes(session_key)
   WHERE entry_valid = 0;
 
+CREATE INDEX IF NOT EXISTS idx_agent_session_nodes_entry_not_valid
+  ON session_nodes(session_key)
+  WHERE entry_valid != 1;
+
 CREATE TABLE IF NOT EXISTS session_participants (
   session_key TEXT NOT NULL,
   identity_namespace TEXT NOT NULL,

@@ -287,6 +287,21 @@ describe("nodes-cli coverage", () => {
       message: "--node and --command required",
     },
     {
+      label: "invoke with an empty idempotency key",
+      command: "invoke",
+      args: [
+        "nodes",
+        "invoke",
+        "--node",
+        "mac-1",
+        "--command",
+        "canvas.eval",
+        "--idempotency-key",
+        "",
+      ],
+      message: "--idempotency-key",
+    },
+    {
       label: "rename with a blank name",
       command: "rename",
       args: ["nodes", "rename", "--node", "mac-1", "--name", "   "],
@@ -371,6 +386,20 @@ describe("nodes-cli coverage", () => {
     expect(runtimeErrors.at(-1)).toContain("--params must be valid JSON.");
     expect(callGateway).not.toHaveBeenCalled();
     expect(lastNodeInvokeCall).toBeNull();
+  });
+
+  it.each([" \t ", "  caller-key\t "])("preserves nonempty idempotency key %j", async (key) => {
+    const invoke = await runNodesCommand([
+      "nodes",
+      "invoke",
+      "--node",
+      "mac-1",
+      "--command",
+      "canvas.eval",
+      "--idempotency-key",
+      key,
+    ]);
+    expect(invoke.params?.idempotencyKey).toBe(key);
   });
 
   it("invokes system.notify with provided fields", async () => {

@@ -15,6 +15,11 @@ Bare `openclaw doctor --json` is read-only and non-interactive: no prompts, repa
 
 Explicit `openclaw doctor --lint` is the deployment-preflight posture. Add `--json` for machine-readable output without changing lint's threshold-based exit code. Policy findings reported here are documented in [`openclaw policy`](/cli/policy).
 
+Full reports reuse a private shared-state snapshot for ordinary reads within the
+report, preserving the live database and its WAL files. Each new report reads a
+fresh snapshot. Checks that need writable inspection state or independent database
+verification retain their own copies; `--only` checks prepare state on demand.
+
 ```bash
 openclaw doctor --json
 openclaw doctor --lint
@@ -78,6 +83,12 @@ an informational diagnostic with `errorCode: OPENCLAW_STATE_LEASE_ABORTED`, the 
 time, and the caller's signal as its cause. Below the selected threshold, this diagnostic
 appears in JSON `warnings` and human output without failing lint. It means the inspection
 was not performed. Cancellation after acquisition and other inspection failures remain errors.
+
+During updates, optional inspections and policy advisories are warnings, including intentional open DM policies. Required configuration, state, and startup checks remain blocking. The saved report retains every finding with an individually bounded reason; update history keeps severity counts, deciding errors, and an explicit omission count when its diagnostic bound is reached.
+
+Security findings retain their specific check identifier and remediation in update reports. Secret migration commands appear before long field lists so bounded diagnostics keep the `openclaw secrets configure` and `openclaw secrets apply` next steps.
+
+`PLAINTEXT_FOUND`, `REF_SHADOWED`, and `LEGACY_RESIDUE` are findings from the separate `openclaw secrets audit` command. They describe hardening or retained recovery material, not database corruption. Standalone `secrets audit --check` can exit nonzero for these findings; that result alone does not identify a failing candidate Doctor check. Use the candidate's recorded lint findings, not a truncated stderr tail, to identify the update failure.
 
 A configured Codex plugin that is missing or whose advertised health API cannot be
 verified produces an availability warning under `core/doctor/codex-session-routes`,

@@ -122,7 +122,7 @@ struct DeviceSettingsContractTests {
                     .init(id: .notifications, status: .granted), .init(id: .accessibility, status: .denied),
                     .init(id: .screenRecording, status: .notDetermined), .init(id: .microphone, status: .unavailable),
                     .init(id: .camera, status: .granted), .init(id: .speechRecognition, status: .denied),
-                    .init(id: .location, status: .notDetermined), .init(id: .automation, status: .unavailable),
+                    .init(id: .location, status: .notDetermined),
                 ],
                 location: .init(mode: .whileUsing, precise: true)),
             voice: .init(

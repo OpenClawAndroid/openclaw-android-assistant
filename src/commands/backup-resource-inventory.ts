@@ -2,7 +2,7 @@
 import { statSync, type Dirent, type Stats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { isVolatileBackupPath } from "../infra/backup-volatile-filter.js";
+import { isTransientBackupPath, isVolatileBackupPath } from "../infra/backup-volatile-filter.js";
 import { hasErrnoCode } from "../infra/errno.js";
 import { sameFileIdentity } from "../infra/fs-safe-advanced.js";
 import { isUpdateCapturePath } from "../infra/update-capture-paths.js";
@@ -32,7 +32,7 @@ export type BackupCoreDatabase = Readonly<
   {
     sourcePath: string;
     identity?: Stats;
-  } & ({ role: "global" } | { role: "agent"; agentId: string })
+  } & ({ role: "global" | "quarantine" } | { role: "agent"; agentId: string })
 >;
 
 type BackupResourcePolicy = Readonly<{
@@ -303,12 +303,17 @@ function createBackupPathPolicy({
   const volatilePlan = { stateDirs: [stateDir] };
   const isVolatile = (sourcePath: string): boolean => {
     const candidate = path.resolve(sourcePath);
-    // Explicit owners survive volatile filters; excluded ancestors stay pruned
-    // and the planner archives a selected link through its own asset instead.
+    // State-specific rules do not apply inside explicit owners. Transient names
+    // apply everywhere, while selected paths and their ancestors stay reachable.
     const ownedPath = protectedPaths.some((protectedPath) =>
       isPathWithin(candidate, protectedPath),
     );
-    return !ownedPath && isVolatileBackupPath(candidate, volatilePlan);
+    return (
+      (candidate !== stateDir &&
+        !protectedPaths.some((protectedPath) => isPathWithin(protectedPath, candidate)) &&
+        isTransientBackupPath(candidate)) ||
+      (!ownedPath && isVolatileBackupPath(candidate, volatilePlan))
+    );
   };
 
   return {

@@ -114,7 +114,7 @@ const {
     restart: {
       ok: true,
       pid: 123,
-      signal: "SIGUSR1",
+      signal: "SIGUSR2",
       delayMs: 0,
       reason: "cron.isolated_agent_setup_timeout",
       mode: "emit",
