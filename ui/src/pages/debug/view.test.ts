@@ -162,6 +162,17 @@ function normalizedText(element: Element | null | undefined): string | undefined
 
 beforeEach(async () => {
   vi.stubGlobal("localStorage", createStorageMock());
+  // JSDOM has no layout observation; browser tests exercise real panel geometry.
+  if (typeof ResizeObserver === "undefined") {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+  }
   await i18n.setLocale("en");
 });
 

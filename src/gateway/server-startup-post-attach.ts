@@ -7,6 +7,10 @@ import type { CliDeps } from "../cli/deps.types.js";
 import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveInternalHookSelection } from "../hooks/configured.js";
+import {
+  captureDeliveryQueueStateContext,
+  type DeliveryQueueStateContext,
+} from "../infra/delivery-queue-state-context.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import type { GatewayActiveWorkInspectors } from "../infra/gateway-active-work.js";
 import { hasRestartSentinel } from "../infra/restart-sentinel.js";
@@ -47,6 +51,11 @@ import {
   formatGatewayStartupOutcomes,
   type GatewayStartupOutcomeRecorder,
 } from "./server-startup-outcomes.js";
+import {
+  scheduleGatewayGenerationTimer,
+  schedulePostReadySidecarTask,
+  type GatewayPostReadySidecarHandle,
+} from "./server-startup-sidecar-scheduler.js";
 import { measureStartup, type GatewayStartupTrace } from "./server-startup-trace.js";
 import { createDeferredGatewayUpdateCheck } from "./server-startup-update-check.js";
 import {
@@ -77,107 +86,17 @@ const loadGatewayRestartSentinelModule = createLazyRuntimeModule(
   () => import("./server-restart-sentinel.js"),
 );
 
-export type GatewayPostReadySidecarHandle = {
-  stop: () => Awaitable<void>;
-  preparePluginReload?: (params: {
-    previousRegistry: PluginRegistry;
-    nextRegistry: PluginRegistry;
-    changedPluginIds: ReadonlySet<string>;
-    nextConfig: OpenClawConfig;
-  }) => { drain: () => Promise<void>; resume: (config: OpenClawConfig) => Awaitable<void> };
-};
-
 function shouldCheckRestartSentinel(env: NodeJS.ProcessEnv = process.env): boolean {
   return !env.VITEST && env.NODE_ENV !== "test";
 }
 
-function schedulePostReadySidecarTask(params: {
-  startupTrace?: GatewayStartupTrace;
-  name: string;
-  log: { warn: (msg: string) => void };
-  run: (isStopped: () => boolean, signal: AbortSignal) => Awaitable<void>;
-  stop?: () => Awaitable<void>;
-  waitForPostReadyWork?: () => Promise<void>;
-  shouldRun?: () => boolean;
-}): GatewayPostReadySidecarHandle {
-  const abortController = new AbortController();
-  // Closing retires producers before received work permits sidecar teardown.
-  const isStopped = () => abortController.signal.aborted || params.shouldRun?.() === false;
-  const handle = setImmediate(() => {
-    void (async () => {
-      await params.waitForPostReadyWork?.();
-      if (isStopped()) {
-        return;
-      }
-      // Suspension can defer admission, so eligibility must be checked again inside it.
-      await runWithGatewayIndependentRootWorkAdmission(async () => {
-        if (isStopped()) {
-          return;
-        }
-        await measureStartup(params.startupTrace, params.name, () =>
-          params.run(isStopped, abortController.signal),
-        );
-      }, `startup:${params.name}`);
-    })().catch((err: unknown) => {
-      params.log.warn(`${params.name} failed after gateway ready: ${String(err)}`);
-    });
-  });
-  handle.unref?.();
-  return {
-    stop: async () => {
-      // Sidecars get both a synchronous stopped predicate and an AbortSignal so
-      // lazy imports and long-running watchers can cooperate with shutdown.
-      abortController.abort();
-      clearImmediate(handle);
-      await params.stop?.();
-    },
-  };
-}
-
-function scheduleGatewayGenerationTimer(params: {
-  delayMs: number;
-  origin: string;
-  run: (isStopped: () => boolean) => Awaitable<void>;
-  onError: (err: unknown) => void;
-  shouldRun?: () => boolean;
-}): GatewayPostReadySidecarHandle {
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const isStopped = () => stopped || params.shouldRun?.() === false;
-  timer = setTimeout(() => {
-    timer = undefined;
-    if (isStopped()) {
-      return;
-    }
-    void runWithGatewayIndependentRootWorkAdmission(async () => {
-      if (isStopped()) {
-        return;
-      }
-      await params.run(isStopped);
-    }, params.origin).catch((err: unknown) => {
-      // Closing must not hide errors from callbacks already admitted before it.
-      if (!stopped) {
-        params.onError(err);
-      }
-    });
-  }, params.delayMs);
-  timer.unref?.();
-  return {
-    stop: () => {
-      stopped = true;
-      if (timer) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
-    },
-  };
-}
-
 function scheduleRestartSentinelWakeAfterReady(params: {
   deps: CliDeps;
+  context?: DeliveryQueueStateContext;
   log: { warn: (msg: string) => void };
   shouldRun?: () => boolean;
 }): GatewayPostReadySidecarHandle {
+  const context = params.context ?? captureDeliveryQueueStateContext();
   return scheduleGatewayGenerationTimer({
     delayMs: 750,
     origin: "restart-sentinel:wake",
@@ -187,7 +106,11 @@ function scheduleRestartSentinelWakeAfterReady(params: {
       if (isStopped()) {
         return;
       }
-      await scheduleRestartSentinelWake({ deps: params.deps });
+      await scheduleRestartSentinelWake({
+        deps: params.deps,
+        context,
+        shouldRun: () => !isStopped(),
+      });
     },
     onError: (err) => params.log.warn(`restart sentinel wake failed to schedule: ${String(err)}`),
   });
@@ -315,13 +238,13 @@ function scheduleTranscriptsAutoStartSidecar(params: {
   };
 }
 
-async function refreshLatestUpdateRestartSentinelIfPresent(): Promise<Awaited<
-  ReturnType<typeof refreshLatestUpdateRestartSentinel>
-> | null> {
-  if (!(await hasRestartSentinel())) {
+async function refreshLatestUpdateRestartSentinelIfPresent(
+  env: NodeJS.ProcessEnv = captureDeliveryQueueStateContext().workerContext.environment,
+): Promise<Awaited<ReturnType<typeof refreshLatestUpdateRestartSentinel>> | null> {
+  if (!(await hasRestartSentinel(env))) {
     return null;
   }
-  return await (await loadGatewayRestartSentinelModule()).refreshLatestUpdateRestartSentinel();
+  return await (await loadGatewayRestartSentinelModule()).refreshLatestUpdateRestartSentinel(env);
 }
 
 function hasGatewayStartHooks(pluginRegistry: ReturnType<typeof loadOpenClawPlugins>): boolean {
@@ -362,6 +285,7 @@ async function waitForAcpRuntimeBackendReady(params: {
 
 /** Start post-ready sidecars such as channels, hooks, plugin services, and cleanup tasks. */
 export async function startGatewaySidecars(params: {
+  restartSentinelContext?: DeliveryQueueStateContext;
   cfg: OpenClawConfig;
   getModelRuntimeConfig?: () => OpenClawConfig;
   pluginMetadataSnapshot?: PluginMetadataSnapshot;
@@ -391,6 +315,8 @@ export async function startGatewaySidecars(params: {
   mainSessionRecoveryStartupCheckedStorePaths?: Set<string>;
   waitForPostReadyWork?: () => Promise<void>;
 }) {
+  const restartSentinelContext =
+    params.restartSentinelContext ?? captureDeliveryQueueStateContext();
   const postReadySidecars: GatewayPostReadySidecarHandle[] = [];
 
   const internalHooksConfigured = resolveInternalHookSelection(params.cfg).configured;
@@ -693,10 +619,14 @@ export async function startGatewaySidecars(params: {
         if (!shouldCheckRestartSentinel() || isStopped()) {
           return;
         }
-        if (!(await hasRestartSentinel()) || isStopped()) {
+        if (
+          !(await hasRestartSentinel(restartSentinelContext.workerContext.environment)) ||
+          isStopped()
+        ) {
           return;
         }
         restartSentinelWake = scheduleRestartSentinelWakeAfterReady({
+          context: restartSentinelContext,
           deps: params.deps,
           log: params.log,
           shouldRun: params.shouldCreatePostReadySidecars,
@@ -804,9 +734,9 @@ type GatewayPostAttachRuntimeDeps = {
     ...args: Parameters<typeof createHookRunner>
   ) => Awaitable<ReturnType<typeof createHookRunner>>;
   logGatewayStartup: (params: Parameters<typeof logGatewayStartup>[0]) => Awaitable<void>;
-  refreshLatestUpdateRestartSentinel: () => Awaitable<
-    ReturnType<typeof refreshLatestUpdateRestartSentinel>
-  >;
+  refreshLatestUpdateRestartSentinel: (
+    env?: NodeJS.ProcessEnv,
+  ) => Awaitable<ReturnType<typeof refreshLatestUpdateRestartSentinel>>;
   createGatewayUpdateCheck: (
     ...args: Parameters<typeof createGatewayUpdateCheck>
   ) => Awaitable<ReturnType<typeof createGatewayUpdateCheck>>;
@@ -905,6 +835,7 @@ export async function startGatewayPostAttachRuntime(
   },
   runtimeDeps: GatewayPostAttachRuntimeDeps = defaultGatewayPostAttachRuntimeDeps,
 ) {
+  const restartSentinelContext = captureDeliveryQueueStateContext();
   // The CLI's hidden capability flag supplies this typed internal handoff.
   // Rehearsal loads plugins without resuming copied jobs, services, or notices.
   const candidateCanary = params.updateCanary === true;
@@ -1117,6 +1048,7 @@ export async function startGatewayPostAttachRuntime(
                 : params.getCurrentPluginMetadataSnapshot?.();
               return await measureStartup(params.startupTrace, "sidecars.total", () =>
                 runtimeDeps.startGatewaySidecars({
+                  restartSentinelContext,
                   cfg: startupRuntimeCurrent
                     ? params.gatewayPluginConfigAtStart
                     : params.getConfig(),
@@ -1288,7 +1220,9 @@ export async function startGatewayPostAttachRuntime(
         async () => {
           await measureStartup(params.startupTrace, "post-attach.update-sentinel", async () => {
             if (!params.isClosing?.()) {
-              await runtimeDeps.refreshLatestUpdateRestartSentinel();
+              await runtimeDeps.refreshLatestUpdateRestartSentinel(
+                restartSentinelContext.workerContext.environment,
+              );
             }
           });
         },

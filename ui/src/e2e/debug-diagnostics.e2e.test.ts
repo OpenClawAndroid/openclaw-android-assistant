@@ -214,6 +214,11 @@ suite.define(() => {
         await overlay.getByRole("button", { name: "Minimize system busyness" }).click();
         const widget = page.locator("aside.debug-overlay--minimized");
         await widget.waitFor();
+        await widget.evaluate(async (element) => {
+          await new Promise(requestAnimationFrame);
+          await new Promise(requestAnimationFrame);
+          await Promise.all(element.getAnimations().map((animation) => animation.finished));
+        });
         expect(await widget.getByRole("heading", { name: "Lanes", exact: true }).count()).toBe(0);
         const metrics = ["cpu", "ping", "memory"];
         for (const metric of metrics) {

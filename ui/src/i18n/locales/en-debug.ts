@@ -45,6 +45,7 @@ const enDebug = {
     overlay: {
       title: en.debug.overlay.title,
       eyebrow: en.debug.overlay.eyebrow,
+      move: en.debug.overlay.move,
       minimize: en.debug.overlay.minimize,
       expand: en.debug.overlay.expand,
       open: "Open overlay",

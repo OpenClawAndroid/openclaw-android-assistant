@@ -307,6 +307,7 @@ export async function runCodeModeScriptHeadless(params: {
     };
     let boundaryFailure: Error | undefined;
     const inlineHost: CodeModeWorkerInlineHost = {
+      onNetworkContent: () => runtime.observeNetworkContent(parentToolCallId),
       onBoundary: async (boundary, context) => {
         output.append(boundary.output);
         cancelPendingBridgeStatesById(pending, boundary.canceledRequestIds);

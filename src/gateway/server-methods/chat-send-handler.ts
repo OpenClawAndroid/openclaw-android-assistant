@@ -18,7 +18,6 @@ import { formatErrorMessage } from "../../infra/errors.js";
 // chat.send owns admission, ACK timing, and detached dispatch handoff.
 import { isProgressCardRefreshInputProvenance } from "../../sessions/input-provenance.js";
 import { recordSessionCreated } from "../../sessions/session-created.js";
-import { recordSessionGoalChanged } from "../../sessions/session-state-events.js";
 import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
 import { extractTextFromChatContent } from "../../shared/chat-content.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
@@ -59,6 +58,7 @@ import { createGatewayChatUserTurnController } from "./chat-user-turn-recorder.j
 import { gatewayClientSessionCreator } from "./gateway-client-identity.js";
 import { emitSessionsChanged } from "./session-change-event.js";
 import { resolveOperatorSessionCreation } from "./session-creation-provenance.js";
+import { publishCommittedSessionGoalChange } from "./session-goal-change.js";
 import type { GatewayRequestHandlerOptions, SessionMutationAuthorization } from "./types.js";
 
 type ChatSendInternalOptions = {
@@ -409,23 +409,13 @@ async function handleChatSendWithOptions(
             entry: persistedUserTurn.sessionEntry,
           });
         }
-        const goalChanged = recordSessionGoalChanged({
+        await publishCommittedSessionGoalChange(context, {
           sessionKey,
           agentId: preparedSession.value.agentId,
           entry: persistedUserTurn.sessionEntry,
           actor: gatewayClientSessionCreator(client),
           summary: `goal ${goalOperation.action}`,
         });
-        try {
-          // Publish the committed Goal before yielding; retain its event through terminalization.
-          emitSessionsChanged(context, {
-            sessionKey,
-            agentId: preparedSession.value.agentId,
-            reason: "goal",
-          });
-        } finally {
-          await goalChanged;
-        }
       }
       // A matching idempotency row and lifecycle claim commit atomically, so
       // retries adopt the durable turn without submitting it twice.

@@ -3,6 +3,7 @@ import { renderAgentHarnessPreflightUserMessage } from "../../agents/embedded-ag
 import { describeFailoverError } from "../../agents/failover-error.js";
 import { renderFailoverCodeUserCopy } from "../../agents/failover/user-copy.js";
 import { DispatchSessionRefreshRequiredError } from "../../auto-reply/reply/dispatch-session-refresh-error.js";
+import { SessionGoalOperationError } from "../../config/sessions/goals-operations.js";
 import { clearAgentRunContext, getAgentRunContext } from "../../infra/agent-run-registry.js";
 import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
 import { captureAgentJobSession, setGatewayDedupeEntry } from "../agent-turn/agent-job.js";
@@ -121,11 +122,18 @@ export async function handleChatSendSetupError(params: {
   cleanupAdmittedRun();
   clearAgentRunContext(clientRunId, lifecycleGeneration);
   params.context.removeChatRun(clientRunId, clientRunId, sessionKey);
-  const error = errorShape(
-    ErrorCodes.UNAVAILABLE,
-    errorMessage,
-    failureDisposition === "client-retry" ? { retryable: true, retryAfterMs: 250 } : undefined,
-  );
+  const error =
+    params.error instanceof SessionGoalOperationError
+      ? errorShape(ErrorCodes.INVALID_REQUEST, params.error.message, {
+          details: { code: "GOAL_OPERATION_REJECTED", reason: params.error.code },
+        })
+      : errorShape(
+          ErrorCodes.UNAVAILABLE,
+          errorMessage,
+          failureDisposition === "client-retry"
+            ? { retryable: true, retryAfterMs: 250 }
+            : undefined,
+        );
   const payload = { runId: clientRunId, status: "error" as const, summary: errorMessage };
   if (params.cacheResult !== false && failureDisposition !== "client-retry") {
     setGatewayDedupeEntry({

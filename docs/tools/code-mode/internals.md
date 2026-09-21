@@ -147,9 +147,10 @@ successful partial result with a precise non-retention reason. Headless and
 restart-safe execution do not allocate automatic references.
 
 Catalog teardown, replacement, restriction, and the admitted run's abort clear
-saved data. Appended client tools preserve the same catalog lifetime. Each cell
-captures its catalog identity and entries before execution, so stale cells
-cannot use a replacement catalog or retain references after a permission change.
+saved data. Appended client tools preserve the same result-store lifetime, including
+for cells already parked in `wait`. Each cell captures that store before execution,
+so stale cells cannot adopt a replacement store or retain references after a
+permission change.
 Saved references are data snapshots and never execution authority. They do not
 survive Gateway restart and cannot be used by another run or session.
 

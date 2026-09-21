@@ -563,6 +563,7 @@ describe("scripts/test-extension.mts", () => {
         extensionIds: [
           "acpx",
           "browser",
+          "diffs",
           "feishu",
           "matrix",
           "mattermost",
@@ -590,7 +591,7 @@ describe("scripts/test-extension.mts", () => {
             ),
           ),
           bundledPluginRoot("memory-core"),
-          ...["msteams", "feishu", "acpx", "browser", "qa-lab"].flatMap((extensionId) =>
+          ...["msteams", "feishu", "acpx", "diffs", "browser", "qa-lab"].flatMap((extensionId) =>
             databaseWorkerExtensionTestFiles.filter((file) =>
               file.startsWith(`extensions/${extensionId}/`),
             ),

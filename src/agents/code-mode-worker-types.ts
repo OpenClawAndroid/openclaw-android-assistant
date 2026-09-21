@@ -85,6 +85,7 @@ export type CodeModeSettlementMode =
 
 /** Transient worker boundary; no heap serialization and no resumable handle. */
 export type CodeModeWorkerBoundary = {
+  networkContentObserved?: true;
   status: "boundary";
   pendingRequests: PendingBridgeRequest[];
   canceledRequestIds: string[];
@@ -105,7 +106,7 @@ export type CodeModeWorkerContinuation =
 
 export type CodeModeFailurePhase = "input" | "guest" | "bridge" | "host";
 
-type CodeModeWorkerOutcome<Output, Value> =
+type CodeModeWorkerOutcome<Output, Value> = { networkContentObserved?: true } & (
   | {
       status: "completed";
       value: Value;
@@ -131,7 +132,8 @@ type CodeModeWorkerOutcome<Output, Value> =
       failurePhase: Extract<CodeModeFailurePhase, "input" | "guest">;
       bridgeDispatchStarted: false;
       output: Output;
-    };
+    }
+);
 
 export type CodeModeVmResult = CodeModeWorkerOutcome<unknown[], unknown>;
 export type CodeModeWorkerThreadResult = CodeModeWorkerOutcome<

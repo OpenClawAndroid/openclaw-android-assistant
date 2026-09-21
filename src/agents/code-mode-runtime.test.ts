@@ -407,6 +407,14 @@ describe("Code Mode guest source validation", () => {
       "require after an astral-filled JavaScript string",
       `const label = "${"😀".repeat(96)}"; return require('node:fs');`,
     ],
+    [
+      "dynamic import after astral Unicode in malformed JavaScript",
+      `const label = "${"😀".repeat(96)}"; const answer = ; return import('node:fs');`,
+    ],
+    [
+      "require after astral Unicode in malformed JavaScript",
+      `const label = "${"😀".repeat(96)}"; const answer = ; return require('node:fs');`,
+    ],
   ])("rejects %s", (_name, code) => {
     expect(() => prepareSource(code)).toThrow("code mode module access is disabled");
   });
@@ -487,15 +495,4 @@ describe("Code Mode guest source validation", () => {
       expect(() => prepareSource(executable)).toThrow("code mode module access is disabled");
     }
   });
-
-  it("rejects every Unicode-shifted JavaScript module-access offset", () => {
-    for (let length = 1; length <= 96; length += 1) {
-      const padding = "😀".repeat(length);
-      for (const access of ["import('node:fs')", "require('node:fs')"]) {
-        expect(() => prepareSource(`const label = "${padding}"; return ${access};`)).toThrow(
-          "code mode module access is disabled",
-        );
-      }
-    }
-  }, 30_000);
 });

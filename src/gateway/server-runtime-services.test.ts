@@ -170,6 +170,7 @@ describe("server-runtime-services", () => {
         shouldContinue: expect.any(Function),
       },
       expect.any(Function),
+      expect.any(Object),
     );
     const runtimeParams = hoisted.startSessionDeliveryRuntime.mock.calls[0]?.[0];
     if (!runtimeParams) {
@@ -655,6 +656,7 @@ describe("server-runtime-services", () => {
       expect(hoisted.drainPendingDeliveries).toHaveBeenCalledWith(
         expect.objectContaining({ cfg: reloadedConfig }),
         expect.any(Function),
+        expect.any(Object),
       );
       expect(runtimeConfig).toHaveBeenCalledOnce();
     } finally {

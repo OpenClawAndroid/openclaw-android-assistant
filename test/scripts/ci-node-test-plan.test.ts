@@ -2991,6 +2991,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     const createPlanWithInventory = async (
       includeGrowthFile: boolean,
       extraFiles: string[] = [],
+      compactNodeJobCap?: number,
     ) => {
       vi.resetModules();
       vi.doMock("../vitest/vitest.unit-fast-paths.mjs", () => ({
@@ -3022,7 +3023,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       try {
         const { createNodeTestShardBundles: createPlan } =
           await import("../../scripts/lib/ci-node-test-plan.mts");
-        return createPlan(options);
+        return createPlan({ ...options, compactNodeJobCap });
       } finally {
         vi.doUnmock("../../scripts/lib/list-test-files.mts");
         vi.doUnmock("../../scripts/lib/ci-test-timings.mts");
@@ -3049,6 +3050,17 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       [...baselineToolingFiles, inventoryGrowthFile].toSorted(),
     );
     expect(nonToolingPlacement(grown)).toEqual(nonToolingPlacement(baseline));
+
+    const budgeted = await createPlanWithInventory(true, [], 89);
+    expect(budgeted.filter((job) => !job.requiresDist).length).toBeLessThanOrEqual(89);
+    expect(nonToolingPlacement(budgeted)).toEqual(nonToolingPlacement(grown));
+    expect(
+      budgeted
+        .flatMap((job) => job.groups)
+        .filter(isNumberedToolingGroup)
+        .flatMap((group) => group.includePatterns ?? [])
+        .toSorted(),
+    ).toEqual(toolingFiles.toSorted());
 
     for (const job of grown) {
       const hostedToolingGroups = job.groups.filter(isHostedToolingGroup);

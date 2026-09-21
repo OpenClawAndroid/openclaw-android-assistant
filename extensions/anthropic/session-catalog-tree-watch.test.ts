@@ -8,6 +8,7 @@ import {
   createDirtyDirectoryWatch,
   type DirtyDirectoryWatch,
 } from "./session-catalog-tree-watch.js";
+import { createClaudeCatalogWatchDriver } from "./session-catalog-watch.test-support.js";
 
 const armed = (watch: DirtyDirectoryWatch) =>
   vi.waitFor(() => expect(watch.takeDirty()).toBeInstanceOf(Set), { timeout: 2_000, interval: 25 });
@@ -48,6 +49,24 @@ describe("Claude project directory watch", () => {
       timeout: 2_000,
       interval: 25,
     });
+  });
+
+  it("arms controlled event delivery independently of a fractional host clock", async () => {
+    const projects = path.join(root, "projects");
+    await promises.mkdir(path.join(projects, "existing"), { recursive: true });
+    vi.spyOn(performance, "now").mockReturnValue(1000.1);
+    const driver = createClaudeCatalogWatchDriver(root);
+    watch = createDirtyDirectoryWatch(projects);
+    watch.observeChildDirectories(["existing"]);
+
+    expect(watch.takeDirty()).toBe("all");
+    driver.arm();
+    expect(watch.takeDirty()).toBe("all");
+    expect(watch.takeDirty()).toEqual(new Set());
+
+    driver.change("projects/existing/session.jsonl");
+    expect(watch.takeDirty()).toEqual(new Set(["existing"]));
+    expect(watch.takeDirty()).toEqual(new Set());
   });
 
   it("keeps Linux child coverage after file renames and skipped missing directories", () => {

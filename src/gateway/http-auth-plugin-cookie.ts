@@ -1,5 +1,6 @@
 // HTTP cookie handoff and lifetime belong to the Gateway auth owner.
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isDeepStrictEqual } from "node:util";
 import { getRuntimeConfig } from "../config/io.js";
 import { roleScopesAllow } from "../shared/operator-scope-compat.js";
 import { getUserProfileListItem } from "../state/user-profiles.js";
@@ -86,7 +87,13 @@ export function bindControlUiPluginCookieRequestAuthority(
       ),
     });
     const currentGrants = current?.requestAuth.controlUiPluginGrants ?? [];
+    // Prepared data used the admitted policy, not just its operator scopes. A
+    // policy change requires a fresh request before that data can be disclosed.
     if (
+      !isDeepStrictEqual(
+        current?.requestAuth.operatorRolePolicy,
+        cookieAuth.requestAuth.operatorRolePolicy,
+      ) ||
       !cookieAuth.requestAuth.controlUiPluginGrants.every((admitted) =>
         currentGrants.some(
           (grant) =>

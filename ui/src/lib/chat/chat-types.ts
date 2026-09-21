@@ -80,6 +80,12 @@ export type ChatGoalDraft = { sessionId?: string } & (
 
 export type ChatGoalAction = "pause" | "resume" | "clear";
 
+export type ChatGoalRecovery = {
+  pending: boolean;
+  retired?: "expired" | "invalid";
+  onCheck: () => Promise<boolean>;
+};
+
 export type ChatComposerMemoryFallback = {
   awaitingDefaults?: true;
   goalMode?: ChatGoalDraftMode;

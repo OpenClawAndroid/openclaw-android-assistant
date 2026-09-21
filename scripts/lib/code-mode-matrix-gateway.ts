@@ -327,15 +327,15 @@ function callOutcomes(trace: GatewayMatrixTrace, call: ToolCall): ToolOutcome[] 
   return outcomes;
 }
 
-function settledCallOutcome(trace: GatewayMatrixTrace, call: ToolCall): ToolOutcome | undefined {
-  const outcome = callOutcomes(trace, call).at(-1);
+function settledCallOutcome(outcomes: readonly ToolOutcome[]): ToolOutcome | undefined {
+  const outcome = outcomes.at(-1);
   return outcome && ["completed", "failed"].includes(String(outcome.details.status))
     ? outcome
     : undefined;
 }
 
-function completedCallOutcome(trace: GatewayMatrixTrace, call: ToolCall): ToolOutcome | undefined {
-  const outcome = settledCallOutcome(trace, call);
+function completedCallOutcome(outcomes: readonly ToolOutcome[]): ToolOutcome | undefined {
+  const outcome = settledCallOutcome(outcomes);
   return outcome && !outcome.isError && outcome.details.status === "completed"
     ? outcome
     : undefined;
@@ -458,12 +458,11 @@ export function evaluateGatewayMatrixTask(params: {
   if (task === "return-value-effects" || task === "result-save-invalid-json") {
     const execs = trace.calls.filter((call) => call.name === "exec");
     const probe = execs.length === 1 ? execs[0] : undefined;
-    const outcome = probe ? completedCallOutcome(trace, probe) : undefined;
-    const output = probe
-      ? callOutcomes(trace, probe).flatMap((item) =>
-          Array.isArray(item.details.output) ? item.details.output.filter(record) : [],
-        )
-      : [];
+    const outcomes = probe ? callOutcomes(trace, probe) : [];
+    const outcome = completedCallOutcome(outcomes);
+    const output = outcomes.flatMap((item) =>
+      Array.isArray(item.details.output) ? item.details.output.filter(record) : [],
+    );
     checks.exactProbeSource =
       probe !== undefined &&
       typeof params.probeCode === "string" &&
@@ -506,7 +505,7 @@ export function evaluateGatewayMatrixTask(params: {
   } else if (task === "gateway-config-read") {
     const read = trace.activities.length === 1 ? trace.activities[0] : undefined;
     const call = trace.calls.find((item) => item.id === read?.parentId && item.name === "exec");
-    const outcome = call ? completedCallOutcome(trace, call) : undefined;
+    const outcome = call ? completedCallOutcome(callOutcomes(trace, call)) : undefined;
     const result = record(read?.result.result) ? read.result.result : undefined;
     const config = record(result?.config) ? result.config : undefined;
     checks.singleConfigRead =
@@ -527,7 +526,7 @@ export function evaluateGatewayMatrixTask(params: {
   } else if (task === "invoices-auto-retention") {
     const firstFetch = trace.activities.find((item) => item.name === "matrix_invoice_export");
     const fetchCell = trace.calls.find((call) => call.id === firstFetch?.parentId);
-    const fetched = fetchCell ? completedCallOutcome(trace, fetchCell) : undefined;
+    const fetched = fetchCell ? completedCallOutcome(callOutcomes(trace, fetchCell)) : undefined;
     const automatic =
       fetched &&
       record(fetched.details.value) &&
@@ -547,7 +546,7 @@ export function evaluateGatewayMatrixTask(params: {
       load !== undefined &&
       fetchCell !== undefined &&
       trace.calls.indexOf(load) > trace.calls.indexOf(fetchCell) &&
-      completedCallOutcome(trace, load) !== undefined;
+      completedCallOutcome(callOutcomes(trace, load)) !== undefined;
     checks.singleFetch =
       receiptCalls.filter((row) => row.tool === "matrix_invoice_export").length === 1;
     checks.boundedModelData = new Set(outer.match(/INV-\d+-\d+/gu) ?? []).size <= 8;
@@ -752,7 +751,7 @@ export function evaluateGatewayMatrixTask(params: {
     );
     const settlementCell = trace.calls.find((call) => call.id === failedCall?.parentId);
     const settlementOutcome = settlementCell
-      ? settledCallOutcome(trace, settlementCell)
+      ? settledCallOutcome(callOutcomes(trace, settlementCell))
       : undefined;
     const failureText = JSON.stringify({
       nested: trace.activities.filter((item) => item.name === "matrix_settle" && item.isError),
@@ -771,25 +770,26 @@ export function evaluateGatewayMatrixTask(params: {
     checks.javascriptArguments = execs.every(
       (call) => !("language" in call.args) && !("typecheck" in call.args),
     );
-    const completedOutput = (call: ToolCall) =>
-      completedCallOutcome(trace, call)
-        ? JSON.stringify(callOutcomes(trace, call).map((outcome) => outcome.details))
+    const completedOutput = (call: ToolCall) => {
+      const outcomes = callOutcomes(trace, call);
+      return completedCallOutcome(outcomes)
+        ? JSON.stringify(outcomes.map((outcome) => outcome.details))
         : "";
+    };
     const fileList = execs.find((call) => {
+      if (!isDirectApiRead(call, "list", "tools/")) {
+        return false;
+      }
       const output = completedOutput(call);
-      return (
-        isDirectApiRead(call, "list", "tools/") &&
-        ["read", "write"].every((name) => output.includes(`tools/${name}.d.ts`))
-      );
+      return ["read", "write"].every((name) => output.includes(`tools/${name}.d.ts`));
     });
     const declarations = ["read", "write"].map((name) =>
       execs.find((call) => {
+        if (!isDirectApiRead(call, "read", `tools/${name}.d.ts`)) {
+          return false;
+        }
         const output = completedOutput(call);
-        return (
-          isDirectApiRead(call, "read", `tools/${name}.d.ts`) &&
-          output.includes(`declare function ${name}(`) &&
-          output.includes("string")
-        );
+        return output.includes(`declare function ${name}(`) && output.includes("string");
       }),
     );
     const reads = activity.filter((item) => item.name === "read");
@@ -806,7 +806,8 @@ export function evaluateGatewayMatrixTask(params: {
         const next = discovery[index + 1] ?? firstToolCell;
         return (
           call !== undefined &&
-          (completedCallOutcome(trace, call)?.eventIndex ?? Infinity) < next.eventIndex
+          (completedCallOutcome(callOutcomes(trace, call))?.eventIndex ?? Infinity) <
+            next.eventIndex
         );
       });
     const rejectedReads = trace.activities.filter(
@@ -816,21 +817,28 @@ export function evaluateGatewayMatrixTask(params: {
     checks.caughtArgumentError =
       rejectedRead !== undefined &&
       execs.some((call) => {
+        if (call.id !== rejectedRead.parentId) {
+          return false;
+        }
         const actualError = rejectedRead.result.error;
-        const emitted = callOutcomes(trace, call).flatMap((outcome) =>
+        if (
+          typeof actualError !== "string" ||
+          !actualError.includes("Invalid arguments for tool")
+        ) {
+          return false;
+        }
+        const outcomes = callOutcomes(trace, call);
+        if (!completedCallOutcome(outcomes)) {
+          return false;
+        }
+        const emitted = outcomes.flatMap((outcome) =>
           Array.isArray(outcome.details.output) ? outcome.details.output.filter(record) : [],
         );
-        return (
-          call.id === rejectedRead.parentId &&
-          completedCallOutcome(trace, call) !== undefined &&
-          typeof actualError === "string" &&
-          actualError.includes("Invalid arguments for tool") &&
-          emitted.some(
-            (item) =>
-              item.type === "text" &&
-              typeof item.text === "string" &&
-              normalizeCaughtError(item.text) === normalizeCaughtError(actualError),
-          )
+        return emitted.some(
+          (item) =>
+            item.type === "text" &&
+            typeof item.text === "string" &&
+            normalizeCaughtError(item.text) === normalizeCaughtError(actualError),
         );
       });
     const written = writes[0];
@@ -876,7 +884,7 @@ export function evaluateGatewayMatrixInterview(
       source(call).includes("results.load") && priorRefs.some((id) => source(call).includes(id)),
   );
   const unavailable = attempts.some((call) => {
-    const outcome = settledCallOutcome(interviewTrace, call);
+    const outcome = settledCallOutcome(callOutcomes(interviewTrace, call));
     return outcome !== undefined && /unavailable|expired/iu.test(JSON.stringify(outcome.details));
   });
   const previewCoverage = new Set(

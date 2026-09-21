@@ -90,6 +90,10 @@ function containsModuleAccess(node: import("acorn").AnyNode): boolean {
 }
 
 function rejectsModuleAccess(code: string): boolean {
+  // Unicode escapes can spell a loader identifier without its literal name.
+  if (!code.includes("import") && !code.includes("require") && !code.includes("\\u")) {
+    return false;
+  }
   const parsed = parseCodeModeScriptSyntax(code);
   if (parsed.ok) {
     // The WASI guest has no host module loader. Only executable module syntax
