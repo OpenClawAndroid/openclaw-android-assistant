@@ -2019,7 +2019,7 @@ run_live_openai() {
       --session-id upgrade-survivor-live-openai \
       --model "$model" \
       --message "Reply with exactly $marker and no other text." \
-      --thinking off \
+      --thinking low \
       --timeout "$timeout_seconds" \
       --json
   ) >"$LIVE_OPENAI_JSON" 2>"$LIVE_OPENAI_ERR" || status=$?

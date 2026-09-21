@@ -24,6 +24,7 @@ import { conversationIdentityFromMsgContext } from "../../config/sessions/conver
 import { resolveGroupSessionKey } from "../../config/sessions/group.js";
 import { normalizeMediaFacts } from "../../media/media-facts.js";
 import { normalizeAccountId } from "../../routing/account-id.js";
+import { readSessionInputBootstrapProfileId } from "../../sessions/session-participant-input.js";
 import { MEDIA_ONLY_USER_TEXT } from "../../sessions/user-turn-media.js";
 import {
   createUserTurnTranscriptRecorder,
@@ -435,6 +436,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
       messageProvider,
       mediaNormalizationOwner: opts?.mediaNormalizationOwner,
       clientCaps: ctx.GatewayClientCaps,
+      bootstrapUserProfileId: readSessionInputBootstrapProfileId(ctx),
       gatewayUiCommandTarget: ctx.GatewayUiCommandTarget,
       toolBindings: ctx.GatewayRunToolBindings,
       chatType: replyRoute.chatType,

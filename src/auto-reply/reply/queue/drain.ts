@@ -6,7 +6,6 @@ import type { MediaImageLayout } from "../../../agents/embedded-agent-runner/run
 import { runAgentHarnessBeforeMessageWriteHook } from "../../../agents/harness/hook-helpers.js";
 import { runOutsidePreparedModelRuntimePluginGenerationScope } from "../../../agents/prepared-model-runtime-generation-scope.js";
 import { normalizeChatType } from "../../../channels/chat-type.js";
-import { compareChannelAdmissionParticipants } from "../../../channels/message-access/admission-evidence.js";
 import { resolveSessionStorePathCore } from "../../../config/sessions.js";
 import { loadSessionEntryReadOnly } from "../../../config/sessions/session-accessor.js";
 // Drains queued follow-up runs while preserving route and session identity.
@@ -39,6 +38,7 @@ import {
   waitForQueueDebounce,
 } from "../../../utils/queue-helpers.js";
 import { isRoutableChannel } from "../route-reply.js";
+import { resolveCollectedRun } from "./collected-run.js";
 import {
   collectRuntimeMetadata,
   hasExclusiveTurnAdmission,
@@ -247,34 +247,6 @@ function resolveOriginRoutingMetadata(items: FollowupRun[]): OriginRoutingMetada
     originatingReplyToId: source.originatingReplyToId,
     originatingReplyToMode: source.originatingReplyToMode,
     originatingChatType: source.originatingChatType,
-  };
-}
-
-function hasVerifiedAdmissionParticipant(run: FollowupRun): boolean {
-  return compareChannelAdmissionParticipants([run.channelAdmissionEvidence]) === "same";
-}
-
-function resolveCollectedRun(items: readonly FollowupRun[], source: FollowupRun["run"]) {
-  const participantComparison = compareChannelAdmissionParticipants(
-    items.map((item) => item.channelAdmissionEvidence),
-  );
-  if (
-    participantComparison === "same" ||
-    !items.every((item) => hasVerifiedAdmissionParticipant(item))
-  ) {
-    return source;
-  }
-  // Mixed or unverifiable people share no downstream sender authority. The
-  // opaque admission aggregate records unknown identity at the run boundary.
-  return {
-    ...source,
-    senderId: undefined,
-    senderName: undefined,
-    senderUsername: undefined,
-    senderE164: undefined,
-    senderIsOwner: false,
-    traceAuthorized: false,
-    ownerNumbers: [],
   };
 }
 

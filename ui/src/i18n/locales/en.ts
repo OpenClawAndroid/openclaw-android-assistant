@@ -3896,6 +3896,12 @@ export const en: TranslationMap & {
     goals: {},
     asyncQuestions: {
       title: "Optional · work can continue",
+      dismiss: "Dismiss",
+      dismissing: "Dismissing…",
+      dismissed: "Dismissed",
+      reopening: "Restoring answer…",
+      dismissedReason: "You can still answer this question later.",
+      dismissedNotice: "Question dismissed. Work continues.",
       pendingOne: "{count} unanswered question",
       pendingMany: "{count} unanswered questions",
       inComposer: "Answer above the message box.",

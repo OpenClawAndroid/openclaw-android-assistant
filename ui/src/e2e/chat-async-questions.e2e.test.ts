@@ -203,7 +203,9 @@ suite.define(() => {
           message,
         });
       }
-      await expectBrowser(page.getByText("Other work finished.", { exact: true })).toBeVisible();
+      await expectBrowser(
+        page.locator(".chat-thread-inner").getByText("Other work finished.", { exact: true }),
+      ).toBeVisible();
       await expectBrowser(draft).toHaveValue("New contributors and maintainers");
       // Observe the owning IndexedDB transaction, not a timeout, before simulating a reload.
       await expect
@@ -261,6 +263,43 @@ suite.define(() => {
       );
       expect(await gateway.getRequests("chat.send")).toHaveLength(0);
       expect(await gateway.getRequests("question.resolve")).toHaveLength(0);
+    });
+  });
+
+  it("dismisses durably with Undo and reopens after reload without resolving or stopping work", async () => {
+    await suite.withPage(createControlUiE2eContextOptions(), async ({ page }) => {
+      const gateway = await installMockGateway(page, { historyMessages: [questionMessage] });
+      await page.goto(`${suite.server.baseUrl}chat`);
+      const dock = page.locator(".agent-chat__question-dock");
+      const draft = dock.getByRole("textbox", { name: `Your own answer for ${title}` });
+      await draft.fill("My project team");
+      await captureUiProof(suite, page, "async-question-dismissal", "before-dismissal.png");
+      await dock.getByRole("button", { name: "Dismiss", exact: true }).click();
+      const toast = page.locator(".app-toast");
+      await expectBrowser(toast).toContainText("Question dismissed. Work continues.");
+      await expectBrowser(dock).toHaveCount(0);
+      await captureUiProof(suite, page, "async-question-dismissal", "after-dismissal-undo.png");
+      await toast.getByRole("button", { name: "Undo", exact: true }).click();
+      await expectBrowser(draft).toHaveValue("My project team");
+      // A visible restored answer is a durability boundary, with no intervening write.
+      await page.reload();
+      await expectBrowser(draft).toHaveValue("My project team");
+      await dock.getByRole("button", { name: "Dismiss", exact: true }).click();
+      // The toast is published after the durable write settles, so reload exercises stored state.
+      await expectBrowser(toast).toContainText("Question dismissed. Work continues.");
+      await page.reload();
+      const summary = page.locator(".chat-question-summary").filter({ hasText: title });
+      await expectBrowser(summary).toContainText("Dismissed");
+      await expectBrowser(dock).toHaveCount(0);
+      await captureUiProof(suite, page, "async-question-dismissal", "after-reload.png");
+      await summary.getByRole("button", { name: "Answer", exact: true }).click();
+      await expectBrowser(draft).toHaveValue("My project team");
+      // A visible restored answer is a durability boundary, with no intervening write.
+      await page.reload();
+      await expectBrowser(draft).toHaveValue("My project team");
+      expect(await gateway.getRequests("chat.send")).toHaveLength(0);
+      expect(await gateway.getRequests("question.resolve")).toHaveLength(0);
+      expect(await gateway.getRequests("chat.abort")).toHaveLength(0);
     });
   });
 
@@ -610,15 +649,15 @@ suite.define(() => {
       expect(await custom.inputValue()).toBe("Readers new to the project");
       await card.getByRole("button", { name: "Next", exact: true }).click();
       await card.getByText(secondTitle, { exact: true }).waitFor();
-      await card.getByRole("button", { name: "Skip", exact: true }).click();
+      await card.getByRole("button", { name: "Dismiss", exact: true }).click();
       await card.getByText(title, { exact: true }).waitFor();
       expect(await custom.inputValue()).toBe("Readers new to the project");
-      await card.getByRole("button", { name: "Skip", exact: true }).click();
+      await card.getByRole("button", { name: "Dismiss", exact: true }).click();
       await card.waitFor({ state: "detached" });
       expect(await composer.inputValue()).toBe("Continue researching while I decide.");
       const skipped = page.locator(".chat-thread .chat-question-summary");
-      expect(await skipped.filter({ hasText: title }).textContent()).toContain("Skipped");
-      expect(await skipped.filter({ hasText: secondTitle }).textContent()).toContain("Skipped");
+      expect(await skipped.filter({ hasText: title }).textContent()).toContain("Dismissed");
+      expect(await skipped.filter({ hasText: secondTitle }).textContent()).toContain("Dismissed");
       expect(await gateway.getRequests("chat.send")).toHaveLength(0);
     } finally {
       await suite.closeBrowserContext(context);

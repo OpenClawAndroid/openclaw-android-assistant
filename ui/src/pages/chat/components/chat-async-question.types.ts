@@ -10,7 +10,7 @@ export type AsyncQuestionDraft = {
   answers: Map<string, QuestionDraft>;
   edited?: boolean;
   signature?: string;
-  status?: "submitting" | "submitted" | "skipped";
+  status?: "submitting" | "submitted" | "skipped" | "reopening";
   error?: string;
   reopenedAfterBoundary?: string;
 };
@@ -24,6 +24,7 @@ export type AsyncQuestionPresentation = {
   resolved: ReadonlyMap<string, AsyncQuestionDraft>;
   onChange: () => void;
   storageError?: string;
-  reopen: (itemId: string) => void;
+  dismiss: (itemId: string) => Promise<void>;
+  reopen: (itemId: string) => void | Promise<void>;
   submit?: (message: string) => Promise<boolean>;
 };

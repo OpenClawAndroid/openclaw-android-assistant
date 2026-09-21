@@ -13,6 +13,47 @@ read_when:
 
 OpenClaw loads `USER.md` beside `MEMORY.md` at session start. It has a separate small bootstrap budget, and edits are picked up on later turns in a long-lived session. If the file is absent, startup continues without it.
 
+## Personal USER files on a shared Gateway
+
+Keep workspace-root `USER.md` for shared defaults. To add preferences for one
+signed-in person, create `users/<canonical-profile-id>/USER.md` in the **agent
+workspace**, not the task's Git worktree. Obtain the durable profile ID from the
+Gateway's authenticated profile/People data; do not use a display name, GitHub
+login, email, or a profile ID pasted into a message. No new configuration is needed.
+
+For an authenticated external chat turn, OpenClaw loads the shared file first and
+that person's optional file second. The personal file overrides conflicting
+shared user preferences for that turn, not project rules or security policy.
+Files are refreshed on later turns, including when another person uses the same
+session. A message from another person cannot steer a running turn with frozen
+personal instructions; it follows the normal queued-turn path instead. Profile merges select the surviving canonical ID; move the preferences
+to that directory yourself. OpenClaw does not merge files or create a dossier.
+
+Missing files, unknown identity, and collected turns from multiple people use
+shared defaults only. Channel sender labels and session/agent owners are never
+identity fallbacks. Internal events and delegated tasks do not automatically
+inherit a personal profile. Subagent bootstrap still contains only its existing
+allowed project instructions. The shared local owner profile represents all
+connections using that identity, not separate people; use per-person sign-in on
+a team Gateway.
+
+Personal files use the existing guarded reads and memory provenance checks.
+Symlink aliases are not accepted. Each personal file must fit wholly within the
+4,000-character USER budget (or a lower configured per-file/remaining total
+budget); otherwise it is omitted with a warning rather than partially injected.
+Shared files retain their existing limits. Existing harness-specific bootstrap
+suppression still applies: for example, the embedded runner's
+`contextInjection: "never"` and `continuation-skip` settings, and lightweight
+bootstrap modes. Use the default `always` mode for per-turn personalization.
+This selection is supported by the local embedded, generic CLI, and native Codex
+bootstrap paths. ACP agents, realtime sessions, and remote worker execution do
+not gain per-person selection from this feature.
+
+This is **prompt selection, not filesystem secrecy**. Workspace tools, trusted
+plugins, shared transcripts, and previously generated responses can expose other
+context. Changing the current person does not erase conversation history. Do not
+store secrets in these files.
+
 ## Gateway profile and GitHub credit
 
 Your authenticated Gateway profile is separate from `USER.md`. Open **Settings → Profile → Identity** to set the display name and avatar shown to other people on the Gateway. A custom OpenClaw avatar remains authoritative when a GitHub account is verified. The Profile header follows your live user identity, including names cleared from another browser, even when several agents are configured. Unidentified connections retain the default-agent preview.

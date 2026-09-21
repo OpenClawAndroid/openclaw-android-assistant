@@ -31,6 +31,7 @@ import {
   type OpenClawTestState,
 } from "../../src/test-utils/openclaw-test-state.js";
 import { acquireTestPortBlock } from "../../src/test-utils/port-claims.js";
+import { cleanupSessionStateForTest } from "../../src/test-utils/session-state-cleanup.js";
 import { sleep } from "../../src/utils.js";
 import { decodeUtf8Tail } from "./bounded-child-output.js";
 import { runQaGatewayFixture } from "./qa-gateway-cleanup.js";
@@ -969,6 +970,8 @@ export async function createOpenClawTestInstance(
           ...(options.gatewayArgs ?? []),
         ];
         await stopGatewayChild({ forceWindowsTree: true });
+        // Parent-side seeds retain leases that the child's startup maintenance must acquire.
+        await cleanupSessionStateForTest({ stateDir: state.stateDir, rootPath: state.root });
         signal?.throwIfAborted();
         const deadline = Date.now() + (options.startTimeoutMs ?? GATEWAY_START_TIMEOUT_MS);
         let restarts = 0;

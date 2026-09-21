@@ -17,7 +17,7 @@ Docs-only `main` pushes skip CI and cache warming. The cache warmer publishes de
 
 Core-test-only PRs use targeted type checks only when every selected test exists in the checkout. Deleting a core test keeps the full type-check plan, including the existing core stripes on GitHub and hybrid profiles.
 
-Core lint includes `src/**/*.test-support.cjs` in type-aware checks through the bounded `src/tsconfig.json` discovery project. Other source files retain the root TypeScript project; unrelated JavaScript files are not added to this test-support project.
+Core lint discovers separate source and UI TypeScript projects, retaining shared ambient declarations and imported dependencies. The source project also includes `src/**/*.test-support.cjs`; unrelated JavaScript files are not added as roots. See [local checks](/ci/local-proof#local-equivalents).
 
 Android native resource preparation uses the Mermaid renderer's filtered dependency install, including optional build tooling. Pnpm retains root dependencies but omits unrelated plugin packages; Gradle still builds the assets and runs the selected native tests and lint. Historical targets keep their compatibility path.
 
@@ -57,6 +57,10 @@ Linux PR tests use Bun for the measured compatible lanes. Full Release Validatio
 keeps their Node coverage and runs them on Bun too; see [test runtime selection](/ci/pipeline#test-runtime-selection).
 
 Auto-reply reply tests run files in parallel with two workers per compact group. Their planner uses separate parallel timing identities; until those have measurements, serial group costs are divided by the effective worker count, with single-file groups retaining their full cost.
+
+The measured Gateway isolated/database-worker cohort uses at most eight workers
+on those hosts with at least 28 GiB total memory; other packed groups retain
+their existing caps.
 
 The complete [startup corpus](/ci/pipeline) uses eight state test files so existing workers can share its release/config matrix. Its explicit fallback prepares the runtime once and uses four workers; historical frozen targets retain their legacy process layout.
 

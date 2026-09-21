@@ -29,14 +29,14 @@ const store = () => import("../../../lib/chat/composer-draft-store.runtime.ts");
 function snapshot(session: AsyncQuestionDraftSession): DurableQuestionDraft[] {
   return [...session.drafts].flatMap(([itemId, draft]) =>
     !session.resolved.has(itemId) &&
-    draft.status !== "skipped" &&
     draft.signature &&
-    (draft.edited || draft.reopenedAfterBoundary)
+    (draft.edited || draft.reopenedAfterBoundary || draft.status === "skipped")
       ? [
           {
             itemId,
             signature: draft.signature,
             edited: draft.edited === true,
+            ...(draft.status === "skipped" ? { dismissed: true } : {}),
             answers: [...draft.answers.values()].map((answer) => ({
               selected: [...answer.selected],
               freeText: answer.freeText,
@@ -90,6 +90,7 @@ export function restoreAsyncQuestionDrafts(session: AsyncQuestionDraftSession): 
       session.drafts.set(draft.itemId, {
         signature: draft.signature,
         edited: draft.edited,
+        status: draft.dismissed ? "skipped" : undefined,
         answers: new Map(
           draft.answers.map((answer, index) => [
             String(index),
