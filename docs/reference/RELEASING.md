@@ -19,7 +19,10 @@ OpenClaw exposes four user-facing update channels:
 Extended-stable ships a Gateway from either of the two trailing completed
 months, along with official npm plugins and Docker images, without moving
 regular `latest` or `main` selectors. Each release also has a GitHub Release
-with shared validation evidence that is never marked Latest.
+with shared validation evidence that is never marked Latest. Its release notes
+start with a generated notice identifying the Gateway-only LTS-equivalent track,
+the source month, and the regular stable version captured by the immutable
+publication tooling.
 
 Tideclaw alpha builds are a separate internal prerelease track (npm dist-tag `alpha`), covered under [NPM workflow inputs](#npm-workflow-inputs) and [Release test boxes](#release-test-boxes).
 

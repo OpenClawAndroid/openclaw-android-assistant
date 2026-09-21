@@ -9,12 +9,18 @@ export const gatewayPluginTestFiles = [
 export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/agent-turn/agent-run-dispatch.execution-binding.test.ts",
   "src/gateway/agent-turn/agent-run-dispatch.sqlite.test.ts",
+  "src/gateway/approval-fixture.test.ts",
   "src/gateway/board-http.test.ts",
   "src/gateway/board-store.test.ts",
   "src/gateway/chat-display-projection.cron.test.ts",
   "src/gateway/config-reload.activation.integration.test.ts",
   "src/gateway/config-reload.test.ts",
   "src/gateway/config-reload.transcripts.test.ts",
+  "src/gateway/control-ui-session-pr-access.test.ts",
+  "src/gateway/control-ui-session-prs-branch.test.ts",
+  "src/gateway/control-ui-session-prs-retention.test.ts",
+  "src/gateway/control-ui-session-prs-staleness.test.ts",
+  "src/gateway/control-ui-session-prs.test.ts",
   "src/gateway/control-ui.http.test.ts",
   "src/gateway/device-pair-setup-completion.test.ts",
   "src/gateway/device-pairing-prune.test.ts",
@@ -89,6 +95,7 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/server-methods/models-list.membership.integration.test.ts",
   "src/gateway/server-methods/models-list.native-lifecycle.integration.test.ts",
   "src/gateway/server-methods/models-list.worker-recovery.integration.test.ts",
+  "src/gateway/server-methods/models-manual-policy.integration.test.ts",
   "src/gateway/server-methods/native-hook-relay.test.ts",
   "src/gateway/server-methods/nodes.test.ts",
   "src/gateway/server-methods/projects.test.ts",
@@ -150,8 +157,10 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/worker-environments/provider-crabbox-runtime-preflight.test.ts",
   "src/gateway/worker-environments/provider-provisioning.cancellation.test.ts",
   "src/gateway/worker-environments/store-node-enrollment.test.ts",
+  "src/gateway/worker-environments/worker-session-tool-executor.test.ts",
   "src/gateway/worker-environments/workspace-result-ref-mutation.test.ts",
   "src/gateway/worker-environments/workspace-result-repository.test.ts",
+  "test/plugins/codex-model-catalog.gateway.test.ts",
 ];
 
 // Native Vitest subprocesses cold-import the real Gateway; keep their collection
@@ -197,6 +206,7 @@ export const gatewayMethodsIsolatedTestFiles = [
 
 // Gateway server tests that need a private module graph and the plain Vitest runner.
 export const gatewayServerIsolatedTestFiles = [
+  "src/gateway/server-worker-environment-startup.state.test.ts",
   // A failed native close permanently fences this process's metadata owner.
   "src/gateway/server-close.agent-databases.test.ts",
   "src/gateway/server.chat.canonical-publication.test.ts",
@@ -208,6 +218,7 @@ export const gatewayServerIsolatedTestFiles = [
   "src/gateway/server.cli-watchdog.test.ts",
   "src/gateway/server.codex-failure-recovery.test.ts",
   "src/gateway/server.incomplete-stream.test.ts",
+  "src/gateway/server.plugins-install-authority.test.ts",
   "src/gateway/server.labs-hot-reload.test.ts",
   "src/gateway/server.encrypted-tool-continuation.test.ts",
   "src/gateway/server.message-buffer-caption.test.ts",

@@ -4,6 +4,7 @@
 // lockfile-only PR changes without executing contributor code.
 import { appendFile } from "node:fs/promises";
 import {
+  SupersededReviewError,
   assertGuardUnchanged,
   findMaintainerApproval,
   finishGuard,
@@ -650,7 +651,12 @@ export async function reviewDependencyChanges(
       try {
         const token = process.env.OPENCLAW_DEPENDENCY_GUARD_AUTOSCRUB_TOKEN;
         if (!token) {
-          throw new Error("autoscrub app token was unavailable");
+          await writeSummary(
+            "## Dependency Guard\n\nAutomatic lockfile cleanup is unavailable because no write token could be created. Remove the lockfile changes manually or request maintainer approval. Final dependency review remains required.",
+          );
+          // Optional cleanup cannot grant approval; the final enforcement step
+          // still evaluates these unchanged dependency files.
+          return false;
         }
         const commit = await createAutoscrubCommit(
           { baseApi: api, writeApi: githubApi(token), guard },
@@ -672,7 +678,7 @@ export async function reviewDependencyChanges(
         await writeSummary(body);
         return true;
       } catch (error) {
-        if (error instanceof GitHubRateLimitError) {
+        if (error instanceof GitHubRateLimitError || error instanceof SupersededReviewError) {
           throw error;
         }
         autoscrubStatus = {
@@ -749,6 +755,10 @@ export async function reviewDependencyChanges(
 if (import.meta.url === `file://${process.argv[1]}`) {
   reviewDependencyChanges().catch(
     /** @param {unknown} error */ (error) => {
+      if (error instanceof SupersededReviewError) {
+        console.log(error.message);
+        return;
+      }
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
     },

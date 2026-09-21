@@ -23,6 +23,20 @@ const capture = `merge-output.${record.attempt}.log`;
 const refusal = "error: string rewrite protection blocked unsafe input\n";
 const diagnostic =
   "octopool: merge_diagnostics attempt_utc=2026-09-21T12:00:00Z elapsed_ms=1 child_started=false outcome=preparation_failed headers=unavailable\n";
+const historicalRefusals = {
+  "0.6.10": {
+    kind: "octopool-0.6.10-auto-refusal",
+    version: "0.6.10",
+    sourceRevision: "00c442d8084ad26eb5a5003f7372170e75a20c8a",
+    parserSha256: "f6ff8cd7e59503f71f94fefd561b671193df11b3aac9ba0986a0dc3ba91ca32b",
+  },
+  "0.7.1": {
+    kind: "octopool-0.7.1-missing-subject-refusal",
+    version: "0.7.1",
+    sourceRevision: "7ab9b348c99a7be4fdc82c75cb06ebce44e0007e",
+    parserSha256: "b32cb960537f5ffa1336a7689674afba9b4a2485b05e449acd2684a251ff8970",
+  },
+} as const;
 const hash = (text: string) =>
   execFileSync("git", ["hash-object", "--stdin"], { input: text, encoding: "utf8" }).trim();
 const describePosix = process.platform === "win32" ? describe.skip : describe;
@@ -30,6 +44,13 @@ const describePosix = process.platform === "win32" ? describe.skip : describe;
 describePosix("operator-qualified pre-dispatch evidence", () => {
   it.each([
     "historical",
+    "historical-0.7.1",
+    "0.7.1-wrong-version",
+    "0.7.1-wrong-source",
+    "0.7.1-wrong-parser",
+    "0.7.1-subject",
+    "0.7.1-subject-equals",
+    "0.7.1-altered-stderr",
     "diagnostic",
     "generic-only",
     "wrong-source",
@@ -48,12 +69,38 @@ describePosix("operator-qualified pre-dispatch evidence", () => {
     mkdirSync(directory);
     mkdirSync(join(root, ".local"));
     const diagnostics = ["diagnostic", "started", "duplicate"].includes(fault);
+    const historical =
+      historicalRefusals[
+        fault.startsWith("0.7.1-") || fault === "historical-0.7.1" ? "0.7.1" : "0.6.10"
+      ];
     let contents = diagnostics ? diagnostic + refusal : refusal;
     if (fault === "started") {
       contents = contents.replace("child_started=false", "child_started=true");
     }
     if (fault === "duplicate") {
       contents += diagnostic;
+    }
+    if (fault === "0.7.1-altered-stderr") {
+      contents += diagnostic.replace("child_started=false", "child_started=true");
+    }
+    const args = [
+      "pr",
+      "merge",
+      "123",
+      "--repo",
+      record.repo.url,
+      "--squash",
+      "--auto",
+      "--match-head-commit",
+      record.head,
+      "--body-file",
+      ".local/merge-body.fixture",
+    ];
+    if (fault === "0.7.1-subject") {
+      args.push("--subject", "Fixture subject");
+    }
+    if (fault === "0.7.1-subject-equals") {
+      args.push("--subject=Fixture subject");
     }
     const proof = {
       outcome: fault === "wrong-outcome" ? "c".repeat(40) : outcome,
@@ -62,26 +109,15 @@ describePosix("operator-qualified pre-dispatch evidence", () => {
       ...(diagnostics
         ? { kind: "octopool-merge-diagnostics", producer: "octopool", diagnosticsEnabled: true }
         : {
-            kind: "octopool-0.6.10-auto-refusal",
-            version: "0.6.10",
-            sourceRevision: "00c442d8084ad26eb5a5003f7372170e75a20c8a",
+            ...historical,
+            version: fault === "0.7.1-wrong-version" ? "0.7.0" : historical.version,
+            sourceRevision:
+              fault === "0.7.1-wrong-source" ? "a".repeat(40) : historical.sourceRevision,
             parserSha256:
-              fault === "wrong-source"
+              fault === "wrong-source" || fault === "0.7.1-wrong-parser"
                 ? "a".repeat(64)
-                : "f6ff8cd7e59503f71f94fefd561b671193df11b3aac9ba0986a0dc3ba91ca32b",
-            args: [
-              "pr",
-              "merge",
-              "123",
-              "--repo",
-              record.repo.url,
-              "--squash",
-              "--auto",
-              "--match-head-commit",
-              record.head,
-              "--body-file",
-              ".local/merge-body.fixture",
-            ],
+                : historical.parserSha256,
+            args,
           }),
     };
     writeFileSync(join(root, ".local", capture), contents);
@@ -106,7 +142,7 @@ describePosix("operator-qualified pre-dispatch evidence", () => {
       cwd: root,
       encoding: "utf8",
     });
-    if (fault === "historical" || fault === "diagnostic") {
+    if (fault === "historical" || fault === "historical-0.7.1" || fault === "diagnostic") {
       expect(result.status, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
         kind: proof.kind,

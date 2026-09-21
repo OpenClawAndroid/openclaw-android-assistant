@@ -1085,7 +1085,6 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         "openclaw-session-owner-chip",
         ".chat-side-panel-toggle",
         ".chat-pane__sharing-menu",
-        ".chat-pane__branches-menu",
         ".chat-pane__nav-toggle",
         ".chat-pane__palette-open",
         ".chat-pane__split-down",

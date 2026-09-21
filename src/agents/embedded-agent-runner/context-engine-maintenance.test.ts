@@ -22,6 +22,7 @@ import { resetCommandQueueStateForTest } from "../../process/command-queue.test-
 import { onSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
 import { createQueuedTaskRunCore as createQueuedTaskRunOrNull } from "../../tasks/task-executor.js";
 import { getTaskFlowById } from "../../tasks/task-flow-registry.js";
+import { captureTaskDeliveryWork } from "../../tasks/task-registry-delivery.test-support.js";
 import { getTaskById, listTasksForOwnerKey } from "../../tasks/task-registry.js";
 import type { TaskRecord } from "../../tasks/task-registry.types.js";
 import {
@@ -1581,6 +1582,7 @@ describe("runContextEngineMaintenance", () => {
 
   it("surfaces long-running deferred maintenance and completion via task updates", async () => {
     await withStateDirEnv("openclaw-turn-maintenance-", async () => {
+      using deliveries = captureTaskDeliveryWork();
       vi.useFakeTimers();
       try {
         resetCommandQueueStateForTest();
@@ -1640,12 +1642,14 @@ describe("runContextEngineMaintenance", () => {
         expect(getTaskFlowById(parentFlowId)?.status).toBe("succeeded");
       } finally {
         vi.useRealTimers();
+        await deliveries.settle();
       }
     });
   });
 
   it("surfaces unrelated maintenance failures during shutdown", async () => {
     await withStateDirEnv("openclaw-turn-maintenance-", async () => {
+      using deliveries = captureTaskDeliveryWork();
       vi.useFakeTimers();
       const keepProcessAlive = () => {};
       process.on("SIGTERM", keepProcessAlive);
@@ -1718,6 +1722,7 @@ describe("runContextEngineMaintenance", () => {
         process.off("SIGTERM", keepProcessAlive);
         resetDeferredTurnMaintenanceStateForTest();
         vi.useRealTimers();
+        await deliveries.settle();
       }
     });
   });

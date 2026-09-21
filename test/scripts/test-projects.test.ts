@@ -7,6 +7,7 @@ import { assert, beforeAll, describe, expect, it, vi } from "vitest";
 import { listExtensionTestFilesForRoots } from "../../scripts/lib/extension-test-plan.mts";
 import { readTestSelectorSourceFacts } from "../../scripts/lib/test-selector-source-facts.mts";
 import {
+  listVitestRuntimeConsumerFiles,
   resolveVitestPretestBuildMode,
   resolveVitestRuntimeConfigScopes,
 } from "../../scripts/lib/vitest-build-prerequisites.mts";
@@ -30,6 +31,7 @@ import {
   resolveChangedTestTargetPlanForArgs,
   resolveChangedTestTargetPlan,
   resolveChangedTargetArgs,
+  resolveControlUiTestConsumers,
   resolveParallelFullSuiteConcurrency,
   shouldRetryVitestNoOutputTimeout,
   withRetryNoOutputTimeout,
@@ -142,6 +144,11 @@ describe("test runtime prerequisites", () => {
     ],
     ["native catalog auth SDK", ["test/openai-model-discovery-auth-order.test.ts"], "runtime"],
     ["models.list native catalog", ["test/plugins/codex-model-catalog.gateway.test.ts"], "runtime"],
+    [
+      "Gateway TLS source fixture",
+      ["test/e2e/qa-lab/runtime/gateway-tls-pinning.test.ts"],
+      undefined,
+    ],
     ["native package setup SDK", ["test/plugin-npm-runtime-build.test.ts"], "runtime"],
     ["native Linux node SDK", ["src/node-host/linux-node-plugin.integration.test.ts"], "runtime"],
     ["native memory CLI SDK", ["src/entry.memory-json.test.ts"], "runtime"],
@@ -277,13 +284,14 @@ describe("test runtime prerequisites", () => {
 
   const catalogFile = "test/plugins/codex-model-catalog.gateway.test.ts";
   const freshnessFile = "src/gateway/server-methods/models-list.freshness.integration.test.ts";
-  const scopedFreshnessFile = "server-methods/models-list.freshness.integration.test.ts";
+  const scopedFreshnessFile = "**/models-list.freshness.integration.test.ts";
   it.each([
     ["gateway-database-workers", [], "runtime"],
     ["gateway-database-workers", [freshnessFile], "runtime"],
-    ["gateway-database-workers", [scopedFreshnessFile], "runtime"],
+    ["gateway-database-workers", ["models-list.freshness.integration"], "runtime"],
     ["gateway-database-workers", [freshnessFile, "--exclude", scopedFreshnessFile], undefined],
-    ["gateway-methods", [catalogFile], "runtime"],
+    ["gateway-database-workers", [catalogFile], "runtime"],
+    ["gateway-methods", [catalogFile], undefined],
     ["gateway-methods", [freshnessFile], undefined],
     ["gateway-methods", ["--exclude", catalogFile], undefined],
     ["gateway", [catalogFile], "runtime"],
@@ -298,6 +306,31 @@ describe("test runtime prerequisites", () => {
       {},
     );
     expect(resolveVitestPretestBuildMode(selections)).toBe(expected);
+  });
+
+  it.each([
+    "src/gateway/setup-inference.first-signin.integration.test.ts",
+    "src/gateway/server-methods/models-list.freshness.integration.test.ts",
+    "test/plugins/codex-model-catalog.gateway.test.ts",
+    "src/gateway/server-methods/models-list.worker-recovery.integration.test.ts",
+    "src/gateway/gateway-auth-recovery.test.ts",
+    "src/gateway/gateway-cron-process-identity.windows.test.ts",
+    "src/gateway/gateway-route-model-reuse.test.ts",
+    "src/gateway/gateway-ssh-upload-signal.test.ts",
+  ])("keeps Gateway worker runtime selection rooted at the repository for %s", (file) => {
+    const config = "test/vitest/vitest.gateway-database-workers.config.ts";
+    expect(listVitestRuntimeConsumerFiles([config])).toContain(file);
+    expect(
+      listVitestRuntimeConsumerFiles(["test/vitest/vitest.gateway-methods.config.ts"]),
+    ).not.toContain(file);
+    expect(
+      resolveVitestPretestBuildMode(resolveVitestRuntimeCliSelections(config, ["run", file], {})),
+    ).toBe("runtime");
+    expect(
+      resolveVitestPretestBuildMode(
+        resolveVitestRuntimeCliSelections(config, ["run", file, "--exclude", file], {}),
+      ),
+    ).toBeUndefined();
   });
 
   it.each([
@@ -382,7 +415,7 @@ describe("test runtime prerequisites", () => {
       "src/gateway/server-sidecar-retention.test.ts",
     ],
     ["gateway-database-workers", "src/gateway/server-methods/cron.runs.test.ts", freshnessFile],
-    ["gateway-methods", "src/gateway/server-methods/models.test.ts", catalogFile],
+    ["gateway-database-workers", "src/gateway/server-methods/models.test.ts", catalogFile],
     ["gateway", "src/gateway/server-request-context.test.ts", freshnessFile],
   ])("projects invocation-owned include files under %s", (project, ordinaryFile, runtimeFile) => {
     const selections = resolveVitestRuntimeCliSelections(
@@ -889,7 +922,11 @@ describe("scripts/test-projects changed-target routing", () => {
   it("keeps extension batch runner edits on extension script tests", () => {
     expectChangedTargets(
       ["scripts/test-extension-batch.mts"],
-      ["test/scripts/test-extension.test.ts", "test/scripts/test-projects-build-admission.test.ts"],
+      [
+        "test/scripts/test-extension.test.ts",
+        "test/scripts/test-projects-build-admission.test.ts",
+        "test/scripts/ci-node-test-plan.test.ts",
+      ],
     );
   });
 
@@ -4162,9 +4199,19 @@ describe("scripts/test-projects changed-target routing", () => {
   });
 
   it.each([
-    ["ui/config/control-ui-chunking.ts", "ui/src/app/control-ui-chunking.test.ts"],
-    ["ui/config/control-ui-locales.ts", "ui/src/app/vite-config.node.test.ts"],
-  ])("routes changed ui build helper %s to its owner test", (changedPath, testPath) => {
+    {
+      changedPath: "ui/config/control-ui-chunking.ts",
+      tests: ["ui/src/app/control-ui-chunking.test.ts"],
+    },
+    {
+      changedPath: "ui/config/control-ui-locales.ts",
+      tests: ["ui/src/app/vite-config.node.test.ts"],
+    },
+    {
+      changedPath: "ui/config/control-ui-boot-modules.json",
+      tests: ["ui/src/app/control-ui-chunking.test.ts", "ui/src/app/vite-config.node.test.ts"],
+    },
+  ])("routes changed ui build helper $changedPath to its owner tests", ({ changedPath, tests }) => {
     const plans = buildVitestRunPlans(["--changed", "origin/main"], process.cwd(), () => [
       changedPath,
     ]);
@@ -4173,7 +4220,7 @@ describe("scripts/test-projects changed-target routing", () => {
       {
         config: "test/vitest/vitest.ui.config.ts",
         forwardedArgs: [],
-        includePatterns: [testPath],
+        includePatterns: tests,
         watchMode: false,
       },
     ]);
@@ -4693,6 +4740,80 @@ describe("scripts/test-projects changed-target routing", () => {
 });
 
 describe("test selector native source facts", () => {
+  it("keeps whole-area UI consumers and source readers across graph cache scopes", () => {
+    const pluginModule = "extensions/example/browser/view.ts";
+    const pluginConsumer = "test/plugin-browser-consumer.test.ts";
+    // This import belongs to the virtual repository, not this test's module graph.
+    const pluginImport = path.posix
+      .relative(path.posix.dirname(pluginConsumer), pluginModule)
+      .replace(/\.ts$/u, ".js");
+    withTinyGitRepo(
+      {
+        "src/owner/value.ts": "export const value = 1;\n",
+        "ui/src/presenter.ts": 'export { value } from "../../src/owner/value.js";\n',
+        "ui/src/catalog.json": '{"label":"Changed dynamically loaded data"}\n',
+        "ui/src/catalog-extra.json": '{"label":"Another dynamically loaded catalog"}\n',
+        "ui/src/presenter.test.ts": 'import { value } from "./presenter.js"; void value;\n',
+        [pluginModule]: "export const view = 1;\n",
+        "src/consumer.test.ts": 'import { value } from "../ui/src/presenter.js"; void value;\n',
+        "scripts/ui-consumer.mjs": 'export { value } from "../ui/src/presenter.js";\n',
+        "test/scripts/ui-consumer.test.ts":
+          'import { value } from "../../scripts/ui-consumer.mjs"; void value;\n',
+        [pluginConsumer]: `import { view } from ${JSON.stringify(pluginImport)}; void view;\n`,
+        "test/scripts/ui-catalog-reader.test.ts":
+          'import { readFileSync } from "node:fs"; readFileSync("ui/src/catalog.json", "utf8");\n',
+        "test/scripts/ui-extra-reader.test.ts":
+          'import { readFileSync } from "node:fs"; readFileSync("ui/src/catalog-extra.json", "utf8");\n',
+        "test/scripts/ui-shared-reader.test.ts":
+          'import { readFileSync } from "node:fs"; ["ui/src/catalog.json", "ui/src/catalog-extra.json"].map((file) => readFileSync(file, "utf8"));\n',
+        "test/ui-consumer.live.test.ts": 'import "../ui/src/presenter.js";\n',
+        "src/unrelated.test.ts": "export {};\n",
+      },
+      (cwd) => {
+        const sourcePlan = () =>
+          resolveChangedTestTargetPlan(["src/owner/value.ts"], {
+            cwd,
+            forceFullImportGraph: true,
+          });
+        const expectedSourcePlan = {
+          mode: "targets",
+          targets: ["src/consumer.test.ts", "ui/src/presenter.test.ts"],
+        };
+        expect(sourcePlan()).toEqual(expectedSourcePlan);
+        const graphConsumers = [
+          "src/consumer.test.ts",
+          "test/plugin-browser-consumer.test.ts",
+          "test/scripts/ui-consumer.test.ts",
+        ];
+        expect(resolveControlUiTestConsumers(["ui/src/catalog.json"], cwd)).toEqual([
+          ...graphConsumers,
+          "test/scripts/ui-catalog-reader.test.ts",
+          "test/scripts/ui-shared-reader.test.ts",
+        ]);
+        expect(
+          resolveControlUiTestConsumers(
+            ["ui/src/catalog.json", "ui/src/catalog-extra.json", "ui/src/catalog.json"],
+            cwd,
+          ),
+        ).toEqual([
+          ...graphConsumers,
+          "test/scripts/ui-catalog-reader.test.ts",
+          "test/scripts/ui-shared-reader.test.ts",
+          "test/scripts/ui-extra-reader.test.ts",
+        ]);
+        expect(
+          resolveControlUiTestConsumers(["ui/src/catalog-extra.json", "ui/src/catalog.json"], cwd),
+        ).toEqual([
+          ...graphConsumers,
+          "test/scripts/ui-extra-reader.test.ts",
+          "test/scripts/ui-shared-reader.test.ts",
+          "test/scripts/ui-catalog-reader.test.ts",
+        ]);
+        expect(sourcePlan()).toEqual(expectedSourcePlan);
+      },
+    );
+  });
+
   it("reads complete files without installed packages, inherited hooks, or reparsing cached imports", () => {
     withTinyFileTree(
       {

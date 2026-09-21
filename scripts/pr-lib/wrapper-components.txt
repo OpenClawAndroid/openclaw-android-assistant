@@ -169,6 +169,7 @@ src/agents/configured-provider-model.ts
 src/agents/defaults.ts
 src/agents/glob-pattern.ts
 src/agents/internal-runtime-context.ts
+src/agents/mcp-oauth-store-error.ts
 src/agents/model-catalog-lookup.ts
 src/agents/model-catalog-metadata.ts
 src/agents/model-compat-catalog.ts
@@ -224,6 +225,8 @@ src/agents/worktrees/git-worktree-operations.runtime.ts
 src/agents/worktrees/git.ts
 src/agents/worktrees/provisioned-file-inspection.ts
 src/agents/worktrees/repository-paths.ts
+src/agents/worktrees/snapshot-exact-state.ts
+src/agents/worktrees/snapshot-index-objects.ts
 src/agents/worktrees/snapshot-inventory.ts
 src/agents/worktrees/template-registry.ts
 src/auto-reply/reply/delivery-hints.ts
@@ -379,6 +382,7 @@ src/config/io.warnings.ts
 src/config/io.write-errors.ts
 src/config/io.write-prepare.ts
 src/config/io.write-safety.ts
+src/config/io.write-values.ts
 src/config/issue-format.ts
 src/config/json5-comments.ts
 src/config/legacy-codex-provider.ts
@@ -563,6 +567,11 @@ src/infra/diagnostics-timeline.ts
 src/infra/directory-durability.ts
 src/infra/disk-space.ts
 src/infra/dispatch-wrapper-resolution.ts
+src/infra/device-identity-coordinator-paths.ts
+src/infra/device-identity-coordinator.ts
+src/infra/device-identity-process-cache.ts
+src/infra/device-identity-store.ts
+src/infra/device-identity.ts
 src/infra/dotenv-global-core.ts
 src/infra/dotenv-global.ts
 src/infra/dotenv.ts
@@ -653,6 +662,7 @@ src/infra/openclaw-exec-env.ts
 src/infra/openclaw-root.fs.runtime.ts
 src/infra/openclaw-root.ts
 src/infra/path-case.ts
+src/infra/path-existence.ts
 src/infra/path-guards.ts
 src/infra/path-safety.ts
 src/infra/plain-object.ts

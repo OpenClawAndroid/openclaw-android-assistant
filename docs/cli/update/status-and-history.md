@@ -13,10 +13,19 @@ Availability checks and the durable record every update leaves behind. Part of t
 
 Show the active update channel, git tag/branch/SHA (source checkouts only),
 update availability, and the active or most recent update report.
+While an update is active, the table shows its phase instead of advertising another
+update, and the final line points to `openclaw update status`. JSON still includes
+registry/Git `availability` separately from `activeRun`.
 
-Status also shows current pending plugin migrations and their repair commands,
+If an update hands work to a background helper, the command has not finished the
+update. Follow its final `openclaw update status` command to check progress and the
+outcome. `openclaw gateway status --deep` checks Gateway health, not update progress.
+
+Status also shows unfinished plugin data/settings upgrades and their repair commands,
 including when an older updater did not record those warnings in its run history.
-JSON exposes them as `migrationWarnings`; they clear when the plugin migration
+During an active update, let that update finish before following plugin repair
+advice. Existing plugin data and settings are kept until the upgrade completes.
+JSON exposes these messages as `migrationWarnings`; they clear when the plugin migration
 completes. If migration state cannot be read, `migrationWarningsError` reports
 that failure while availability and run history remain visible.
 

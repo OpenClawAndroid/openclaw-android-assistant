@@ -324,7 +324,7 @@ describe("runtime placement observations", () => {
       const configs = new Set([
         runtimeConfig,
         infrastructure,
-        ...(gatewayRecipient ? [] : ["test/vitest/vitest.gateway-methods.config.ts"]),
+        ...(gatewayRecipient ? [] : ["test/vitest/vitest.gateway-database-workers.config.ts"]),
       ]);
       const compactSpy = vi.spyOn(testTimings, "readCompactGroupTimings").mockReturnValue({});
       const spy = vi.spyOn(testTimings, "readRuntimePlacementTimings").mockReturnValue([]);
@@ -371,7 +371,7 @@ describe("runtime placement observations", () => {
               : [
                   expect.objectContaining({
                     configs: expect.arrayContaining([
-                      "test/vitest/vitest.gateway-methods.config.ts",
+                      "test/vitest/vitest.gateway-database-workers.config.ts",
                     ]),
                     includePatterns: expect.arrayContaining([
                       "test/plugins/codex-model-catalog.gateway.test.ts",

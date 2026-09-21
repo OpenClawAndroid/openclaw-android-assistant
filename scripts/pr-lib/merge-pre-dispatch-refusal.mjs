@@ -75,7 +75,23 @@ try {
     throw new Error("qualification does not pin the inspected original outcome and capture");
   }
   const contents = read(capture);
-  if (proof.kind === "octopool-0.6.10-auto-refusal") {
+  if (
+    proof.kind === "octopool-0.6.10-auto-refusal" ||
+    proof.kind === "octopool-0.7.1-missing-subject-refusal"
+  ) {
+    const source =
+      proof.kind === "octopool-0.6.10-auto-refusal"
+        ? {
+            version: "0.6.10",
+            revision: "00c442d8084ad26eb5a5003f7372170e75a20c8a",
+            parserSha256: "f6ff8cd7e59503f71f94fefd561b671193df11b3aac9ba0986a0dc3ba91ca32b",
+          }
+        : {
+            version: "0.7.1",
+            revision: "7ab9b348c99a7be4fdc82c75cb06ebce44e0007e",
+            parserSha256: "b32cb960537f5ffa1336a7689674afba9b4a2485b05e449acd2684a251ff8970",
+          };
+    // The 0.7.1 parser rejects this exact missing-subject shape before starting gh.
     const expected = [
       "pr",
       "merge",
@@ -89,9 +105,9 @@ try {
       "--body-file",
     ];
     if (
-      proof.version !== "0.6.10" ||
-      proof.sourceRevision !== "00c442d8084ad26eb5a5003f7372170e75a20c8a" ||
-      proof.parserSha256 !== "f6ff8cd7e59503f71f94fefd561b671193df11b3aac9ba0986a0dc3ba91ca32b" ||
+      proof.version !== source.version ||
+      proof.sourceRevision !== source.revision ||
+      proof.parserSha256 !== source.parserSha256 ||
       !Array.isArray(proof.args) ||
       proof.args.length !== expected.length + 1 ||
       !expected.every((arg, index) => proof.args[index] === arg) ||
@@ -99,7 +115,9 @@ try {
       !/^\.local\/merge-body\.[A-Za-z0-9]+$/u.test(proof.args.at(-1)) ||
       contents !== "error: string rewrite protection blocked unsafe input\n"
     ) {
-      throw new Error("require the source-qualified complete Octopool 0.6.10 auto refusal");
+      throw new Error(
+        `require the source-qualified complete Octopool ${source.version} auto refusal`,
+      );
     }
   } else if (proof.kind === "octopool-merge-diagnostics") {
     const diagnostics = contents

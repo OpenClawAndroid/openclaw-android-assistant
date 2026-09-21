@@ -391,7 +391,9 @@ export function renderUpdateRunReport(
   const hints = reconciled
     ? []
     : run.status === "running"
-      ? recoveryHints(run)
+      ? opts.nextAction
+        ? [opts.nextAction]
+        : recoveryHints(run)
       : repairHint
         ? [repairHint, ...(nextAction ? [nextAction] : [])]
         : [

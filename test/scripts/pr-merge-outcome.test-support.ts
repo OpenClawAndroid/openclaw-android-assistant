@@ -230,6 +230,7 @@ export function createMergeOutcomeFixtureHarness() {
       // Preserve GraphQL lifecycle fixtures through an explicit unsupported REST policy.
       restPolicy: "classic",
       restReadFailure: "",
+      pooledMergeBlocked: false,
       restReadFailuresRemaining: 0,
       restReadFailureAtMainReads: [] as number[],
       restRequiredApp: 15368 as number | null,
@@ -285,6 +286,7 @@ export function createMergeOutcomeFixtureHarness() {
       cancellation: "success",
       mergeBody: null as string | null,
       previewBody: "Fixture body",
+      previewHeadline: "Configured squash headline (#123)" as string | null,
       tamperMergeBody: false,
       issueComments: [
         {
@@ -455,13 +457,15 @@ else if(args[0]==="api"&&args.includes("repos/fixture/repo/pulls/123")) {
     if(s.restObservation.gates) s.gates=s.restObservation.gates;
     s.restObservation=null;save();
   }
-  out({node_id:s.pr.id,number:s.pr.number,html_url:s.pr.url,title:"Fixture repair",body:s.previewBody,
+  const record={node_id:s.pr.id,number:s.pr.number,html_url:s.pr.url,title:"Fixture repair",body:s.previewBody,
     state:s.pr.state==="OPEN"?"open":"closed",merged:s.pr.state==="MERGED",merged_at:s.pr.state==="MERGED"?"2026-09-20T00:00:00Z":null,
     merge_commit_sha:s.pr.mergeCommit?.oid??null,draft:s.pr.isDraft,
     auto_merge:s.pr.autoMergeRequest?{merge_method:s.pr.autoMergeRequest.mergeMethod.toLowerCase()}:null,
     head:{sha:s.pr.headRefOid,ref:s.pr.headRefName,repo:s.repoAuthority},base:{ref:s.pr.baseRefName,sha:main(),repo:s.repoAuthority},
     user:{login:s.pr.author.login,type:s.pr.author.__typename},
-    mergeable:s.pr.mergeable==="UNKNOWN"?null:s.pr.mergeable==="MERGEABLE",mergeable_state:s.pr.mergeStateStatus.toLowerCase()});
+    mergeable:s.pr.mergeable==="UNKNOWN"?null:s.pr.mergeable==="MERGEABLE",
+    mergeable_state:s.pooledMergeBlocked&&!args.includes("--include")?"blocked":s.pr.mergeStateStatus.toLowerCase()};
+  out(args.includes("--include")?"HTTP/2.0 200 OK\\n\\n"+JSON.stringify(record):record);
 }
 else if(args[0]==="api"&&args.includes("repos/fixture/repo/git/ref/heads/main")) {
   s.restMainReads++;
@@ -626,7 +630,7 @@ else if(args[0]==="pr"&&args[1]==="view") {
   s.reads++;save();
   if(s.unavailable) fail("metadata unavailable");
   if(s.invalid) {out({data:{repository:{}}});process.exit(0);}
-  if(args.some(x=>x.includes("viewerMergeBodyText"))) {out({data:{repository:{pullRequest:{...s.pr,viewerMergeHeadlineText:"Fixture merge headline",viewerMergeBodyText:s.previewBody}}}});}
+  if(args.some(x=>x.includes("viewerMergeBodyText"))) {out({data:{repository:{pullRequest:{...s.pr,viewerMergeBodyText:s.previewBody,...(args.some(x=>x.includes("viewerMergeHeadlineText"))?{viewerMergeHeadlineText:s.previewHeadline}:{})}}}});}
   else {
     if(!args.includes("Cache-Control: max-age=0")) fail("missing independent fresh merge observation");
     if(args.find(arg=>arg.startsWith("query="))!==${JSON.stringify(landingSnapshotQuery)}) fail("landing snapshot query is not supported by the shipped Octopool shim");

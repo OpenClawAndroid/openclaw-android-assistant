@@ -7158,20 +7158,20 @@ describe("update-cli", () => {
             }),
           }),
         );
-        expect(getErrorOutput()).toContain("bytes needed");
-        expect(getErrorOutput()).toContain("33554432 bytes free");
+        expect(getErrorOutput()).toContain("MiB needed");
+        expect(getErrorOutput()).toContain("32 MiB free");
+        expect(getErrorOutput()).toContain("Free space on a reported filesystem or set TMPDIR");
         expect(getErrorOutput()).toContain("SQLite family");
       } else {
         expectPackageInstallSpec("openclaw@9999.0.0");
         expect(lastWriteJsonCall()).toMatchObject({ status: "ok" });
-        expect(record?.steps).toContainEqual(
-          expect.objectContaining({
-            step: "warning:snapshot-space-preflight",
-            detail: expect.stringContaining("Snapshot capacity estimate incomplete"),
-          }),
-        );
-        expect(getErrorOutput()).toContain("SQLite family");
-        expect(getErrorOutput()).toContain("openclaw.sqlite");
+        expect(
+          record?.steps.filter((step) => step.step.startsWith("warning:snapshot-space-preflight")),
+        ).toEqual([]);
+        expect(record?.steps.map(({ detail }) => detail).join("\n")).toContain("SQLite family");
+        expect(record?.steps.map(({ detail }) => detail).join("\n")).toContain("openclaw.sqlite");
+        expect(getErrorOutput()).not.toContain("SQLite family");
+        expect(getErrorOutput()).not.toContain("Snapshot capacity estimate incomplete");
       }
     },
   );
@@ -7429,7 +7429,7 @@ describe("update-cli", () => {
           }),
         ],
       });
-      expect(JSON.stringify(lastWriteJsonCall())).toContain("gateway status --deep");
+      expect(JSON.stringify(lastWriteJsonCall())).toContain("openclaw update status");
     },
   );
 

@@ -625,6 +625,7 @@ function runCiManifestFixture(options: {
   nodeFastCiRouting?: boolean;
   runNode?: boolean;
   historicalReader?: boolean;
+  toolingOwnerSelection?: boolean;
   runnerBackend?: "blacksmith" | "github" | "hybrid";
   runnerProfile?: "blacksmith" | "github" | "hybrid";
   targetHostedRunnerProfileContract?: boolean;
@@ -670,20 +671,23 @@ function runCiManifestFixture(options: {
             runner: "ubuntu-24.04",
             shardName: "legacy-node-plan",
           }];
-          export const createNodeTestShardBundles = (options = {}) => [{
-            checkName: "bundled-node-plan",
-            configs: ["test/vitest/bundled.config.ts"],
-            includePatterns: options.changedPaths,
-            env: {
-              OPENCLAW_CI_TEST_COMPACT_MODE: options.compactMode ?? "full",
-              OPENCLAW_CI_TEST_COMPACT_NODE_JOB_CAP: String(options.compactNodeJobCap ?? ""),
-              OPENCLAW_CI_TEST_RUNNER_BACKEND: options.runnerBackend ?? "",
-              OPENCLAW_CI_TEST_PROOF_TIER: String(options.includeProofTests),
-            },
-            requiresDist: false,
-            runner: "ubuntu-24.04",
-            shardName: "bundled-node-plan",
-          }];
+          export const createNodeTestShardBundles = (options = {}) => {
+            console.log("node-test-plan-options:" + JSON.stringify(options));
+            return [{
+              checkName: "bundled-node-plan",
+              configs: ["test/vitest/bundled.config.ts"],
+              includePatterns: options.changedPaths,
+              env: {
+                OPENCLAW_CI_TEST_COMPACT_MODE: options.compactMode ?? "full",
+                OPENCLAW_CI_TEST_COMPACT_NODE_JOB_CAP: String(options.compactNodeJobCap ?? ""),
+                OPENCLAW_CI_TEST_RUNNER_BACKEND: options.runnerBackend ?? "",
+                OPENCLAW_CI_TEST_PROOF_TIER: String(options.includeProofTests),
+              },
+              requiresDist: false,
+              runner: "ubuntu-24.04",
+              shardName: "bundled-node-plan",
+            }];
+          };
         `
           : `
           export const createNodeTestShards = () => [{
@@ -704,6 +708,12 @@ function runCiManifestFixture(options: {
           targets: ["test/windows-part-" + (index + 1) + ".test.ts"],
           predicted_seconds: 400,
         }));\n`,
+      );
+    }
+    if (options.toolingOwnerSelection) {
+      appendFileSync(
+        path.join(scriptsDir, "ci-node-test-plan.mts"),
+        `\nexport { isToolingTestOwnerPath } from ${JSON.stringify(pathToFileURL(path.resolve("scripts/lib/ci-node-test-plan.mts")).href)};\n`,
       );
     }
     if (options.startupCorpusCoverage) {
@@ -3291,7 +3301,7 @@ NODE
         expect(selected, phase).toEqual(expected);
         if (jobName === "ios-build") {
           for (const name of [
-            "Select Xcode 26",
+            "Select Xcode 27",
             "Setup Node environment",
             "Install Watch Rust toolchain",
             "Install iOS Swift tooling",
@@ -3440,7 +3450,7 @@ NODE
   it("starts Apple builds and screenshots directly on hosted capacity", () => {
     const workflow = readCiWorkflow();
     for (const jobName of ["macos-swift", "ios-build", "ios-screenshot-shard"]) {
-      expect(workflow.jobs[jobName]["runs-on"], jobName).toBe("macos-26");
+      expect(workflow.jobs[jobName]["runs-on"], jobName).toBe("xcode-27");
     }
     expect(workflow.jobs["macos-swift"]["timeout-minutes"]).toBe(30);
   });
@@ -5977,7 +5987,7 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
     expect(readWorkflowOutputs(outputPath).sha).toBe("a".repeat(40));
   });
 
-  it("pins Swift 6.3 workflow jobs to Xcode 26.6-capable runners", () => {
+  it("selects the declared compiler for native builds and analysis", () => {
     const codeql = parse(
       readFileSync(".github/workflows/codeql-macos-critical-security.yml", "utf8"),
     );
@@ -6106,18 +6116,26 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
     expect(codeqlSelect.run).toContain("/Applications/Xcode_26.6.app/Contents/Developer");
     expect(codeqlSelect.run).toContain('if [[ "$xcode_version" != 26.6* ]]; then');
 
-    for (const [workflowPath, selectorCount] of [
-      [".github/workflows/ci.yml", 2],
-      [".github/workflows/ios-periphery.yml", 1],
-      [".github/workflows/macos-periphery.yml", 1],
-      [".github/workflows/shared-openclawkit-periphery.yml", 2],
+    for (const [workflowPath, jobNames] of [
+      [".github/workflows/ci.yml", ["macos-swift", "ios-build", "ios-screenshot-shard"]],
+      [".github/workflows/ios-periphery.yml", ["scan"]],
+      [".github/workflows/macos-periphery.yml", ["scan"]],
+      [".github/workflows/shared-openclawkit-periphery.yml", ["scan-ios", "scan-macos"]],
     ] as const) {
-      const source = readFileSync(workflowPath, "utf8");
-      expect(source.match(/\/Applications\/Xcode_26\.6\.app/gu), workflowPath).toHaveLength(
-        selectorCount,
-      );
-      expect(source.match(/expected Xcode 26\.6/gu), workflowPath).toHaveLength(selectorCount);
-      expect(source, workflowPath).not.toContain("Xcode_26.5.app");
+      const workflow = parse(readFileSync(workflowPath, "utf8"));
+      for (const jobName of jobNames) {
+        const job = workflow.jobs[jobName];
+        expect(job["runs-on"], `${workflowPath}: ${jobName}`).toBe("xcode-27");
+        const selection = expectDefined(
+          job.steps.find((step: WorkflowStep) =>
+            ["Select Xcode 27", "Verify Xcode"].includes(step.name ?? ""),
+          ),
+          `${workflowPath}: ${jobName} toolchain selection`,
+        );
+        const toolingRoot = workflowPath === ".github/workflows/ci.yml" ? ".ci-harness/" : "";
+        expect(selection.run).toContain(`source ${toolingRoot}scripts/lib/swift-toolchain.sh`);
+        expect(selection.run).toContain("select_xcode_toolchain 27.0");
+      }
     }
   });
 
@@ -6863,6 +6881,7 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
         "precise planner coverage input",
       );
       expect(JSON.parse(coverage.slice("dedicated-coverage:".length))).toEqual({
+        includeReleaseOnlyToolingShards: false,
         runnerBackend: runnerProfile,
         dedicatedContractShards: dedicated,
         dedicatedUiE2e: uiE2e,
@@ -12341,6 +12360,8 @@ exit 1
       const outputPath = path.join(root, "github-output");
       mkdirSync(binDir, { recursive: true });
       symlinkSync(path.resolve("scripts"), path.join(root, "scripts"), "dir");
+      mkdirSync(path.join(root, ".ci-harness/scripts"), { recursive: true });
+      symlinkSync(path.resolve("scripts/lib"), path.join(root, ".ci-harness/scripts/lib"), "dir");
       writeFileSync(
         path.join(binDir, "swift"),
         `#!/usr/bin/env bash
@@ -12389,6 +12410,7 @@ if (args[0] === 'delete-keychain') fs.unlinkSync(args.at(-1));
           GITHUB_OUTPUT: outputPath,
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
           SWIFT_TEST_EXECUTION: "serial",
+          HISTORICAL_TARGET: "false",
         },
       });
       const calls = readFileSync(callsPath, "utf8").trim().split("\n");
@@ -12398,7 +12420,7 @@ if (args[0] === 'delete-keychain') fs.unlinkSync(args.at(-1));
         ...(buildExitCode === 0
           ? [
               expect.stringMatching(
-                /^test --package-path apps\/macos --build-system native --enable-code-coverage --disable-index-store -Xswiftc -gline-tables-only --skip-build --experimental-maximum-parallelization-width 4 --skip AppStateIsolationTests\|ProfileChatPreferencesTests --event-stream-output-path \S+\/swift-testing-events\.jsonl --event-stream-version 6\.3$/,
+                /^test --package-path apps\/macos --build-system native --enable-code-coverage --disable-index-store -Xswiftc -gline-tables-only --skip-build --experimental-maximum-parallelization-width 4 --skip AppStateIsolationTests\|ProfileChatPreferencesTests\|QuickChatCatalogPresentationTests --event-stream-output-path \S+\/swift-testing-events\.jsonl --event-stream-version 6\.3$/,
               ),
             ]
           : []),
@@ -14621,12 +14643,37 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
   );
 
   it.each([
+    { changedPath: "scripts/lib/ci-changed-node-test-plan.mts", docsOnly: false },
+    { changedPath: "scripts/README.md", docsOnly: true },
+    { changedPath: "test/scripts/changed-lanes.test.ts", docsOnly: false },
+  ])("retains full tooling over scope shortcuts for $changedPath", ({ changedPath, docsOnly }) => {
+    const manifest = runCiManifestFixture({
+      bundledPlanner: true,
+      toolingOwnerSelection: true,
+      changedPaths: [changedPath],
+      eventName: "pull_request",
+      nodeFastOnly: true,
+      runNode: !docsOnly,
+      scopeEnv: { OPENCLAW_CI_DOCS_ONLY: String(docsOnly) },
+    });
+    expect(manifest.status, manifest.output).toBe(0);
+    expect(manifest.outputs.run_node).toBe("true");
+    expect(manifest.outputs.run_checks_node_core_nondist).toBe("true");
+    const rows = JSON.parse(
+      expectDefined(manifest.outputs.checks_node_core_nondist_matrix, "tooling matrix"),
+    ).include;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].check_name).toBe("bundled-node-plan");
+  });
+
+  it.each([
     ["pull_request", "openclaw/openclaw", true],
     ["pull_request", "example/openclaw", false],
     ["push", "openclaw/openclaw", false],
+    ["push", "example/openclaw", false],
     ["workflow_dispatch", "openclaw/openclaw", false],
   ] as const)(
-    "forwards changed paths only to canonical PR fallback (%s, %s)",
+    "forwards release tiers and canonical PR changed paths (%s, %s)",
     (eventName, repository, forwardsChangedPaths) => {
       const changedPaths = [
         "src/plugins/manifest-tool-availability.ts",
@@ -14634,11 +14681,31 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       ];
       const manifest = runCiManifestFixture({
         bundledPlanner: true,
+        changedPlannerSource: `
+          export const createChangedNodeTestShards = (_paths, options) => {
+            if (options.includeReleaseOnlyToolingShards !== false) {
+              throw new Error("automatic precise plan must defer unrelated tooling");
+            }
+            return null;
+          };
+          export const createChangedExtensionFallbackShards = () => [];
+        `,
         changedPaths,
         eventName,
         repository,
       });
       expect(manifest.status, manifest.output).toBe(0);
+      const plannerOptions = JSON.parse(
+        expectDefined(
+          manifest.output.split("\n").find((line) => line.startsWith("node-test-plan-options:")),
+          "Node planner invocation",
+        ).slice("node-test-plan-options:".length),
+      );
+      expect(plannerOptions).toMatchObject({
+        includeReleaseOnlyPluginShards: false,
+        includeReleaseOnlyToolingShards:
+          eventName === "workflow_dispatch" || repository !== "openclaw/openclaw",
+      });
       const rows = JSON.parse(
         expectDefined(manifest.outputs.checks_node_core_nondist_matrix, "fallback matrix"),
       ).include;

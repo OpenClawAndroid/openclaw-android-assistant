@@ -6,7 +6,18 @@ export const GITHUB_ERROR_BODY_MAX_BYTES = 64 * 1024;
 export const GITHUB_RESPONSE_BODY_MAX_BYTES = 4 * 1024 * 1024;
 export const GITHUB_API_REQUEST_TIMEOUT_MS = 30_000;
 
-const githubApiRetryStatuses = new Set([502, 503, 504]);
+const githubApiRetryStatuses = new Set([500, 502, 503, 504]);
+const githubApiRetryCodes = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 const githubApiRetryDelaysMs = [1_000, 2_000, 4_000];
 // One primary quota window plus room for a fresh evaluation. Persist the deadline
 // across detect/autoscrub/enforce so each step cannot start another hour of waits.
@@ -332,11 +343,32 @@ export function createGitHubApi(token, options = {}) {
     });
     const operationPromise = (async () => {
       for (let attempt = 0; ; attempt += 1) {
-        const response = await fetchImpl(`https://api.github.com${path}`, {
-          ...requestOptions,
-          signal: requestSignal,
-          headers: { ...baseHeaders, ...requestOptions.headers },
-        });
+        let response;
+        try {
+          response = await fetchImpl(`https://api.github.com${path}`, {
+            ...requestOptions,
+            signal: requestSignal,
+            headers: { ...baseHeaders, ...requestOptions.headers },
+          });
+        } catch (error) {
+          // Node fetch wraps transport failures in a TypeError with the socket
+          // or resolver error as its cause. Unknown failures must not be retried.
+          const code = error?.cause?.code ?? error?.code;
+          if (
+            (method === "GET" || method === "HEAD") &&
+            !requestSignal.aborted &&
+            githubApiRetryCodes.has(code) &&
+            attempt < retryDelaysMs.length
+          ) {
+            await wait(retryDelaysMs[attempt], undefined, { signal: requestSignal });
+            continue;
+          }
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `GitHub API ${method} ${path} failed: ${code ? `${code}: ` : ""}${detail}`,
+            { cause: error },
+          );
+        }
         if (response.status === 204) {
           return null;
         }
@@ -359,7 +391,7 @@ export function createGitHubApi(token, options = {}) {
           } catch (bodyError) {
             errorText = bodyError instanceof Error ? bodyError.message : String(bodyError);
           }
-          const message = `${response.status} ${response.statusText}: ${errorText}`;
+          const message = `GitHub API ${method} ${path} failed: ${response.status} ${response.statusText}: ${errorText}`;
           if (
             (response.status === 403 || response.status === 429) &&
             (response.status === 429 ||
