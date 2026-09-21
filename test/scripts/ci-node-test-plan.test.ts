@@ -21,14 +21,17 @@ import {
   packNodeTestGroups,
   resolvePolicyTestTargets,
 } from "../../scripts/lib/ci-node-test-plan.mts";
+import { isCiProofTestFile } from "../../scripts/lib/ci-proof-test-inventory.mts";
 import { isRuntimePlacementIncludePatterns } from "../../scripts/lib/ci-test-timings-schema.mts";
 import * as testTimings from "../../scripts/lib/ci-test-timings.mts";
 import * as buildPrerequisites from "../../scripts/lib/vitest-build-prerequisites.mts";
 import { listVitestRuntimeConsumerFiles } from "../../scripts/lib/vitest-build-prerequisites.mts";
+import * as shardMetadata from "../../scripts/lib/vitest-shard-metadata.mts";
 import {
   createCompactSplitTimingGeneration,
   parseCompactSplitTimingKey,
 } from "../../scripts/lib/vitest-shard-metadata.mts";
+import { createVitestRunSpecs } from "../../scripts/test-projects.test-support.mts";
 import { expectNoNodeFsScans } from "../../src/test-utils/fs-scan-assertions.js";
 import { listGitTrackedFiles, sortRepoPaths, toRepoPath } from "../../src/test-utils/repo-files.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
@@ -54,6 +57,7 @@ import { createGatewayMethodsVitestConfig } from "../vitest/vitest.gateway-metho
 import { createGatewayServerIsolatedVitestConfig } from "../vitest/vitest.gateway-server-isolated.config.ts";
 import {
   gatewayDatabaseWorkerTestFiles,
+  gatewayServerSerialTestFiles,
   isGatewayServerTestFile,
 } from "../vitest/vitest.gateway-server-paths.mjs";
 import { createGatewayServerVitestConfig } from "../vitest/vitest.gateway-server.config.ts";
@@ -64,6 +68,7 @@ import { createPluginSdkLightVitestConfig } from "../vitest/vitest.plugin-sdk-li
 import { createPluginSdkVitestConfig } from "../vitest/vitest.plugin-sdk.config.ts";
 import { createPluginsVitestConfig } from "../vitest/vitest.plugins.config.ts";
 import { createRuntimeConfigVitestConfig } from "../vitest/vitest.runtime-config.config.ts";
+import { sharedVitestConfig } from "../vitest/vitest.shared.config.ts";
 import { startupCorpusTestFiles } from "../vitest/vitest.startup-corpus-paths.mjs";
 import { createTasksVitestConfig } from "../vitest/vitest.tasks.config.ts";
 import { fullSuiteVitestShards } from "../vitest/vitest.test-shards.mjs";
@@ -395,6 +400,207 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     ).not.toEqual(original);
   });
 
+  it.each(["blacksmith", "hybrid", "github"])(
+    "prices agents-core serial history with two file workers on %s without discounting parallel samples",
+    async (runnerBackend) => {
+      const config = agentVitestProjectOwners.core.config;
+      const models = "agentic-agents-core-models";
+      const singleton = "agentic-agents-core-auth";
+      const commands = "agentic-agents-core-runner-commands";
+      const heavyModel = "src/agents/model-heavy.test.ts";
+      const fastModel = "src/agents/model-fast.test.ts";
+      const e2eModel = "src/agents/model-fixture.e2e.test.ts";
+      const runtimeFile = "src/agents/agent-command-runtime.test.ts";
+      const commandPeers = [
+        "src/agents/agent-command-a.test.ts",
+        "src/agents/agent-command-b.test.ts",
+      ];
+      const files = [
+        heavyModel,
+        "src/agents/model-light.test.ts",
+        fastModel,
+        e2eModel,
+        "src/agents/auth-fixture.test.ts",
+        runtimeFile,
+        ...commandPeers,
+      ].toSorted();
+      const seconds: Record<string, number> = { [models]: 200, [singleton]: 40, [commands]: 0 };
+      const fileWeights = vi.fn((_file: string) => 1);
+      const buildMode = vi.fn<typeof buildPrerequisites.resolveVitestPretestBuildMode>(
+        () => undefined,
+      );
+      const unitFastPaths = await vi.importActual<
+        typeof import("../vitest/vitest.unit-fast-paths.mjs")
+      >("../vitest/vitest.unit-fast-paths.mjs");
+      vi.resetModules();
+      vi.doMock("../vitest/vitest.unit-fast-paths.mjs", () => ({
+        ...unitFastPaths,
+        getUnitFastTestFiles: () => [fastModel],
+        getUnitFastIsolatedTestFiles: () => [],
+        getUnitFastTimerTestFiles: () => [],
+        getUnitFastTestFilesForIncludePatterns: () => [fastModel],
+      }));
+      vi.doMock("../vitest/vitest.test-shards.mjs", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../vitest/vitest.test-shards.mjs")>()),
+        fullSuiteVitestShards: [
+          {
+            config: "test/vitest/vitest.full-agentic.config.ts",
+            name: "agentic",
+            projects: [config],
+          },
+        ],
+      }));
+      vi.doMock("../../scripts/lib/list-test-files.mts", () => ({
+        listTrackedTestFiles: (root: string) => (root === "src/agents" ? files : []),
+      }));
+      vi.doMock("../../scripts/lib/ci-test-timings.mts", () => ({
+        ...testTimings,
+        readCompactGroupTimings: () => seconds,
+        readRuntimePlacementTimings: () => [],
+      }));
+      vi.doMock("../../scripts/lib/vitest-shard-metadata.mts", () => ({
+        ...shardMetadata,
+        estimateVitestTestFileSeconds: fileWeights,
+      }));
+      vi.doMock("../../scripts/lib/vitest-build-prerequisites.mts", () => ({
+        ...buildPrerequisites,
+        resolveVitestPretestBuildMode: buildMode,
+        listVitestRuntimeConsumerFiles: () => [runtimeFile],
+      }));
+      try {
+        const { createNodeTestShardBundles: createPlan } =
+          await import("../../scripts/lib/ci-node-test-plan.mts");
+        const options = {
+          compactMode: "push" as const,
+          runnerBackend,
+          includeReleaseOnlyPluginShards: false,
+        };
+        const predicted = (jobs: CompactNodeTestShard[]) =>
+          jobs.reduce((sum, job) => sum + (job.predictedSeconds ?? 0), 0);
+        const baseline = createPlan(options);
+        // The authentication fixture is indivisible; only the two models share work.
+        expect(predicted(baseline)).toBe(runnerBackend === "hybrid" ? 122 : 140);
+        expect(
+          baseline
+            .flatMap((job) => job.groups)
+            .every((group) => group.env?.OPENCLAW_VITEST_MAX_WORKERS === "2"),
+        ).toBe(true);
+        for (const excluded of [e2eModel, fastModel]) {
+          fileWeights.mockImplementation((file) => (file === excluded ? 1_000_000 : 1));
+          expect(predicted(createPlan(options))).toBe(predicted(baseline));
+        }
+        // One model owns 75% of the serial work; two workers cannot halve it.
+        fileWeights.mockImplementation((file) => (file === heavyModel ? 3 : 1));
+        expect(predicted(createPlan(options))).toBe(runnerBackend === "hybrid" ? 166 : 190);
+        fileWeights.mockReturnValue(1);
+        seconds[`${models}-parallel`] = 200;
+        const measured = createPlan(options);
+        // Hosted splitting turns two concurrent 200s files into two 200s children.
+        expect(predicted(measured)).toBe(
+          runnerBackend === "blacksmith" ? 240 : runnerBackend === "hybrid" ? 383 : 440,
+        );
+        expect(
+          measured
+            .flatMap((job) => job.groups.flatMap((group) => group.includePatterns ?? []))
+            .toSorted(),
+        ).toEqual(files);
+        expect(
+          measured
+            .flatMap((job) => job.groups)
+            .filter((group) => group.shard_name.startsWith(models))
+            .every((group) => group.timing_key?.startsWith(`${models}-parallel`)),
+        ).toBe(true);
+        if (runnerBackend !== "blacksmith") {
+          const modelGroups = measured
+            .flatMap((job) => job.groups)
+            .filter((group) => group.shard_name.startsWith(models));
+          expect(modelGroups).toHaveLength(2);
+          expect(
+            modelGroups.map(
+              (group) =>
+                group.includePatterns?.filter((file) => file !== e2eModel && file !== fastModel)
+                  .length,
+            ),
+          ).toEqual([1, 1]);
+          modelGroups.forEach((group, index) => {
+            seconds[group.timing_key!] = index === 0 ? 180 : 190;
+          });
+          const childMeasured = createPlan(options);
+          expect(predicted(childMeasured)).toBe(runnerBackend === "hybrid" ? 357 : 410);
+          expect(
+            childMeasured
+              .flatMap((job) => job.groups)
+              .filter((group) => group.shard_name.startsWith(models))
+              .map((group) => expectDefined(group.timing_key, "parallel model timing key"))
+              .toSorted(),
+          ).toEqual(
+            modelGroups
+              .map((group) => expectDefined(group.timing_key, "parallel model timing key"))
+              .toSorted(),
+          );
+          for (const group of modelGroups) {
+            delete seconds[group.timing_key!];
+          }
+        }
+
+        seconds[models] = 0;
+        seconds[`${models}-parallel`] = 0;
+        seconds[singleton] = 0;
+        seconds[commands] = 74;
+        const legacy = createCompactSplitTimingGeneration({
+          configs: [config],
+          parentShardName: commands,
+          stripes: [[runtimeFile], [commandPeers[0]!], [commandPeers[1]!]],
+        });
+        Object.assign(
+          seconds,
+          Object.fromEntries(legacy.timingKeys.map((key, index) => [key, index === 0 ? 28 : 23])),
+        );
+        fileWeights.mockImplementation((file) => (commandPeers.includes(file) ? 4 : 1));
+        buildMode.mockImplementation((plans) =>
+          plans.some((plan) => plan.matchesFile?.(runtimeFile, false, plan.includePatterns))
+            ? "runtime"
+            : undefined,
+        );
+        const migrated = createPlan(options);
+        const runtimeJob = migrated.find((job) =>
+          job.groups.some((group) => group.includePatterns?.includes(runtimeFile)),
+        );
+        // Merging the two sibling stripes preserves the singleton's 28s measurement.
+        expect(runtimeJob?.predictedSeconds).toBe(
+          runnerBackend === "github" ? 188 : runnerBackend === "hybrid" ? 125 : 128,
+        );
+        seconds[`${commands}-parallel`] = 200;
+        const projectedRuntimeJob = createPlan(options).find((job) =>
+          job.groups.some((group) => group.includePatterns?.includes(runtimeFile)),
+        );
+        expect(projectedRuntimeJob?.predictedSeconds).toBe(
+          runnerBackend === "github" ? 205 : runnerBackend === "hybrid" ? 139 : 145,
+        );
+        const runtimeGroup = projectedRuntimeJob!.groups.find((group) =>
+          group.includePatterns?.includes(runtimeFile),
+        )!;
+        expect(runtimeGroup.includePatterns).toEqual([runtimeFile]);
+        seconds[runtimeGroup.timing_key!] = 10;
+        const refitted = createPlan(options).find((job) =>
+          job.groups.some((group) => group.includePatterns?.includes(runtimeFile)),
+        );
+        // An exact parallel sample replaces the migrated serial observation.
+        expect(refitted?.predictedSeconds).toBe(
+          runnerBackend === "github" ? 170 : runnerBackend === "hybrid" ? 109 : 110,
+        );
+      } finally {
+        vi.doUnmock("../../scripts/lib/vitest-build-prerequisites.mts");
+        vi.doUnmock("../../scripts/lib/vitest-shard-metadata.mts");
+        vi.doUnmock("../../scripts/lib/ci-test-timings.mts");
+        vi.doUnmock("../../scripts/lib/list-test-files.mts");
+        vi.doUnmock("../vitest/vitest.test-shards.mjs");
+        vi.doUnmock("../vitest/vitest.unit-fast-paths.mjs");
+        vi.resetModules();
+      }
+    },
+  );
+
   it.each([
     {
       owner: "agentic-agents-support",
@@ -517,6 +723,194 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       }
     },
   );
+
+  it.each(["blacksmith", "github", "hybrid"])(
+    "prices serial Gateway server measurements at two workers and preserves parallel samples (%s)",
+    (runnerBackend) => {
+      const config = "test/vitest/vitest.gateway-server.config.ts";
+      const owner = "agentic-control-plane-agent-chat";
+      const original = fullSuiteVitestShards.slice();
+      fullSuiteVitestShards.splice(
+        0,
+        fullSuiteVitestShards.length,
+        ...original
+          .map((shard) => ({
+            ...shard,
+            projects: shard.projects.filter((candidate) => candidate === config),
+          }))
+          .filter((shard) => shard.projects.length > 0),
+      );
+      try {
+        const timings: Record<string, number> = { [owner]: 540 };
+        vi.spyOn(testTimings, "readCompactGroupTimings").mockReturnValue(timings);
+        vi.spyOn(testTimings, "readRuntimePlacementTimings").mockReturnValue([]);
+        const options = { compactMode: "pull-request" as const, runnerBackend };
+        const select = () =>
+          createNodeTestShardBundles(options)
+            .flatMap((job) => job.groups)
+            .filter((group) => group.shard_name.replace(/-hosted-\d+$/u, "") === owner);
+        const inherited = select();
+        expect(inherited).toHaveLength(2);
+        expect(inherited.every((group) => group.env?.OPENCLAW_VITEST_MAX_WORKERS === "2")).toBe(
+          true,
+        );
+        const parallelParent = expectDefined(
+          parseCompactSplitTimingKey(inherited[0]!.timing_key!)?.parentShardName,
+          "parallel measurement parent",
+        );
+        expect(parallelParent).not.toBe(owner);
+        const { OPENCLAW_VITEST_MAX_WORKERS: _workers, ...serialEnv } = inherited[0]!.env!;
+        const serialGeneration = createCompactSplitTimingGeneration({
+          configs: [config],
+          env: serialEnv,
+          parentShardName: owner,
+          stripes: inherited.map((group) => group.includePatterns!),
+        });
+        timings[serialGeneration.timingKeys[0]!] = 500;
+        expect(select()).toHaveLength(2);
+        timings[serialGeneration.timingKeys[1]!] = 500;
+        expect(select()).toHaveLength(4);
+        timings[`${owner}-parallel-native-serial`] = 440;
+        const measured = select();
+        expect(measured).toHaveLength(3);
+        expect(measured.flatMap((group) => group.includePatterns!).toSorted()).toEqual(
+          inherited.flatMap((group) => group.includePatterns!).toSorted(),
+        );
+      } finally {
+        fullSuiteVitestShards.splice(0, fullSuiteVitestShards.length, ...original);
+      }
+    },
+  );
+
+  it("charges native fixture spans before discounting concurrent Gateway work", async () => {
+    const config = "test/vitest/vitest.gateway-server.config.ts";
+    const owner = "agentic-control-plane-agent-chat";
+    const files = [
+      gatewayServerSerialTestFiles[0]!,
+      "src/gateway/server.chat.fixture-a.test.ts",
+      "src/gateway/server.chat.fixture-b.test.ts",
+    ];
+    const timings: Record<string, number> = { [owner]: 230 };
+    vi.resetModules();
+    vi.doMock("../vitest/vitest.test-shards.mjs", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../vitest/vitest.test-shards.mjs")>()),
+      fullSuiteVitestShards: [{ name: "agentic", config, projects: [config] }],
+    }));
+    vi.doMock("../../scripts/lib/list-test-files.mts", () => ({
+      listTrackedTestFiles: (root: string) => (root === "src/gateway" ? files : []),
+    }));
+    vi.doMock("../../scripts/lib/ci-test-timings.mts", () => ({
+      ...testTimings,
+      readCompactGroupTimings: () => timings,
+      readRuntimePlacementTimings: () => [],
+    }));
+    try {
+      const { createNodeTestShardBundles: createPlan } =
+        await import("../../scripts/lib/ci-node-test-plan.mts");
+      const options = { compactMode: "push" as const, runnerBackend: "blacksmith" };
+      const initial = createPlan(options);
+      expect(initial).toHaveLength(1);
+      expect(initial[0]?.predictedSeconds).toBe(130);
+      const parentKey = expectDefined(initial[0]?.groups[0]?.timing_key, "mixed phase timing key");
+      expect(parentKey).toContain("native-serial");
+      timings[parentKey] = 230;
+      const split = createPlan(options);
+      expect(split.map((job) => job.predictedSeconds).toSorted((a, b) => a! - b!)).toEqual([
+        30, 200,
+      ]);
+      expect(
+        split
+          .flatMap((job) => job.groups)
+          .flatMap((group) => group.includePatterns!)
+          .toSorted(),
+      ).toEqual(files.toSorted());
+      const native = expectDefined(
+        split.find((job) => job.groups.some((group) => group.includePatterns?.includes(files[0]!))),
+        "native singleton",
+      );
+      expect(native.groups.flatMap((group) => group.includePatterns!)).toEqual([files[0]]);
+      expect(native.predictedSeconds).toBe(30);
+    } finally {
+      vi.doUnmock("../../scripts/lib/ci-test-timings.mts");
+      vi.doUnmock("../../scripts/lib/list-test-files.mts");
+      vi.doUnmock("../vitest/vitest.test-shards.mjs");
+      vi.resetModules();
+    }
+  });
+
+  it("keeps parallel singleton measurements separate from the legacy serial floor", async () => {
+    const config = "test/vitest/vitest.gateway-server.config.ts";
+    const owner = "agentic-control-plane-runtime-server";
+    const files = [
+      "src/gateway/server-sidecar-retention.test.ts",
+      "src/gateway/server-file-fixtures.test.ts",
+    ];
+    const timings: Record<string, number> = { [owner]: 200 };
+    vi.resetModules();
+    vi.doMock("../vitest/vitest.test-shards.mjs", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../vitest/vitest.test-shards.mjs")>()),
+      fullSuiteVitestShards: [{ name: "agentic", config, projects: [config] }],
+    }));
+    vi.doMock("../../scripts/lib/list-test-files.mts", () => ({
+      listTrackedTestFiles: (root: string) => (root === "src/gateway" ? files : []),
+    }));
+    vi.doMock("../../scripts/lib/ci-test-timings.mts", () => ({
+      ...testTimings,
+      readCompactGroupTimings: () => timings,
+      readRuntimePlacementTimings: () => [],
+    }));
+    try {
+      const { createNodeTestShardBundles: createPlan } =
+        await import("../../scripts/lib/ci-node-test-plan.mts");
+      const options = { compactMode: "push" as const, runnerBackend: "blacksmith" };
+      const initial = createPlan(options);
+      const groups = initial.flatMap((job) => job.groups);
+      expect(groups.map((group) => group.includePatterns?.length)).toEqual([1, 1]);
+      expect(groups.flatMap((group) => group.includePatterns!).toSorted()).toEqual(
+        files.toSorted(),
+      );
+      const keys = groups.map((group) => expectDefined(group.timing_key, "singleton timing key"));
+      const parent = expectDefined(
+        parseCompactSplitTimingKey(keys[0]!),
+        "parallel family",
+      ).parentShardName;
+      const seconds = () =>
+        createPlan(options).reduce((sum, job) => sum + (job.predictedSeconds ?? 0), 0);
+      // One runtime preparation costs 100s; both singleton files retain their serial floor.
+      expect(seconds()).toBe(300);
+      // Two 300s files still cost 300s each when a 300s parallel parent is split.
+      timings[`${owner}-parallel`] = 300;
+      expect(seconds()).toBe(700);
+      delete timings[`${owner}-parallel`];
+      for (const key of keys) {
+        timings[key] = 300;
+      }
+      expect(seconds()).toBe(700);
+      timings[parent] = 600;
+      expect(seconds()).toBe(700);
+      for (const key of keys) {
+        delete timings[key];
+      }
+      expect(seconds()).toBe(700);
+      for (const key of keys) {
+        timings[key] = 300;
+      }
+      timings[parent] = 400;
+      expect(seconds()).toBe(700);
+      delete timings[parent];
+      for (const key of keys) {
+        timings[key] = 30;
+      }
+      expect(seconds()).toBe(300);
+      timings[parent] = 700;
+      expect(seconds()).toBe(800);
+    } finally {
+      vi.doUnmock("../../scripts/lib/ci-test-timings.mts");
+      vi.doUnmock("../../scripts/lib/list-test-files.mts");
+      vi.doUnmock("../vitest/vitest.test-shards.mjs");
+      vi.resetModules();
+    }
+  });
 
   it("keeps Chromium files in the UI CI owner and Node-driven Playwright files in Node stripes", () => {
     const shards = defaultShards;
@@ -813,6 +1207,33 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     });
   });
 
+  it("bounds the hybrid hosted seed to real consumer configs without runtime builds", () => {
+    const groups = createVitestCacheWarmGroups("hybrid-hosted");
+    expect(groups).toHaveLength(7);
+
+    expect(groups.every((group) => (group.includePatterns?.length ?? 0) > 0)).toBe(true);
+    const files = groups.flatMap((group) => group.includePatterns ?? []);
+    expect(files).toHaveLength(12);
+    expect(files.every((file) => existsSync(file))).toBe(true);
+    expect(buildPrerequisites.resolveVitestPretestBuildMode(groups)).toBeUndefined();
+    const tooling = expectDefined(
+      groups.find((group) => group.shard_name === "cache-warm:hosted-tooling"),
+      "hosted tooling seed",
+    );
+    expect(
+      createVitestRunSpecs(expectDefined(tooling.includePatterns, "hosted tooling files"), {
+        baseEnv: { CI: "true", OPENCLAW_TEST_PROJECTS_PARALLEL: "3" },
+      }).map((spec) => spec.config),
+    ).toEqual(tooling.configs);
+    const configs = groups.flatMap((group) => group.configs);
+    expect(configs).toContain("test/vitest/vitest.tooling.config.ts");
+    expect(configs).toContain("ui/vitest.config.ts");
+    expect(configs.filter((config) => config.includes("vitest.contracts-"))).toHaveLength(5);
+    expect(groups.find((group) => group.configs[0] === "ui/vitest.config.ts")).toEqual(
+      createVitestCacheWarmGroups().find((group) => group.configs[0] === "ui/vitest.config.ts"),
+    );
+  });
+
   it("creates split shards without walking test roots", () => {
     const payload = expectNoNodeFsScans<{
       includePatterns: number;
@@ -986,7 +1407,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     },
   );
 
-  it("keeps hybrid fallback bounds and unmeasured stripes when other measurements change", () => {
+  it("keeps hybrid fallback bounds when other measurements change", () => {
     vi.spyOn(testTimings, "readRuntimePlacementTimings").mockReturnValue([]);
     const timings = vi.spyOn(testTimings, "readCompactGroupTimings").mockReturnValue({});
     const options = {
@@ -1055,17 +1476,6 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         predictedSeconds: 200,
       },
     ]);
-    const agentChatStripes = fallback
-      .flatMap((shard) => shard.groups)
-      .filter((group) => group.shard_name.startsWith("agentic-control-plane-agent-chat-hosted-"));
-    expect(agentChatStripes.length).toBeGreaterThan(1);
-    expect(
-      agentChatStripes.every(
-        (group) =>
-          !group.includePatterns?.includes("src/gateway/server.chat.gateway-server-chat.test.ts") ||
-          !group.includePatterns.includes("src/gateway/server.sessions.create.test.ts"),
-      ),
-    ).toBe(true);
     timings.mockImplementation((runner): Readonly<Record<string, number>> =>
       runner === "blacksmith"
         ? {
@@ -1081,6 +1491,65 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     );
     expect(tail?.predictedSeconds).toBeGreaterThanOrEqual(140);
     expect(tail?.predictedSeconds).toBeLessThanOrEqual(usesParallelPacking(tail) ? 360 : 210);
+  });
+
+  it("preserves unmeasured Gateway stripes when another cohort's measurement changes", async () => {
+    const config = "test/vitest/vitest.gateway-server.config.ts";
+    const files = [
+      "src/gateway/server.chat.fixture-a.test.ts",
+      "src/gateway/server.chat.fixture-b.test.ts",
+    ];
+    const timings: Record<string, number> = {
+      "agentic-control-plane-agent-chat-parallel": 300,
+      "core-runtime-hooks": 40,
+    };
+    vi.resetModules();
+    vi.doMock("../vitest/vitest.test-shards.mjs", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../vitest/vitest.test-shards.mjs")>()),
+      fullSuiteVitestShards: [
+        { name: "agentic", config, projects: [config] },
+        { name: "core-runtime", config, projects: ["test/vitest/vitest.hooks.config.ts"] },
+      ],
+    }));
+    vi.doMock("../../scripts/lib/list-test-files.mts", () => ({
+      listTrackedTestFiles: (root: string) => (root === "src/gateway" ? files : []),
+    }));
+    vi.doMock("../../scripts/lib/ci-test-timings.mts", () => ({
+      ...testTimings,
+      readCompactGroupTimings: () => timings,
+      readRuntimePlacementTimings: () => [],
+    }));
+    try {
+      const { createNodeTestShardBundles: createPlan } =
+        await import("../../scripts/lib/ci-node-test-plan.mts");
+      const options = { compactMode: "push" as const, runnerBackend: "hybrid" };
+      const stripes = (plan: readonly CompactNodeTestShard[]) =>
+        plan
+          .flatMap((job) => job.groups)
+          .filter((group) => group.configs.includes(config))
+          .toSorted((a, b) => a.shard_name.localeCompare(b.shard_name));
+      const before = createPlan(options);
+      const originalStripes = stripes(before);
+      expect(originalStripes).toHaveLength(2);
+      expect(originalStripes.map((group) => group.includePatterns?.length)).toEqual([1, 1]);
+      expect(originalStripes.flatMap((group) => group.includePatterns!).toSorted()).toEqual(files);
+      for (const group of originalStripes) {
+        expect(group.timing_key).toBeDefined();
+        expect(timings[group.timing_key!]).toBeUndefined();
+      }
+      timings["core-runtime-hooks"] = 120;
+      const after = createPlan(options);
+      expect(stripes(after)).toEqual(originalStripes);
+      const seconds = (plan: typeof before) =>
+        plan.reduce((sum, job) => sum + (job.predictedSeconds ?? 0), 0);
+      expect(seconds(before)).toBe(557);
+      expect(seconds(after) - seconds(before)).toBe(69);
+    } finally {
+      vi.doUnmock("../../scripts/lib/ci-test-timings.mts");
+      vi.doUnmock("../../scripts/lib/list-test-files.mts");
+      vi.doUnmock("../vitest/vitest.test-shards.mjs");
+      vi.resetModules();
+    }
   });
 
   it.each([
@@ -1874,6 +2343,9 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       hybridCompact,
       hybridPullRequestCompact,
     ]) {
+      const retainsProofTests = [compact, githubCompact, hybridCompact].includes(plan);
+      const retainedFiles = (files: string[]) =>
+        files.filter((file) => retainsProofTests || !isCiProofTestFile(file));
       for (const owner of base) {
         const groups = plan
           .flatMap((shard) => shard.groups)
@@ -1909,7 +2381,9 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         const actual = groups.flatMap((group) => group.includePatterns ?? []);
         expect(new Set(actual).size, owner.shardName).toBe(actual.length);
         if (owner.includePatterns) {
-          expect(actual.toSorted(), owner.shardName).toEqual(owner.includePatterns.toSorted());
+          expect(actual.toSorted(), owner.shardName).toEqual(
+            retainedFiles(owner.includePatterns).toSorted(),
+          );
         } else if (owner.shardName === "agentic-agents-support") {
           expect(actual.toSorted()).toEqual(supportOwnerFiles.toSorted());
         } else if (owner.shardName === "agentic-cli-process") {
@@ -1919,7 +2393,9 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         } else if (owner.shardName === "agentic-gateway-methods") {
           expect(actual.toSorted()).toEqual(gatewayMethodsOwnerFiles.toSorted());
         } else if (owner.shardName === "agentic-gateway-server-isolated") {
-          expect(actual.toSorted()).toEqual(gatewayServerIsolatedOwnerFiles.toSorted());
+          expect(actual.toSorted()).toEqual(
+            retainedFiles(gatewayServerIsolatedOwnerFiles).toSorted(),
+          );
         }
       }
     }
@@ -1960,6 +2436,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
           pluginSdkLightOwnerFiles,
           runtimeConfigOwnerFiles,
         )
+        .filter((file) => !isCiProofTestFile(file))
         .toSorted((a, b) => a.localeCompare(b)),
     );
     expect(compact.every((shard) => shard.groups.every((group) => group.configs.length > 0))).toBe(
@@ -2014,7 +2491,10 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       compact
         .flatMap((shard) => shard.groups)
         .find((group) => group.shard_name === "agentic-control-plane-startup-health-runtime")?.env,
-    ).toEqual({ OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "60000" });
+    ).toEqual({
+      OPENCLAW_VITEST_MAX_WORKERS: "2",
+      OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "60000",
+    });
     const largeJobs = compact.filter(
       (shard) => !shard.requiresDist && shard.checkName.startsWith("checks-node-compact-large-"),
     );
@@ -2511,6 +2991,29 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     expect(requiresDistShardNames).toEqual(["core-support-boundary", "core-runtime-tui-pty"]);
   });
 
+  it("keeps lifecycle proofs on main while excluding PR and manual PR-fallback plans", () => {
+    const proofFiles = [
+      "src/commands/doctor-config-preflight.refusal.process.test.ts",
+      "src/gateway/server.codex-failure-recovery.test.ts",
+    ];
+    const files = (mode: "push" | "pull-request") =>
+      getCommittedCompactPlan(mode).flatMap((shard) =>
+        shard.groups.flatMap((group) => group.includePatterns ?? []),
+      );
+    const mainFiles = files("push");
+    const prFiles = files("pull-request");
+    const manual = createNodeTestShards({ includeProofTests: false });
+    for (const file of proofFiles) {
+      expect(mainFiles.filter((target) => target === file)).toHaveLength(1);
+      expect(prFiles).not.toContain(file);
+      expect(manual.flatMap((shard) => shard.includePatterns ?? [])).not.toContain(file);
+    }
+    expect(
+      manual.find((shard) => shard.shardName === "agentic-gateway-server-isolated")
+        ?.includePatterns,
+    ).toContain("src/gateway/server.chat-recovered-output.test.ts");
+  });
+
   it("preserves runtime preparation and core-only ownership in full and compact plans", () => {
     const qaConfig = "test/vitest/vitest.extension-qa.config.ts";
     const doctorRuntimeTargets = [
@@ -2554,6 +3057,14 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         ),
       ).not.toContain(qaConfig);
       for (const runtimeTarget of [...runtimeTargets, PRIVATE_QA_TOOLING_TEST]) {
+        if (shards === compact && isCiProofTestFile(runtimeTarget)) {
+          expect(
+            compact
+              .flatMap((shard) => shard.groups)
+              .some((group) => ownsRuntimeTarget(group, runtimeTarget)),
+          ).toBe(false);
+          continue;
+        }
         const owner = expectDefined(
           shards.find((shard) =>
             ("configs" in shard ? [shard] : shard.groups).some((group) =>
@@ -2587,10 +3098,12 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     const runtimeParts = placements.filter(({ group }) => group.pretestBuildMode === "runtime");
     expect(runtimeParts).toHaveLength(1);
     expect(runtimeParts[0]?.job.planConcurrency).toBe(1);
-    expect(runtimeParts[0]?.group.includePatterns).toEqual(doctorRuntimeTargets);
+    expect(runtimeParts[0]?.group.includePatterns).toEqual(
+      doctorRuntimeTargets.filter((file) => !isCiProofTestFile(file)),
+    );
     expect(placements.some(({ group }) => group.pretestBuildMode === undefined)).toBe(true);
     expect(placements.flatMap(({ group }) => group.includePatterns ?? []).toSorted()).toEqual(
-      doctor.includePatterns?.toSorted(),
+      doctor.includePatterns?.filter((file) => !isCiProofTestFile(file)).toSorted(),
     );
     expect(new Set(placements.map(({ jobIndex }) => jobIndex)).size).toBe(placements.length);
     for (const { group } of placements) {
@@ -3479,7 +3992,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
   });
 
   it.each(["github", "blacksmith", "hybrid"] as const)(
-    "bounds serial storage-state files per physical %s job without losing coverage",
+    "bounds storage-state files per physical %s job without losing coverage",
     (runnerBackend) => {
       const owner = "core-runtime-infra-storage-state";
       const expected = defaultShards.find((shard) => shard.shardName === owner)!.includePatterns!;
@@ -3496,17 +4009,88 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       expect(new Set(actual).size).toBe(actual.length);
       expect(plan.length).toBeLessThanOrEqual(90);
       const config = createInfraVitestConfig({});
-      expect(config.test?.fileParallelism).toBe(false);
+      expect(config.test?.fileParallelism).toBe(sharedVitestConfig.test.fileParallelism);
+      expect(config.test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers);
       expect(config.test?.isolate).toBe(true);
       expect(config.test?.pool).toBe(diagnosticForksPool);
     },
   );
 
+  it("runs only native Gateway lifecycle fixtures before parallel files without widening selectors", () => {
+    const config = createGatewayServerVitestConfig({ OPENCLAW_VITEST_MAX_WORKERS: "8" }, true);
+    const native = gatewayServerSerialTestFiles.map((file) => relative("src/gateway", file));
+    const sequence = config.test?.sequence?.groupOrder ?? 0;
+    expect(config.test?.projects).toMatchObject([
+      {
+        extends: false,
+        test: {
+          name: "gateway-server-native",
+          pool: "forks",
+          isolate: false,
+          fileParallelism: false,
+          maxWorkers: 1,
+          include: native,
+          runner: config.test?.runner,
+          setupFiles: config.test?.setupFiles,
+          sequence: { groupOrder: sequence },
+        },
+      },
+      {
+        extends: false,
+        test: {
+          name: "gateway-server-parallel",
+          pool: "forks",
+          isolate: false,
+          fileParallelism: true,
+          maxWorkers: undefined,
+          include: config.test?.include,
+          exclude: expect.arrayContaining(native),
+          runner: config.test?.runner,
+          setupFiles: config.test?.setupFiles,
+          sequence: { groupOrder: sequence + 1 },
+        },
+      },
+    ]);
+    expect(listMatchedTestFiles(config)).toEqual(
+      defaultShards
+        .filter((shard) => shard.configs.includes("test/vitest/vitest.gateway-server.config.ts"))
+        .flatMap((shard) => shard.includePatterns!)
+        .toSorted(),
+    );
+    const selected = [
+      gatewayServerSerialTestFiles[0]!,
+      "src/gateway/server.models-voicewake-misc.test.ts",
+    ];
+    const includeFile = join(tempDirs.make("gateway-native-selection-"), "include.json");
+    writeFileSync(includeFile, JSON.stringify(selected));
+    const narrowed = createGatewayServerVitestConfig(
+      {
+        OPENCLAW_VITEST_INCLUDE_FILE: includeFile,
+        OPENCLAW_VITEST_MAX_WORKERS: "8",
+      },
+      true,
+    );
+    expect(listMatchedTestFiles(narrowed)).toEqual(selected.toSorted());
+    expect(narrowed.test?.projects).toMatchObject([
+      { test: { include: [native[0]] } },
+      {
+        test: {
+          include: selected.map((file) => relative("src/gateway", file)),
+          exclude: expect.arrayContaining(native),
+        },
+      },
+    ]);
+  });
+
   it("preserves Gateway runner hooks while assigning database consumers to parallel forks", () => {
     const worker = createGatewayDatabaseWorkersVitestConfig({});
     const core = createGatewayCoreVitestConfig({});
-    const server = createGatewayServerVitestConfig({});
+    const server = createGatewayServerVitestConfig({ OPENCLAW_VITEST_MAX_WORKERS: "8" });
     const methods = createGatewayMethodsVitestConfig({});
+    expect(server.test?.fileParallelism).toBe(true);
+    expect(
+      createGatewayServerVitestConfig({ OPENCLAW_VITEST_MAX_WORKERS: "1" }).test?.fileParallelism,
+    ).toBe(false);
     expect(methods.test?.pool).toBe("forks");
     expect(worker.test?.pool).toBe("forks");
     expect(worker.test?.fileParallelism).toBe(true);
@@ -3841,8 +4425,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
         runner: DEFAULT_NODE_TEST_RUNNER,
         shardName: "agentic-agents-core-subagents",
       },
-      // cli-runner stripes: agents-core runs files serially, so the
-      // import-heavy suite splits across jobs to parallelize at bin level.
+      // Retain the import-heavy CLI stripes alongside bounded file workers.
       {
         checkName: "checks-node-agentic-agents-core-runner-cli-1",
         configs: ["test/vitest/vitest.agents-core.config.ts"],
@@ -4199,6 +4782,10 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
           group.runner,
         );
       const toolingParent = (group: Group) => group.shard_name.replace(/-hosted-\d+$/u, "");
+      const parallelTimingSuffix = (files: readonly string[] | undefined) =>
+        files?.some((file) => gatewayServerSerialTestFiles.includes(file))
+          ? "-parallel-native-serial"
+          : "-parallel";
       const timingFamilies = (plan: typeof before) => {
         const families = new Map<string, Array<{ group: Group; part: number }>>();
         for (const group of plan.flatMap((shard) => shard.groups)) {
@@ -4208,15 +4795,33 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
           if (group.timing_key === undefined) {
             continue;
           }
-          const key = expectDefined(
-            parseCompactSplitTimingKey(group.timing_key),
-            "parsed compact split timing key",
-          );
+          const isParallelServer =
+            group.configs.length === 1 &&
+            group.configs[0] === "test/vitest/vitest.gateway-server.config.ts";
+          const parallelAgentsCore =
+            group.configs.length === 1 && group.configs[0] === agentVitestProjectOwners.core.config;
+          if (parallelAgentsCore && !group.shard_name.includes("-hosted-")) {
+            expect(group.timing_key).toBe(`${group.shard_name}-parallel`);
+            expect(group.env?.OPENCLAW_VITEST_MAX_WORKERS).toBe("2");
+            continue;
+          }
+          const key = parseCompactSplitTimingKey(group.timing_key);
+          if (!key) {
+            expect(isParallelServer).toBe(true);
+            expect(group.timing_key).toBe(
+              `${group.shard_name}${parallelTimingSuffix(group.includePatterns)}`,
+            );
+            continue;
+          }
           const parent = key.parentShardName;
           const part = key.part;
           const hostedName = /^(.+)-hosted-([1-9]\d*)$/u.exec(group.shard_name);
+          const parentName = hostedName?.[1] ?? group.shard_name;
+          const parentFiles = defaultShards.find(
+            (shard) => shard.shardName === parentName,
+          )?.includePatterns;
           expect(parent, "timing key parent must match hosted group name").toBe(
-            hostedName?.[1] ?? group.shard_name,
+            `${parentName}${isParallelServer ? `${parallelTimingSuffix(parentFiles)}-stripes` : parallelAgentsCore ? "-parallel" : ""}`,
           );
           expect(part, "timing key part must match hosted group ordinal").toBe(
             hostedName ? Number(hostedName[2]) : 1,

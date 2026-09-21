@@ -25,6 +25,7 @@ import {
 import { collectGatewayProcessMemoryUsageMb, finishGatewayRestartTrace } from "./restart-trace.js";
 import { activateGatewayAgentDatabaseStartup } from "./server-agent-database-startup.js";
 import type { GatewayKernelRuntime } from "./server-kernel-request-runtime.js";
+import { clearGatewayMaintenanceHandles } from "./server-maintenance-lifecycle.js";
 import { GATEWAY_EVENTS } from "./server-methods-list.js";
 import { refreshConnectedNodeSurfaceCaches } from "./server-methods/nodes.read.js";
 import { assertGatewayRuntimeSecurityConfig } from "./server-runtime-config.js";
@@ -625,7 +626,7 @@ export async function finishGatewayStartup(params: {
       },
       applyMaintenance: async (maintenance) => {
         if (lifecycle.closePreludeStarted) {
-          await gatewayRuntimeServices.clearGatewayMaintenanceHandles(maintenance);
+          await clearGatewayMaintenanceHandles(maintenance);
           return;
         }
         // Publish the stop owner before cleanup can touch SQLite or state paths;

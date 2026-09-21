@@ -133,6 +133,7 @@ scripts/lib/vitest-process.mts
 scripts/lib/vitest-resource-ownership.mts
 scripts/lib/vitest-runtime-selection.mts
 scripts/lib/vitest-shard-metadata.mts
+scripts/lib/vitest-test-runtime.mts
 scripts/lib/vitest-unhandled-errors.mts
 scripts/lib/vitest-worker-artifacts.mts
 scripts/lib/vitest-worker-cache-policy.mts
@@ -616,6 +617,7 @@ src/infra/install-safe-path.ts
 src/infra/json-files.ts
 src/infra/kysely-sync-cache-state.ts
 src/infra/kysely-sync.ts
+src/infra/lifecycle-write-custody.ts
 src/infra/map-size.ts
 src/infra/net/configured-local-origin-bypass.ts
 src/infra/net/fetch-guard.ts

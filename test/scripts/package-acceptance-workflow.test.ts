@@ -11799,15 +11799,15 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       expect(releaseJob.with?.[`run_${lane}`]).toBeUndefined();
     }
     const manualScenarioGuard =
-      "(github.event_name != 'workflow_dispatch' || inputs.scenario == '')";
+      "(github.event_name != 'workflow_dispatch' || (inputs.scenario == '' && inputs.matrix_scenario == ''))";
     expect(workflowJob(QA_LIVE_TRANSPORTS_WORKFLOW, "run_mock_parity").if).toBe(
       `(inputs.expected_sha == '' || inputs.run_mock_parity) && ${manualScenarioGuard}`,
     );
     expect(workflowJob(QA_LIVE_TRANSPORTS_WORKFLOW, "run_live_matrix").if).toBe(
-      `(inputs.expected_sha == '' || inputs.run_matrix) && ${manualScenarioGuard}`,
+      "(inputs.expected_sha == '' || inputs.run_matrix) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')",
     );
     expect(workflowJob(QA_LIVE_TRANSPORTS_WORKFLOW, "run_live_telegram").if).toBe(
-      "inputs.expected_sha == '' || inputs.run_telegram",
+      "(inputs.expected_sha == '' || inputs.run_telegram) && (github.event_name != 'workflow_dispatch' || inputs.matrix_scenario == '')",
     );
     for (const channel of ["discord", "whatsapp", "slack"]) {
       expect(workflowJob(QA_LIVE_TRANSPORTS_WORKFLOW, `run_live_${channel}`).if).toBe(
@@ -11839,7 +11839,7 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     const matrixSpecificInputs = Object.keys(
       readWorkflow(QA_LIVE_TRANSPORTS_WORKFLOW).on?.workflow_call?.inputs ?? {},
     ).filter((input) => input.startsWith("matrix_"));
-    expect(matrixSpecificInputs).toEqual([]);
+    expect(matrixSpecificInputs).toEqual(["matrix_scenario"]);
     expect(workflowStep(matrixJob, "Upload Matrix QA artifacts").with?.name).toBe(
       "${{ inputs.expected_sha != '' && format('release-qa-live-matrix-{0}', inputs.expected_sha) || format('qa-live-matrix-{0}-{1}', github.run_id, github.run_attempt) }}",
     );
@@ -11847,10 +11847,14 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     expect(matrixJob.strategy).toBeUndefined();
     expect(workflowStep(matrixJob, "Run Matrix live lane").env).toEqual({
       FAIL_FAST: "${{ inputs.fail_fast }}",
+      INPUT_SCENARIO: "${{ inputs.matrix_scenario || '' }}",
       OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}",
       OPENCLAW_LIVE_OPENAI_KEY: "${{ secrets.OPENAI_API_KEY }}",
       OPENCLAW_QA_REDACT_PUBLIC_METADATA: "1",
     });
+    expect(workflowStep(matrixJob, "Run Matrix live lane").run).toContain(
+      'matrix_args+=(--scenario "${scenario}")',
+    );
     expect(releaseTelegramWorkflow).toContain(
       'echo "Telegram live lane failed on attempt ${attempt}; retrying once..." >&2',
     );

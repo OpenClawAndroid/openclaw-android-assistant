@@ -8,6 +8,7 @@ import type { ResolvedGatewayAuth } from "./auth.js";
 import { resolveControlUiPluginAuthCookieGrants } from "./control-ui-plugin-auth-cookie.js";
 import { applyHttpOperatorRoleScopeCeiling, resolveHttpProfile } from "./http-auth-user-profile.js";
 import { sendUnauthorized } from "./http-common.js";
+import { normalizeOperatorScopeList } from "./operator-scopes.js";
 import { resolveSharedGatewaySessionGeneration } from "./server/ws-shared-generation.js";
 
 type CookieRequestAuth = NonNullable<ReturnType<typeof authorizeControlUiPluginCookieRequest>>;
@@ -48,7 +49,10 @@ export function authorizeControlUiPluginCookieRequest(
     }
   }
   for (const grant of grants) {
-    grant.scopes = applyHttpOperatorRoleScopeCeiling(grant.scopes, authenticatedProfile);
+    grant.scopes =
+      normalizeOperatorScopeList(
+        applyHttpOperatorRoleScopeCeiling(grant.scopes, authenticatedProfile),
+      ) ?? [];
   }
   return {
     requestAuth: {

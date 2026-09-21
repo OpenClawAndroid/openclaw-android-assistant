@@ -123,6 +123,13 @@ export const gatewayDatabaseWorkerTestFiles = [
   "src/gateway/worker-environments/workspace-result-repository.test.ts",
 ];
 
+// Native Vitest subprocesses cold-import the real Gateway; keep their collection
+// outside concurrent files instead of expanding their process-lifecycle deadlines.
+export const gatewayServerSerialTestFiles = [
+  "src/gateway/server.sessions.fixture-lifecycle.test.ts",
+  "src/gateway/server.startup-fixture-lifetime.test.ts",
+];
+
 // Canonical file ownership for the non-isolated Gateway server Vitest project.
 export const gatewayServerBackedHttpTestFiles = [
   "src/gateway/embeddings-http.test.ts",

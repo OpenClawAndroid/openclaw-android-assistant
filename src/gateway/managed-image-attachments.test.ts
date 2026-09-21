@@ -8,7 +8,6 @@ import { pathToFileURL } from "node:url";
 import { maxBytesForKind } from "@openclaw/media-core/constants";
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -80,7 +79,15 @@ const resolvePlaybackModeForSourceMock = vi.fn<PlaybackModeForSourceResolver>();
 const resolvePlaybackTranscodeMock = vi.fn(async (): Promise<PlaybackTranscodeResolution> => ({
   kind: "passthrough",
 }));
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+  afterAll(async () => {
+    closeOpenClawAgentDatabasesForTest();
+    await closeOpenClawStateDatabaseAsync();
+    closeOpenClawStateDatabaseForTest();
+    cleanup();
+  }),
+);
 
 let storeSaveSpy: MockInstance<typeof import("../media/fetch.js").saveRemoteMedia> | undefined;
 
@@ -200,8 +207,9 @@ async function replaceTestSessionEntry(
   },
   entry: { sessionId: string; updatedAt: number },
 ): Promise<void> {
-  const { replaceSessionEntry } = await import("../config/sessions/session-accessor.js");
-  await replaceSessionEntry(scope, entry);
+  const { replaceSessionEntrySync } = await import("../config/sessions/session-accessor.js");
+  // Fixture seeding does not need the async entry writer's background maintenance.
+  replaceSessionEntrySync(scope, entry);
 }
 
 type RequestResult = {
@@ -2548,13 +2556,6 @@ describe("cleanupManagedOutgoingImageRecords", () => {
     stateDir = tempDirs.make("managed-image-cleanup-");
     vi.clearAllMocks();
     await prepareManagedSessionStore(stateDir);
-  });
-
-  afterEach(async () => {
-    closeOpenClawAgentDatabasesForTest();
-    await closeOpenClawStateDatabaseAsync();
-    closeOpenClawStateDatabaseForTest();
-    await fs.rm(stateDir, { recursive: true, force: true });
   });
 
   it("cleans up dereferenced records and original files", async () => {

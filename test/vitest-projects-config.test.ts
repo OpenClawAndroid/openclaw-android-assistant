@@ -38,6 +38,7 @@ import {
   createContractsVitestConfig,
   pluginContractPatterns,
 } from "./vitest/vitest.contracts-shared.ts";
+import codexConfig from "./vitest/vitest.extension-codex.config.ts";
 import {
   databaseWorkerExtensionTestFiles,
   databaseWorkerExtensionTestRoots,
@@ -122,6 +123,15 @@ afterEach(() => {
 });
 
 describe("projects vitest config", () => {
+  it("isolates Codex file globals while inheriting the shared worker budget", () => {
+    const config = requireTestConfig(codexConfig);
+    expect(config.isolate).toBe(true);
+    expect(config.pool).toBe(requireTestConfig(baseConfig).pool);
+    expect(config.runner).toBeUndefined();
+    expect(config.fileParallelism).toBe(requireTestConfig(baseConfig).fileParallelism);
+    expect(config.maxWorkers).toBe(requireTestConfig(baseConfig).maxWorkers);
+  });
+
   it("pins an explicit full-suite project worker limit", () => {
     const previous = process.env.OPENCLAW_VITEST_MAX_WORKERS;
     try {
@@ -240,7 +250,9 @@ describe("projects vitest config", () => {
     const methodsConfig = requireTestConfig(createGatewayMethodsVitestConfig({}));
     const methodsIsolatedConfig = requireTestConfig(createGatewayMethodsIsolatedVitestConfig({}));
     const serverIsolatedConfig = requireTestConfig(createGatewayServerIsolatedVitestConfig({}));
-    const serverConfig = requireTestConfig(createGatewayServerVitestConfig({}));
+    const serverConfig = requireTestConfig(
+      createGatewayServerVitestConfig({ OPENCLAW_VITEST_MAX_WORKERS: "2" }),
+    );
     const gatewayFallback = requireTestConfig(createGatewayVitestConfig());
 
     expect(rootVitestProjects).toContain(methodsIsolatedProject);
@@ -253,7 +265,11 @@ describe("projects vitest config", () => {
     expect(methodsIsolatedConfig.include).toEqual(scopedGatewayMethodsIsolatedTestFiles);
     expect(serverConfig.pool).toBe("forks");
     expect(serverConfig.isolate).toBe(false);
-    expect(serverConfig.fileParallelism).toBe(false);
+    expect(serverConfig.fileParallelism).toBe(true);
+    expect(
+      requireTestConfig(createGatewayServerVitestConfig({ OPENCLAW_VITEST_MAX_WORKERS: "1" }))
+        .fileParallelism,
+    ).toBe(false);
     expect(serverIsolatedConfig.isolate).toBe(true);
     expect(serverIsolatedConfig.pool).toBe("forks");
     expect(serverIsolatedConfig.runner).toBeUndefined();
@@ -430,7 +446,7 @@ describe("projects vitest config", () => {
     const configFiles = new Map<string, string[]>();
     const matches: string[] = [];
     const processLimits = [
-      ["test/vitest/vitest.extension-codex.config.ts", "extensions/codex/", 12],
+      ["test/vitest/vitest.extension-codex.config.ts", "extensions/codex/", 24],
       ["test/vitest/vitest.extension-matrix.config.ts", "extensions/matrix/", 40],
       ["test/vitest/vitest.extension-telegram.config.ts", "extensions/telegram/", 1],
     ] as const;

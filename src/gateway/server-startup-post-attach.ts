@@ -27,7 +27,6 @@ import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-reque
 import type { PluginServiceCronHost } from "../plugins/service-cron.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
 import { runWithGatewayIndependentRootWorkAdmission } from "../process/gateway-work-admission.js";
-import { sweepSessionStateWatchNotices } from "../sessions/session-state-events.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import { hasSameTranscriptCaptureIntent } from "../transcripts/config-reload.js";
@@ -46,6 +45,7 @@ import {
   hydrateConfiguredExternalCliAuth,
   publishConfiguredModelRuntimeSnapshots,
 } from "./server-startup-model-runtime.js";
+import { runGatewayStartupObservers } from "./server-startup-observers.js";
 import {
   createGatewayStartupOutcomeRecorder,
   formatGatewayStartupOutcomes,
@@ -1206,73 +1206,27 @@ export async function startGatewayPostAttachRuntime(
       if (params.minimalTestGateway || candidateCanary) {
         return;
       }
-      await params.waitForPostReadyWork?.();
-      if (params.isClosing?.()) {
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      if (params.isClosing?.()) {
-        return;
-      }
-      const sentinelRefresh = runWithGatewayIndependentRootWorkAdmission(
-        async () => {
-          await measureStartup(params.startupTrace, "post-attach.update-sentinel", async () => {
-            if (!params.isClosing?.()) {
-              await runtimeDeps.refreshLatestUpdateRestartSentinel(
-                restartSentinelContext.workerContext.environment,
-              );
-            }
-          });
-        },
-        "startup:update-sentinel",
+      await runGatewayStartupObservers({
+        registry: sidecarRegistry,
         signal,
-      ).catch((err: unknown) => {
-        params.log.warn(`restart sentinel refresh failed: ${String(err)}`);
+        port: params.port,
+        config: params.gatewayPluginConfigAtStart,
+        workspaceDir: params.defaultWorkspaceDir,
+        getCron: () =>
+          (params.getCronService?.() ?? params.deps.cron) as
+            | PluginHookGatewayCronService
+            | undefined,
+        isClosing: params.isClosing,
+        waitForPostReadyWork: params.waitForPostReadyWork,
+        startupTrace: params.startupTrace,
+        log: params.log,
+        logHooks: params.logHooks,
+        createHookRunner: runtimeDeps.createHookRunner,
+        refreshLatestUpdateRestartSentinel: () =>
+          runtimeDeps.refreshLatestUpdateRestartSentinel(
+            restartSentinelContext.workerContext.environment,
+          ),
       });
-      try {
-        sweepSessionStateWatchNotices();
-        const hookRunner = await runtimeDeps.createHookRunner(sidecarRegistry, {
-          logger: params.logHooks,
-        });
-        if (params.isClosing?.() || !hookRunner.hasHooks("gateway_start")) {
-          return;
-        }
-        const { withPluginHttpRouteRegistry } = await import("../plugins/http-registry.js");
-        if (params.isClosing?.()) {
-          return;
-        }
-        await runWithGatewayIndependentRootWorkAdmission(
-          async () => {
-            if (params.isClosing?.()) {
-              return;
-            }
-            await withPluginHttpRouteRegistry(sidecarRegistry, () =>
-              hookRunner.runGatewayStart(
-                { port: params.port },
-                {
-                  port: params.port,
-                  config: params.gatewayPluginConfigAtStart,
-                  workspaceDir: params.defaultWorkspaceDir,
-                  getCron: () =>
-                    (params.getCronService?.() ?? params.deps.cron) as
-                      | PluginHookGatewayCronService
-                      | undefined,
-                },
-              ),
-            );
-          },
-          "hooks:gateway-start",
-          signal,
-        ).catch((err: unknown) => {
-          params.log.warn(`gateway_start hook failed: ${String(err)}`);
-        });
-      } finally {
-        // Refresh and hooks run concurrently; a failed or cancelled hook load
-        // must still join the original refresh before metadata can be released.
-        await sentinelRefresh;
-      }
     })
     .catch((err: unknown) => {
       params.log.warn(`gateway sidecars failed to start: ${String(err)}`);

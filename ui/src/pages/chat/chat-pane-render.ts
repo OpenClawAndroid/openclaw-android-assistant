@@ -598,13 +598,6 @@ export class ChatPane extends ChatPaneLayoutRender {
                   followUpModeOverride ? { followUpMode: followUpModeOverride } : undefined,
                   submissionAction,
                 ),
-      // Checkpoint deep-link carries the archived filter so the row stays findable.
-      onOpenSessionCheckpoints: () => {
-        const status = selectedSessionArchived ? "&status=archived" : "";
-        this.context.navigate("sessions", {
-          search: `?session=${encodeURIComponent(state.sessionKey)}${status}`,
-        });
-      },
       onUseSystemDefaultMicrophone: state.realtimeTalkUseSystemDefault ?? undefined,
       onToggleRealtimeTalk: () => void state.toggleRealtimeTalk(),
       onSelectRealtimeVoice: (voice) => void state.selectRealtimeTalkVoice(voice),

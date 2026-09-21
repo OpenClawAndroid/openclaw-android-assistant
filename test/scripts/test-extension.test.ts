@@ -1173,9 +1173,14 @@ await new Promise(()=>{});export default {};`,
       databaseWorkerExtensionTestFiles.includes(`extensions/${file}`),
     ).length;
     expect(calls).toHaveLength(
-      Math.ceil(workerCount / 12) + Math.ceil((expectedFiles.length - workerCount) / 12),
+      Math.ceil(workerCount / 12) + Math.ceil((expectedFiles.length - workerCount) / 24),
     );
-    expect(calls.every((call) => call.targets.length <= 12)).toBe(true);
+    expect(calls.every((call) => call.targets.length <= 24)).toBe(true);
+    expect(
+      calls
+        .filter((call) => call.config === "test/vitest/vitest.extension-database-workers.config.ts")
+        .every((call) => call.targets.length <= 12),
+    ).toBe(true);
     expect(calls.flatMap((call) => call.targets).toSorted()).toEqual(expectedFiles.toSorted());
     expect(new Set(calls.flatMap((call) => call.targets)).size).toBe(expectedFiles.length);
     for (const call of calls) {

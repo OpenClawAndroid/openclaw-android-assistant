@@ -106,6 +106,21 @@ type TaskRegistryReadOwner = {
   assertCurrent: () => void;
 };
 
+function canReadResidentTaskMetadata(): boolean {
+  const { projection } = getTaskRegistryProcessState();
+  if (projection.dirty || !hasPendingTaskRegistryEvents()) {
+    return false;
+  }
+  const preserved = new Set<TaskRegistryMutationScope>();
+  for (const pending of projection.pending) {
+    if (pending.readIdentity !== "preserved") {
+      return false;
+    }
+    preserved.add(pending.scope);
+  }
+  return [...projection.dirtyScopes].every((scope) => preserved.has(scope));
+}
+
 /** External readers join a fixed accepted prefix; persistence preparation must never use this fence. */
 export async function prepareTaskRegistryReadOwner(): Promise<TaskRegistryReadOwner> {
   const context = captureOpenClawStateWorkerContext();
@@ -132,7 +147,14 @@ export async function prepareTaskRegistryRead(
     store,
     assertCurrent: assertOwnerCurrent,
   } = owner ?? (await prepareTaskRegistryReadOwner());
-  if (!(await prepareTaskRegistryProjectionAsync(context, store, 3))) {
+  assertOwnerCurrent();
+  await ensureTaskRegistryReadyAsync(context);
+  assertOwnerCurrent();
+  // Later metadata preserves routing and access; its live owners still owe publication.
+  if (
+    !canReadResidentTaskMetadata() &&
+    !(await prepareTaskRegistryProjectionAsync(context, store, 3))
+  ) {
     return undefined;
   }
   const assertCurrent = () => {

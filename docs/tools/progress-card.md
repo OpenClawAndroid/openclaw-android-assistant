@@ -21,7 +21,7 @@ OpenClaw adds a short progress-card reminder only for non-main, non-sub-agent se
 
 The reminder says:
 
-> Create a card with progress_card only for substantial work with at least two meaningful sequential steps, never for greetings, quick questions, or single-step requests. Update or clear existing cards as needed.
+> Create a card with progress_card only for substantial work with at least two meaningful sequential steps, never for greetings, quick questions, or single-step requests. For measurable work with a known total, prefer a leading progress bar labeled with what is measured and observed completed/total counts; never invent percentages. Update or clear existing cards as needed.
 
 The reminder does not override tool policy. `tools.updatePlan: false` or a matching `tools.deny` entry still removes `progress_card` from the run entirely.
 
@@ -32,7 +32,15 @@ Both input fields are optional:
 - `plan`: up to 50 ordered steps. Each step has non-empty `step` text and a `status` of `pending`, `in_progress`, or `completed`. At most one step may be `in_progress`.
 - `markdown`: a compact narrative about what happened, what is blocked, or what comes next. Use it when a glanceable note says more than the step list; do not repeat the plan in Markdown.
 
-For example:
+For batch work with a known total, prefer a leading progress bar:
+
+```json
+{
+  "markdown": "<progress aria-label=\"PRs reviewed · 12/30\" value=\"12\" max=\"30\"></progress>\n\nTwo obsolete PRs closed. Verifying the next fix."
+}
+```
+
+For genuinely sequential work, a checklist can show the current phase:
 
 ```json
 {
@@ -51,10 +59,12 @@ The tool returns a short receipt such as `Progress card updated (rev 4, 1/3 done
 
 ## Format the note
 
-For eligible multi-step work, choose the representation that makes the current state easiest to scan: use a table for comparisons or metrics, a progress bar for one long operation, and a checklist only when the work is genuinely sequential. Omit the checklist when a table, bar, or sentence says it better, and do not repeat the same facts across the plan and Markdown. Markdown accepts ordinary formatting, links, and optional progress bars:
+For eligible multi-step work with a known total, prefer a leading progress bar using observed completed/total counts: PRs reviewed, tests finished, files processed, or other meaningful work units. Prefer those counts over coarse phase counts such as "1 of 3 steps." Label exactly what the count measures: reviewed PRs are not merged PRs, and finished tests are not necessarily passing tests. Never invent percentages or infer completion from elapsed time. When the total is unknown, use a compact status note or table instead.
+
+Follow the bar with a short result, blocker, or next action. Use tables for comparisons and a checklist only when the work is genuinely sequential. Omit the checklist when a table, bar, or sentence says it better, and do not repeat the same facts across the plan and Markdown. Update after meaningful batches or state changes, keeping the bar and its label current in every replacement. Markdown accepts ordinary formatting, links, and progress bars:
 
 ```md
-<progress aria-label="Tests · 3/7" value="3" max="7"></progress>
+<progress aria-label="Checks finished · 3/7" value="3" max="7"></progress>
 
 Tests are running.
 

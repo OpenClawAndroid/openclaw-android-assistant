@@ -1,6 +1,7 @@
 import type { SqliteWorkerCommand } from "../infra/sqlite-worker-contract.js";
 import type { TranscriptSessionDescriptor, TranscriptSourceLocator } from "./provider-types.js";
 import type {
+  queryTranscriptReadEntries,
   readLatestTranscriptEntry,
   readStoredTranscriptNotes,
   readTranscriptEntry,
@@ -9,6 +10,9 @@ import type {
   TranscriptReadPurpose,
 } from "./store-read.js";
 import type {
+  readTranscriptExportOwnership,
+  readTranscriptExportPathCollisions,
+  readTranscriptExportPathOwners,
   readTranscriptSessionByIdentity,
   readTranscriptSessionEntries,
   readTranscriptSessionMatches,
@@ -51,6 +55,22 @@ export type TranscriptWriteOperations = {
 export type TranscriptWriteCommand = SqliteWorkerCommand<TranscriptWriteOperations>;
 
 export type TranscriptReadRequests = {
+  "transcripts.readEntries": {
+    input: Parameters<typeof queryTranscriptReadEntries>[1];
+    output: ReturnType<typeof queryTranscriptReadEntries>;
+  };
+  "transcripts.exportOwnership": {
+    input: { session: SessionIdentity };
+    output: ReturnType<typeof readTranscriptExportOwnership>;
+  };
+  "transcripts.exportPathCollisions": {
+    input: { exportKey: string };
+    output: ReturnType<typeof readTranscriptExportPathCollisions>;
+  };
+  "transcripts.exportPathOwners": {
+    input: { exportKey: string };
+    output: ReturnType<typeof readTranscriptExportPathOwners>;
+  };
   "transcripts.summarySnapshot": {
     input: { session: SessionIdentity; maxUtterances: number };
     output: ReturnType<typeof readTranscriptSummarySnapshot>;

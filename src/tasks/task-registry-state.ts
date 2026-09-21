@@ -449,11 +449,18 @@ export function resetTaskRegistryRestoreState(): void {
 }
 
 const projection = taskRegistryProcessState.projection;
-const pendingMutations = projection.pending;
-const dirtyScopes = projection.dirtyScopes;
+const { pending: pendingMutations, dirtyScopes } = projection;
 
 registerOpenClawStateDatabaseLifecycleListener((event) => {
-  if (event.kind !== "opened") {
+  if (event.kind === "opened") {
+    return;
+  }
+  const admission = taskRegistryRestoreState.admission;
+  // Physical aliases share an owner; its path also covers failed or replaced opens.
+  if (
+    admission &&
+    (event.path === admission.databasePath || event.identity?.key === admission.identity.key)
+  ) {
     invalidateTaskRegistryProjection();
   }
 });
