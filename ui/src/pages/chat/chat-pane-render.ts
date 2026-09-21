@@ -426,6 +426,8 @@ export class ChatPane extends ChatPaneLayoutRender {
       },
       onDismissProgressCard,
       gatewayQuestionPrompts,
+      asyncQuestionStorage:
+        !catalogKey && !suggestionViewer ? this.chatState.durableComposerScope : null,
       ...createChatQuestionActions({
         state,
         questionState: this.questionPromptState,
@@ -670,6 +672,7 @@ export class ChatPane extends ChatPaneLayoutRender {
       allowExternalEmbedUrls: state.allowExternalEmbedUrls,
       fetchLinkFavicon,
       chatMessageMaxWidth: state.settings.chatMessageMaxWidth,
+      branding: this.context?.theme.branding,
       assistantAttachmentAuthToken: resolveAssistantAttachmentAuthToken(state as never),
       resolveArtifactDownload: (params) => resolveChatArtifactDownload(state, params),
       basePath: state.basePath,

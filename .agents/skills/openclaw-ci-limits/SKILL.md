@@ -369,10 +369,11 @@ These are intentionally guarded by `test/scripts/ci-workflow-guards.test.ts`:
 - The whole Blacksmith agent-support group requests `blacksmith-32vcpu-ubuntu-2404`.
   Its file inventory and resource-derived worker policy remain unchanged.
 - Numbered Blacksmith tooling bins request the same 32-vCPU class after packing.
-  Keep their logical classes, names, file inventories, serial project/file
-  execution and two-worker pins. This adds no jobs and does not promote hosted
-  or hybrid tooling. The native two-CPU/8-GB tails require a larger-host timing
-  comparison; capacity alone is not a measured speedup.
+  Keep their logical classes, names, file inventories, serial project execution
+  and two-worker pins. Tooling files use the shared worker scheduler; price their
+  current file costs by effective workers without dividing the longest file.
+  Docker helper fixtures retain their separate serial config. This does not
+  promote hosted or hybrid tooling; capacity alone is not a measured speedup.
 - Numbered tooling measurements are collected in `toolingFileSeconds` ahead of
   planner activation, which remains blocked on hosted/hybrid row capacity. The daily refit samples the
   newest five successful PR CI runs because main-push plans omit this family.

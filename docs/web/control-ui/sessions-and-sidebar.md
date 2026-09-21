@@ -43,7 +43,7 @@ updates the sidebar without renaming an existing branch.
 
 ## New-session preferences and recents
 
-For connections with a durable user profile, the Gateway stores each agent's latest folder, worktree, model, and thinking choices. The new-session picker also shows recent projects and folders derived only from sessions created by that profile. These conveniences follow the person across browsers; they do not grant access to a project or path.
+For connections with a durable user profile, the Gateway stores each agent's latest folder, worktree, model, thinking, and fast-mode choices. New sessions restore the last fast-mode choice, including an explicit off choice, for supported providers. The new-session picker also shows recent projects and folders derived only from sessions created by that profile. These conveniences follow the person across browsers; they do not grant access to a project or path.
 
 A custom worktree **Name** applies to the submitted session. Once its start is
 accepted, New session clears that name while remembering the repository, checkout
@@ -281,7 +281,10 @@ Choose **Icon & color** from a session menu and select a color swatch to add a n
   is not a separate stop or delete action.
 
 Both shortcuts work from the chat composer, ignore key repeat and text
-composition, and leave open modal dialogs in control. New Session preserves the
+composition, and leave open modal dialogs in control. The keyboard-shortcuts help
+dialog is the exception for New Session: the shortcut closes help before opening
+and focusing the draft. Press **⌘/** or **Ctrl+/** again to close help without
+navigating. Archive remains blocked while help is open. New Session preserves the
 existing conversation's draft through normal navigation. Archive does not clear
 that draft or navigate to another conversation.
 

@@ -91,6 +91,9 @@ export type ChatProps = Omit<
   ChatTaskSuggestionTrayProps &
   ChatPlacementStartupNoticeProps & {
     transcript: ChatTranscriptController;
+    asyncQuestionStorage?:
+      | import("../../lib/chat/composer-draft-store.runtime.ts").DurableComposerDraftScope
+      | null;
     onAsyncQuestionSubmit?: (message: string) => Promise<boolean>;
     presented?: boolean;
     historyState?: ChatState;
@@ -543,13 +546,11 @@ export function renderChat(props: ChatProps) {
                 ></openclaw-plugin-contributions>
                 ${renderTranscriptSearch(props.paneId, requestUpdate)}
                 <div class="chat-main__conversation-frame">
+                  <!-- Chromium can crash when DevTools inspects a blocking Lit object listener. -->
                   <div
                     class="chat-main__conversation"
-                    @wheel=${{
-                      handleEvent: (event: WheelEvent) =>
-                        forwardChatWheelToTranscript(event, props.transcript.scrollElement),
-                      passive: false,
-                    }}
+                    .onwheel=${(event: WheelEvent) =>
+                      forwardChatWheelToTranscript(event, props.transcript.scrollElement)}
                   >
                     ${historyRefreshNotice} ${historyError === nothing ? thread : historyError}
                     ${scrollToBottomButton} ${gutterStack}
