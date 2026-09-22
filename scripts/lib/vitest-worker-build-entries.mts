@@ -46,6 +46,7 @@ import {
 } from "../../src/state/openclaw-state-lease-runtime.test-support.ts";
 import { groqSetupSdkEntrypoints } from "../../src/system-agent/setup-inference-groq-sdk.test-support.ts";
 import { tuiPtyRuntimeEntrypoints } from "../../src/tui/tui-pty-runtime-test-support.ts";
+import { workerBackgroundExecEntrypoints } from "../../src/worker/worker-runtime-background-exec-entrypoints.test-support.ts";
 import { channelIngressGatewayRestartEntrypoint } from "../../test/fixtures/channel-ingress-gateway-restart-entrypoint.ts";
 import { runtimeProcessBuildEntrypoints } from "./runtime-process-build-entries.mts";
 import { createRuntimeProcessBuildEntries } from "./runtime-process-core-build-entries.mts";
@@ -125,6 +126,7 @@ export const vitestWorkerBuildEntries = {
     ...Object.values(sessionTitleRetentionEntrypoints),
     sessionChildCacheRetentionEntrypoint,
     nodeHostConfigRuntimeEntrypoint,
+    ...Object.values(workerBackgroundExecEntrypoints),
     channelIngressGatewayRestartEntrypoint,
     persistenceRuntimeEntrypoint,
     gitBackupCommandRuntimeEntrypoint,
@@ -138,8 +140,6 @@ export const vitestWorkerBuildEntries = {
     agentDatabaseHeldRuntimeEntrypoint,
     databaseVerifyHostRuntimeEntrypoint,
   ]),
-  // The retention fixture executes the real nested QuickJS worker.
-  "agents/code-mode.worker": "src/agents/code-mode.worker.ts",
   // The real ulimit fixture must import its parent before imposing a file-size limit.
   "infra/sqlite-snapshot-source": "src/infra/sqlite-snapshot-source.ts",
   // Keep provider preparation in the same compiled graph as payload rendering;

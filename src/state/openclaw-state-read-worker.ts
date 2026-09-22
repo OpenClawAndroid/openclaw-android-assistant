@@ -161,6 +161,18 @@ function captureCommand(command: OpenClawStateReadCommand): OpenClawStateReadCom
   if (command.type === "workers.placementProjection") {
     return structuredClone(command);
   }
+  if (command.type === "workerEnvironments.pruneCandidates") {
+    return {
+      type: command.type,
+      input: {
+        ...command.input,
+        cursor: command.input.cursor ? { ...command.input.cursor } : undefined,
+      },
+    };
+  }
+  if (command.type === "workerEnvironments.snapshot") {
+    return { type: command.type, ...(command.ids ? { ids: [...command.ids] } : {}) };
+  }
   return { ...command };
 }
 
@@ -277,9 +289,6 @@ function commandBytes(command: OpenClawStateReadRequest["command"]): number {
   if (command.type === "workspace.snapshot") {
     return bytes + Buffer.byteLength(command.workspaceDir, "utf8");
   }
-  if (command.type === "workerEnvironments.hasSessionAttachment") {
-    return bytes + Buffer.byteLength(command.environmentId, "utf8");
-  }
   if (command.type === "audit.run.inspect") {
     const input = command.input;
     // Each supplied numeric scalar retains one eight-byte JavaScript number.
@@ -299,6 +308,19 @@ function commandBytes(command: OpenClawStateReadRequest["command"]): number {
   }
   if (command.type === "workers.placementProjection") {
     return Buffer.byteLength(JSON.stringify(command), "utf8");
+  }
+  if (command.type === "workerEnvironments.pruneCandidates") {
+    return (
+      bytes +
+      8 +
+      (command.input.limit === undefined ? 0 : 8) +
+      (command.input.cursor ? 8 + Buffer.byteLength(command.input.cursor.environmentId, "utf8") : 0)
+    );
+  }
+  if (command.type === "workerEnvironments.snapshot") {
+    return (
+      bytes + (command.ids?.reduce((total, id) => total + Buffer.byteLength(id, "utf8"), 0) ?? 0)
+    );
   }
   return bytes;
 }

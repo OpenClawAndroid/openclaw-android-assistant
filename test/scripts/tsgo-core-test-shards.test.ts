@@ -82,6 +82,7 @@ describe("tsgo core test shards", () => {
       ["src/gateway/worker-environments/computer-transport.test.ts", "gateway-server"],
       ["src/gateway/server-plugin-reload.recovery.test.ts", "gateway-server"],
       ["src/gateway/server-methods/plugins.decisions.test.ts", "gateway-methods"],
+      ["src/system-agent/operations.gateway-lifecycle.test.ts", "services"],
     ] as const) {
       expect(
         shards.filter((shard) => shard.roots.includes(file)).map((shard) => shard.name),

@@ -38,6 +38,8 @@ import {
   isOperatorApprovalCommand,
 } from "../gateway/operator-approval-store.worker.js";
 import { registerSessionGroupInDatabase } from "../gateway/session-group-registration.kernel.js";
+import { isWorkerEnvironmentCommand } from "../gateway/worker-environments/store-worker-contract.js";
+import { executeWorkerEnvironmentCommand } from "../gateway/worker-environments/store.worker.js";
 import { readDeferredPluginMigrations } from "../infra/deferred-plugin-migrations.js";
 import * as deliveryQueue from "../infra/delivery-queue.worker.js";
 import * as deviceAuth from "../infra/device-auth-store.kernel.js";
@@ -66,6 +68,7 @@ import {
   persistTelemetrySuccessInDatabase,
   readTelemetryStateInWorker,
 } from "../infra/telemetry-store.kernel.js";
+import { persistInterruptedUpdateObservation } from "../infra/update-run-interruption-store.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { readRemoteModelCatalog } from "../model-catalog/remote-store.js";
 import { isNodeWorkerJournalCommand } from "../node-host/node-worker-journal.worker-contract.js";
@@ -151,6 +154,10 @@ export function executeSharedStateCommand(
   open: () => OpenClawStateDatabase,
   hasNativeDatabase: boolean,
 ): Operations[keyof Operations]["output"] {
+  // Dispatch preparation has loaded this module; do not open or observe token state.
+  if (command.type === "deviceAuth.prepare") {
+    return undefined;
+  }
   if (command.type === "mcpOAuth.read") {
     return readMcpOAuthStoreInDatabase(open().db, command.input);
   }
@@ -173,6 +180,9 @@ export function executeSharedStateCommand(
       open(),
       getSqliteWorkerStateContext().environment,
     );
+  }
+  if (isWorkerEnvironmentCommand(command)) {
+    return executeWorkerEnvironmentCommand(command, open());
   }
   if (command.type === "audit.events.list") {
     return listAuditEventsInDatabase(open().db, command.input);
@@ -318,6 +328,13 @@ export function executeSharedStateCommand(
     return runOpenClawStateWriteTransaction(
       ({ db }) => upsertPluginBindingApprovalInDatabase(db, command.input),
       { database, path: context.databasePath, env: getSqliteWorkerStateContext().environment },
+    );
+  }
+  if (command.type === "updateRuns.reconcileInterrupted") {
+    return persistInterruptedUpdateObservation(
+      command.input,
+      { path: context.databasePath, env: getSqliteWorkerStateContext().environment },
+      (stage) => requestSqliteWorkerOperationAdmission({ stage, facts: undefined }),
     );
   }
   if (command.type === "plugins.deferredMigrations.read") {

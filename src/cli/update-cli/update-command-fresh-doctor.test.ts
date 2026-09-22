@@ -5,8 +5,6 @@ import { DatabaseSync } from "node:sqlite";
 import { withTempHome } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
-import { readTriageUpdateFailure } from "../../commands/triage-update.js";
-import { readReleasedTriageUpdateFailure } from "../../commands/triage-update.released-reader.test-support.js";
 import { createConfigIO } from "../../config/io.js";
 import {
   consumeUpdatePostInstallDoctorResult,
@@ -15,7 +13,6 @@ import {
   UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV,
   writeUpdatePostInstallDoctorResult,
 } from "../../infra/update-doctor-result.js";
-import { writeTriageUpdateFailure } from "../../infra/update-failure-report-artifact.js";
 import {
   adoptUpdateRun,
   createUpdateRun,
@@ -32,6 +29,8 @@ import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.pa
 import { removePreparedWorkerOwnershipColumns } from "../../state/openclaw-state-schema-v17.test-support.js";
 import type { UpdateCommandOptions } from "./shared.js";
 import { createConfigValidationFailure } from "./update-cli-config.test-support.js";
+import { registerFreshDoctorDiagnosticTests } from "./update-command-fresh-doctor-diagnostics.test-support.js";
+import { registerFreshDoctorOutcomeTests } from "./update-command-fresh-doctor-outcomes.test-support.js";
 import type { PostCorePluginUpdateResult } from "./update-command-plugins.js";
 
 const mocks = vi.hoisted(() => ({
@@ -545,103 +544,9 @@ describe("post-plugin update readiness", () => {
     expect(mocks.runUtf8).not.toHaveBeenCalled();
   });
 
-  it("retains Doctor failure precedence and bounds combined validation facts", async () => {
-    const doctorFacts = Array.from({ length: 4 }, (_, index) => ({
-      check: "doctor",
-      code: "doctor-failed",
-      message: `Earlier failure ${index}`,
-    }));
-    mocks.runExec.mockImplementation(async (_command, args: string[], options) => {
-      if (args.includes("--repair")) {
-        await writeUpdatePostInstallDoctorResult({
-          resultPath: options.env[UPDATE_POST_INSTALL_DOCTOR_RESULT_PATH_ENV],
-          result: { status: "error", failureFacts: doctorFacts },
-        });
-        throw Object.assign(new Error("Doctor failed"), { exitCode: 1 });
-      }
-      throw Object.assign(new Error("private argv"), {
-        failed: true,
-        timedOut: true,
-        cleanup: "uncertain",
-        stderr: "Validation process could not settle",
-      });
-    });
-    const { pluginUpdate: result } = await completePostCorePluginUpdate(updateOptions);
-    expect(result.reason).toBe("post-plugin-doctor-execution-failed");
-    expect(result.failureFacts).toHaveLength(5);
-    expect(result.failureFacts?.slice(0, 4)).toEqual(doctorFacts);
-    expect(result.failureFacts?.[4]?.message).toContain("cleanup=uncertain");
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings?.[0]?.message).toContain("migrations could not be run");
-    expect(mocks.runUtf8).not.toHaveBeenCalled();
-  });
+  registerFreshDoctorOutcomeTests(mocks, updateOptions);
 
-  it("captures a real validator failure for current and released diagnostic readers", async () => {
-    const root = tempDirs.make("post-plugin-validation-command-");
-    const stateDir = path.join(root, "state");
-    vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
-    const secret = "sk-test-validation-secret-1234567890";
-    const script = path.join(root, "validator.mjs");
-    await fs.writeFile(
-      script,
-      `import assert from 'node:assert/strict';
-       assert.deepEqual(process.argv.slice(2), ['config', 'validate', '--json']);
-       process.stderr.write(${JSON.stringify(`module loading failed token=${secret} ${"context ".repeat(100)}`)});
-       process.stdout.write(JSON.stringify({valid: false, error: 'Runtime failed'}));
-       process.exitCode = 7;`,
-    );
-    mocks.resolveEntrypoint.mockResolvedValue(script);
-    const { runExec } =
-      await vi.importActual<typeof import("../../process/exec.js")>("../../process/exec.js");
-    mocks.runExec.mockImplementation(runExec);
-    const { pluginUpdate: result } = await completePostCorePluginUpdate({
-      ...updateOptions,
-      root,
-      nodeRunner: process.execPath,
-      freshDoctorRequired: false,
-    });
-    expect(result.reason).toBe("post-plugin-config-validation-execution-failed");
-    expect(result.failureFacts).toHaveLength(3);
-    expect(result.failureFacts?.[0]?.message).toContain("code 7");
-    expect(result.failureFacts?.[1]?.message).toContain("module loading failed");
-    expect(result.failureFacts?.every((fact) => (fact.message?.length ?? 0) <= 200)).toBe(true);
-    expect(JSON.stringify(result)).not.toContain(secret);
-    expect(JSON.stringify(result)).not.toContain(root);
-    const outputPath = await writeTriageUpdateFailure(
-      {
-        result: {
-          status: "error",
-          mode: "npm",
-          reason: "post-update-plugins",
-          postUpdate: { plugins: result },
-          steps: [{ name: "plugin-convergence", exitCode: 1, failureFacts: result.failureFacts }],
-        },
-      },
-      { env: process.env, outputPath: path.join(root, "failure.json") },
-    );
-    for (const read of [readTriageUpdateFailure, readReleasedTriageUpdateFailure]) {
-      const failure = await read(outputPath, { env: process.env, stateDir });
-      expect(failure).toMatchObject({
-        result: {
-          reason: "post-update-plugins",
-          postUpdate: {
-            plugins: {
-              reason: "post-plugin-config-validation-execution-failed",
-              warnings: [
-                expect.objectContaining({
-                  reason: expect.stringContaining("module loading failed"),
-                  message: "Config validation could not complete; refusing to restart.",
-                }),
-              ],
-            },
-          },
-        },
-      });
-      expect(JSON.stringify(failure)).not.toContain(secret);
-      expect(JSON.stringify(failure)).not.toContain("doctor --fix");
-    }
-    expect(mocks.runUtf8).not.toHaveBeenCalled();
-  });
+  registerFreshDoctorDiagnosticTests({ mocks, tempDirs, updateOptions });
 
   it("consumes nonfatal Doctor warnings before reporting successful convergence", async () => {
     const warnings = ["Optional probe timed out; recheck after restart."];

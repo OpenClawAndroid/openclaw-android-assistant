@@ -140,7 +140,7 @@ it("refreshes selected placement/environment facts by revision and reuses them w
     replaceSessionEntrySync(identity, { sessionId: identity.sessionId, updatedAt: 1 });
     const database = openOpenClawStateDatabase();
     const placements = createWorkerSessionPlacementStore({ database });
-    const environmentStore = createWorkerEnvironmentStore({ database });
+    const environmentStore = await createWorkerEnvironmentStore({ database });
     seedAttachedPlacementEnvironment(database, {
       environmentId: "row-environment",
       sessionId: identity.sessionId,
@@ -335,7 +335,7 @@ it("refreshes selected placement/environment facts by revision and reuses them w
             ["draining", "destroying"],
             ["destroying", "destroyed"],
           ] as const) {
-            environmentStore.transition({ environmentId: "row-environment", from, to });
+            await environmentStore.transition({ environmentId: "row-environment", from, to });
           }
 
           expect((await list())?.placement).toMatchObject({

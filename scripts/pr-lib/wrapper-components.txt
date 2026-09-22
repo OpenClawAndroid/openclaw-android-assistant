@@ -231,6 +231,7 @@ src/agents/worktrees/snapshot-inventory.ts
 src/agents/worktrees/template-registry.ts
 src/auto-reply/reply/delivery-hints.ts
 src/auto-reply/reply/display-text-sanitize.ts
+src/auto-reply/reply/history-limit.ts
 src/auto-reply/reply/inbound-context-marker.ts
 src/auto-reply/reply/strip-inbound-meta.ts
 src/auto-reply/thinking.shared.ts
@@ -514,6 +515,7 @@ src/gateway/control-ui-session-prs-landing.ts
 src/gateway/github-remote.ts
 src/gateway/operator-scopes.ts
 src/gateway/server-methods/workspace-fs.ts
+src/gateway/worker-environments/session-attachment.ts
 src/gateway/worker-environments/workspace-actual-manifest.ts
 src/gateway/worker-environments/workspace-hash-memo.ts
 src/gateway/worker-environments/workspace-inventory-computation.runtime.ts
@@ -805,6 +807,7 @@ src/infra/worker-task-pool.ts
 src/infra/worker-task-server.ts
 src/infra/worker-transfer-bytes.ts
 src/infra/wsl.ts
+src/infra/zstd-codec.ts
 src/logger.ts
 src/logging/config.ts
 src/logging/console.ts
@@ -885,6 +888,7 @@ src/plugins/dev-source-root.ts
 src/plugins/discovery-availability.ts
 src/plugins/discovery-required-plugins.ts
 src/plugins/discovery.ts
+src/plugins/doctor-compatibility-migration.ts
 src/plugins/doctor-contract-artifact.ts
 src/plugins/doctor-contract-module.ts
 src/plugins/doctor-contract-registry-loader-state.ts

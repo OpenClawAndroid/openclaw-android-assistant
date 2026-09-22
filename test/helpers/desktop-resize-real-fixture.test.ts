@@ -8,9 +8,12 @@ import * as desktopFilter from "../../src/gateway/desktop/rfb-view-only-filter.j
 import { createWorkerEnvironmentStore } from "../../src/gateway/worker-environments/store.js";
 import type { WorkerProvider } from "../../src/plugins/types.js";
 import * as processExec from "../../src/process/exec.js";
-import { closeOpenClawStateDatabaseByPath } from "../../src/state/openclaw-state-db-cache.js";
+import {
+  closeOpenClawStateDatabaseAsync,
+  closeOpenClawStateDatabaseByPath,
+} from "../../src/state/openclaw-state-db-cache.js";
 import { openOpenClawStateDatabase } from "../../src/state/openclaw-state-db.js";
-import { withEnv } from "../../src/test-utils/env.js";
+import { withEnvAsync } from "../../src/test-utils/env.js";
 import {
   createDesktopResizeGuest,
   observeDesktopEndpointPackets,
@@ -116,21 +119,22 @@ describe("desktop resize fixture provenance and carrier", () => {
 
   it.each(["ssh", "node"] as const)(
     "persists a ready %s worker and synthetic receipt across reopen",
-    (carrier) => {
+    async (carrier) => {
       const root = tempDirs.make("desktop-resize-store-");
-      withEnv({ OPENCLAW_STATE_DIR: root }, () => {
+      await withEnvAsync({ OPENCLAW_STATE_DIR: root }, async () => {
         const database = openOpenClawStateDatabase();
         try {
           expect(database.path).toBe(path.join(root, "state", "openclaw.sqlite"));
           const value = fixture(carrier);
           if (carrier === "node") {
-            expect(() => seedDesktopResizeSources(value)).toThrow("actually admitted");
-            expect(createWorkerEnvironmentStore().list()).toEqual([]);
+            await expect(seedDesktopResizeSources(value)).rejects.toThrow("actually admitted");
+            expect((await createWorkerEnvironmentStore()).list()).toEqual([]);
           }
-          seedDesktopResizeSources(value, carrier === "node" ? "admitted-device" : undefined);
+          await seedDesktopResizeSources(value, carrier === "node" ? "admitted-device" : undefined);
+          await closeOpenClawStateDatabaseAsync();
           closeOpenClawStateDatabaseByPath(database.path);
           expect(database.db.isOpen).toBe(false);
-          const reopened = createWorkerEnvironmentStore();
+          const reopened = await createWorkerEnvironmentStore();
           expect(reopened.list()).toHaveLength(Object.keys(resizeSources).length);
           for (const [kind, environmentId] of Object.entries(resizeSources)) {
             expect(reopened.get(environmentId)).toMatchObject({
@@ -149,6 +153,7 @@ describe("desktop resize fixture provenance and carrier", () => {
           }
         } finally {
           // Close the exact store before restoring selectors or removing its root.
+          await closeOpenClawStateDatabaseAsync();
           closeOpenClawStateDatabaseByPath(database.path);
         }
       });

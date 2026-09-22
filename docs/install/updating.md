@@ -57,6 +57,12 @@ first, stop the Gateway through its actual supervisor or foreground process owne
 replace the package, run Doctor, and restart through that same owner.
 `--no-restart` cannot repair the old admission check.
 
+Updaters without the admission fix first shipped in 2026.7.2-beta.5, including
+2026.6.34–2026.6.35 and the 2026.7.33–2026.7.35 extended-stable line, refuse before staging with
+`plugins.load.paths: plugin path not found` when a configured plugin path is missing.
+Restore the custom plugin directory or remove its configured path, then update.
+`openclaw doctor --fix` repairs recognized bundled-path aliases but preserves unrelated custom paths.
+
 <Note>
 On macOS, the 2026.9.4 Gateway's `update.run` action or `/update` can hand off
 successfully, then fail at activation with `managed-service-preflight` and
@@ -355,10 +361,12 @@ to finish its restart notice attempt. That wait is capped at 10 seconds so a
 stalled notice cannot block activation.
 
 The report includes the outcome, recorded phase durations, failed steps,
-verification facts, and the next action when needed. A run sends each notice
-at most once; an update that stops before restart sends only the notices for
-phases it reached. If the update cannot start, the bot records and explains why
-and provides the manual command when available.
+verification facts, and the next action when needed. Failed-step summaries preserve
+the initiating cause ahead of trailing recovery advice, using recorded failure
+facts when available. Local run history retains verification findings and backup
+recovery paths separately from the excerpt. A run sends each notice at most once;
+an update that stops before restart sends only the notices for phases it reached. If the update cannot
+start, the bot records and explains why and provides the manual command when available.
 The agent relays the returned recovery instructions to the operator. Manual
 update commands run in a terminal outside the Gateway service; the agent must
 not execute them in the shell of the Gateway hosting its session. A missing

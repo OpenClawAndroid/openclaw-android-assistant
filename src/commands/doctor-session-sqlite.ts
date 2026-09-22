@@ -67,6 +67,7 @@ import {
   gatherLegacyArchiveCoverage,
   listUnreferencedJsonlFiles,
   readLegacySessionRecords,
+  readArchivedSessionOwnership,
   HISTORICAL_IMPORT_REASON,
   type HistoricalArchiveSources,
   type LegacySessionRecord,
@@ -738,54 +739,19 @@ async function inspectOrMigrateTarget(params: {
     const archiveSources = params.historicalArchives?.get(
       canonicalMigrationFilePath(params.target.storePath),
     );
-    // Archived registries supply lineage only; never replay stale entries over live SQLite state.
-    const ownershipRecords: LegacySessionRecord[] = [];
-    let archiveOwnershipVerified = true;
-    for (const move of retainedImport ? [] : (archiveSources?.stores ?? [])) {
-      if (!fs.existsSync(move.archivePath)) {
-        continue;
-      }
-      const ownershipIssues: DoctorSessionSqliteIssue[] = [];
-      try {
-        if (
-          !sameMigrationArtifact(
-            readMigrationArtifactIdentity(move.archivePath),
-            move.artifact!.identity,
-          )
-        ) {
-          throw new Error("archived registry identity changed");
-        }
-        ownershipRecords.push(
-          ...readLegacySessionRecords(params.target, ownershipIssues, {
-            sourcePath: move.archivePath,
-          }),
-        );
-        if (
-          ownershipIssues.length ||
-          !sameMigrationArtifact(
-            readMigrationArtifactIdentity(move.archivePath),
-            move.artifact!.identity,
-          )
-        ) {
-          throw new Error("archived registry could not be verified");
-        }
-      } catch (error) {
-        archiveOwnershipVerified = false;
-        issues.push({
-          code: "historical_transcript_deferred",
-          message: `${move.archivePath}: ${String(error)}`,
-        });
-      }
-    }
+    const ownershipRecords = readArchivedSessionOwnership(
+      params.target,
+      retainedImport ? [] : (archiveSources?.stores ?? []),
+      issues,
+    );
     const snapshot = readOnlySqliteValidationSnapshot(params.target);
-    if (snapshot.ok && archiveOwnershipVerified) {
+    if (snapshot.ok && ownershipRecords) {
       const discovered = await discoverLegacyHistoricalTranscripts({
         target: params.target,
         records: allRecords,
         ownershipRecords,
         referencedPaths: params.referencedPaths,
-        archiveSources:
-          !retainedImport && archiveOwnershipVerified ? archiveSources?.transcripts : [],
+        archiveSources: !retainedImport ? archiveSources?.transcripts : [],
         verifiedSourcePaths: retainedImport
           ? new Set(
               retainedImport.sources
@@ -904,7 +870,14 @@ async function inspectOrMigrateTarget(params: {
   }
   // A retained but ineligible support artifact does not make an already migrated store work.
   if (records.length === 0 && !fs.existsSync(params.target.storePath) && !retainedImport) {
-    report.sqliteEntries = 0;
+    if (issues.length === 0) {
+      report.sqliteEntries = 0;
+    }
+    updateMigrationManifestTarget(
+      params.activeRun,
+      createMigrationTargetInput(params.target),
+      issues,
+    );
     return report;
   }
   if (!retainedImport && params.verifyMissingIndex(report)) {

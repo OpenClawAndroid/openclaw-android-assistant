@@ -270,7 +270,7 @@ describe("update-cli child-owned deferred completion", () => {
               step: "gateway recovery verification",
               status: "failed",
               exitCode: 1,
-              detail: "Exit code: 1",
+              detail: "Exit code: 1; Gateway did not settle.",
               failureFacts: [
                 { check: "settled", code: "stopped-free", message: "Gateway did not settle." },
               ],

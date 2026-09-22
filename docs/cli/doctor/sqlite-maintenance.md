@@ -153,6 +153,31 @@ history explicitly deleted by the user. Diagnostic trajectory envelopes, deleted
 artifacts, unsupported files, conflicting identities, and ambiguous ownership are
 not converted into conversations. Deferred files remain available for recovery.
 
+### Changed archived registry
+
+`historical_transcript_deferred` can report that an archived session registry no
+longer matches its migration receipt. The receipt identifies the original file by
+device, inode, modification time, size, and SHA-256; it is not an agent or install
+ID. Copying, replacing, touching, or editing an archive can invalidate that receipt.
+The identity format is the same in 2026.9.4 and 2026.9.5; 2026.9.5 added historical
+archive discovery that checks these older receipts.
+
+Doctor skips historical transcript import for that store and retains the originals.
+This warning alone does not indicate SQLite corruption or require a rollback.
+If all expected conversations are visible, no action is needed. You can inspect
+current SQLite state with
+`openclaw doctor --session-sqlite inspect --session-sqlite-all-agents`.
+
+If history is missing, preserve the named archive and
+`<state-dir>/session-sqlite-migration-runs/`, make a verified backup, and seek
+recovery help with the warning and inspection output. Keep transcript contents
+and raw manifests private. `doctor --fix` does not reset an unverified fingerprint;
+do not delete or edit receipts to silence the warning. Import attempts record the
+skipped outcome in their migration manifest and leave existing SQLite sessions
+intact.
+
+### Import staging and validation
+
 The public Doctor migration path stages transcript payloads and performs branch
 and provider repairs in a private, temporary SQLite database instead of retaining
 complete histories in memory. It keeps the raw transcript untouched until archiving it through an

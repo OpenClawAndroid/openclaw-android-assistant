@@ -435,6 +435,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
       normalizeOptionalString(sessionCtx.ChatId),
     originatingChatType: replyRoute.chatType,
     run: {
+      providerReviewAcknowledgment: opts?.providerReviewAcknowledgment,
       agentId,
       agentDir,
       sessionId: preparedSessionState.sessionId,
