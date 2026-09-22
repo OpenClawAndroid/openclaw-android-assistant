@@ -107,10 +107,19 @@ subsequent read. No validation cache or new restoration owner is introduced.
 The asynchronous transcript-search facade similarly moves durable FTS reads for
 all four Gateway/tool callers through the existing worker lifecycle. Each caller
 rechecks current scope and authorization after awaiting. Warm `sessions.list`
-already selects resident projection rows without host Kysely reads; its remaining
-database work is hydration, dirty/archived-row refresh, and membership. Preserve
-that projection and its identity/revision invalidation instead of replacing it
-with another per-request store scan. See the
+selects resident projection rows without host Kysely reads. Background refreshes
+prepare up to 64 dirty persistent rows in the history worker: entry metadata,
+membership, board presence, and activity-summary watermarks share one read
+snapshot per physical store. The projection retains each store through consumption
+and rejects replies after projection or registry invalidation. Rows replaced or
+refreshed by direct reads while a reply is pending keep their newer facts; a dirty
+replacement retries under its own generation. Related rows use resident facts and
+existing invalidations to converge across batches.
+
+Startup/topology hydration, direct keyed and archived reads, process-held incognito
+stores, and optional transcript backfill remain migration debt. Preserve the
+projection and its identity/revision invalidation instead of replacing it with
+another per-request store scan. See the
 [inventory baseline](/reference/database-schemas/worker-access-inventory#profile-priority-and-current-cutover-status)
 for measurements and the next owners to migrate.
 

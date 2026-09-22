@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { performance } from "node:perf_hooks";
 import { isDeepStrictEqual } from "node:util";
 import { listAgentIds, withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import {
@@ -9,6 +8,7 @@ import {
 import { loadCombinedSessionStoreForGatewayCore } from "../config/sessions/combined-store-gateway.js";
 import { isInternalSessionEffectsKey } from "../config/sessions/internal-session-key.js";
 import { listSessionEntriesReadOnly } from "../config/sessions/session-accessor.sqlite-entry.js";
+import type { SessionRowDatabaseFacts } from "../config/sessions/session-transcript-worker.types.js";
 import type { SessionStoreTarget } from "../config/sessions/targets.js";
 import type { InternalSessionEntry as SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -39,12 +39,13 @@ import { createSessionRowProjectionCatalog } from "./session-row-projection-cata
 import { createSessionRowProjectionContext } from "./session-row-projection-context.js";
 import { createSessionRowCreatorIndex } from "./session-row-projection-identities.js";
 import {
-  createSessionRowMaterializationBatch,
+  refreshSessionRowMaterializations,
   lookupSessionRow,
   findSessionRowById,
   readResidentSessionRow,
   readSessionRowEntry,
 } from "./session-row-projection-materialize.js";
+import { withSessionRowDatabaseFacts } from "./session-row-projection-read.js";
 import * as records from "./session-row-projection-record.js";
 import { createSessionRowProjectionTranscriptUpdates } from "./session-row-projection-transcript.js";
 import {
@@ -74,7 +75,13 @@ export async function createSessionRowProjection(params: {
   const creators = createSessionRowCreatorIndex();
   let stores = new Map<
     string,
-    { target: SessionStoreTarget; agentId: string; identity: string | symbol; filename: string }
+    {
+      target: SessionStoreTarget;
+      agentId: string;
+      identity: string | symbol;
+      birthtime: string | undefined;
+      filename: string;
+    }
   >();
   const byStore = new Map<string, Set<string>>(),
     byAgent = new Map<string, Set<string>>();
@@ -165,7 +172,8 @@ export async function createSessionRowProjection(params: {
       return current;
     },
   });
-  const markRelated = (row: records.Row) => archive.markRelated(row, indexes);
+  const markRelated = (row: records.Row, includeChildren = true) =>
+    archive.markRelated(row, indexes, includeChildren);
   function remove(id: string) {
     archive.forget(id);
     transcriptUpdates.remove(id);
@@ -239,17 +247,21 @@ export async function createSessionRowProjection(params: {
         if (!opened.found) {
           return [];
         }
-        const databaseIdentity = opened.value.identity;
+        // A later store can reuse a closed file's inode without inheriting its rows.
+        const { identity: databaseIdentity, birthtime } = opened.value;
         const previous =
           stores.get(target.storePath) ??
-          [...stores.values()].find((source) => source.identity === databaseIdentity);
+          [...stores.values()].find(
+            (source) => source.identity === databaseIdentity && source.birthtime === birthtime,
+          );
         nextStores.set(target.storePath, {
           target,
           agentId: previous?.agentId ?? target.agentId,
           identity: databaseIdentity,
+          birthtime,
           filename: opened.value.filename,
         });
-        if (previous?.identity === databaseIdentity) {
+        if (previous?.identity === databaseIdentity && previous.birthtime === birthtime) {
           return [...(byStore.get(previous.target.storePath) ?? [])].flatMap((id) => {
             const row = rows.get(id);
             const entry = row && (row.storedEntry ?? readSessionRowEntry(row));
@@ -331,15 +343,14 @@ export async function createSessionRowProjection(params: {
     } else {
       const query = { ...change, key: change.sessionKey };
       const exact = matching(query);
-      const found = new Set([...exact, ...matching(query, "id")]);
       const registryFactsReady = inOwnerContext(getSubagentSessionListReadSnapshotIdentity);
-      for (const previous of found) {
+      for (const previous of new Set([...exact, ...matching(query, "id")])) {
         if (previous.entry) {
           placementFacts.invalidate(previous.entry.sessionId);
         }
-        markRelated(previous);
         const row = inOwnerContext(() => {
           const entry = readSessionRowEntry(previous);
+          markRelated(previous, records.changesSessionRowDependents(previous.storedEntry, entry));
           if (entry?.archivedAt !== undefined && !registryFactsReady) {
             // Committed row changes must survive an unrelated compact-facts refill.
             return archive.deferAcquisition({ ...previous, hasBoard: undefined });
@@ -400,11 +411,12 @@ export async function createSessionRowProjection(params: {
     row: records.Row,
     configuredAgentIds = new Set(listAgentIds(cfg)),
     readRow = readResidentSessionRow,
+    databaseFacts?: SessionRowDatabaseFacts,
   ) {
     if (!row.entry) {
       return false;
     }
-    const links = readChildLinks(row);
+    const links = readChildLinks(row, databaseFacts !== undefined);
     const prepared = readRow({
       row: { ...row, entry: row.entry },
       cfg,
@@ -415,7 +427,8 @@ export async function createSessionRowProjection(params: {
       gatewayContext: params.context,
       placementFactsReader: placementFacts,
       links,
-      readSourceEntry: (key) => readSourceEntry(row, key),
+      readSourceEntry: (key) => readSourceEntry(row, key, databaseFacts !== undefined),
+      databaseFacts,
     });
     if (!isIncognitoSessionKey(row.key) && rows.get(records.identity(row)) !== row) {
       return false;
@@ -430,33 +443,27 @@ export async function createSessionRowProjection(params: {
     });
     return true;
   }
-  function refresh(ids: readonly string[]) {
+  function refresh(
+    ids: readonly string[],
+    prepared?: ReadonlyMap<string, SessionRowDatabaseFacts>,
+  ) {
     if (disposed) {
       return;
     }
-    const started = performance.now();
-    metadata.prepare(epoch, cfg, matching, put);
-    const configuredAgentIds = new Set(listAgentIds(cfg));
-    const readRow = createSessionRowMaterializationBatch();
-    for (const [offset, id] of ids.entries()) {
-      if (offset > 0 && performance.now() - started >= 12) {
-        break;
-      }
-      const current = rows.get(id),
-        revision = epoch;
-      const row = current && acquireEntry(current, readSessionRowEntry(current));
-      if (row && isCold(row)) {
-        dirty.delete(id);
-        backfill.remove(id);
-        continue;
-      }
-      if (row && materialize(row, configuredAgentIds, readRow) && epoch === revision) {
-        dirty.delete(id);
-      }
-      if (epoch !== revision) {
-        break;
-      }
-    }
+    refreshSessionRowMaterializations({
+      ids,
+      prepared,
+      rows,
+      dirty,
+      prepare: () => {
+        metadata.prepare(epoch, cfg, matching, put);
+        return cfg;
+      },
+      revision: () => epoch,
+      acquireEntry,
+      materialize,
+      forgetBackfill: backfill.remove,
+    });
   }
   async function refreshBatch() {
     for (let pending = prepareRegistryFacts(); pending; pending = prepareRegistryFacts()) {
@@ -478,17 +485,10 @@ export async function createSessionRowProjection(params: {
     if (placementFacts.needsPreparation) {
       return;
     }
-    withAgentRosterFactsBatch(cfg, () => {
-      // Refresh can change dirty membership; snapshot only the next batch before consuming it.
-      const ids: string[] = [];
-      for (const id of dirty) {
-        ids.push(id);
-        if (ids.length === 64) {
-          break;
-        }
-      }
-      refresh(ids);
-    });
+    await withSessionRowDatabaseFacts(
+      { rows, dirty, revision: () => (disposed ? undefined : epoch) },
+      (ids, facts) => withAgentRosterFactsBatch(cfg, () => refresh(ids, facts)),
+    );
   }
   function needsMaterialization() {
     return (

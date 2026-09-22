@@ -18,19 +18,21 @@ export function createSessionRowRelationReads(owner: {
   acquireEntry: (row: records.Row, entry: records.Row["storedEntry"]) => records.Row | undefined;
 }) {
   return {
-    readSourceEntry(this: void, row: records.Row, key: string) {
+    readSourceEntry(this: void, row: records.Row, key: string, residentOnly = false) {
       const source = owner.referenced(
         records.parentReference(owner.config(), key, row.agentId, row.storeTarget.storePath),
       );
       return (
         source &&
-        (owner.dirty.has(records.identity(source)) ? owner.readEntry(source) : source.storedEntry)
+        (!residentOnly && owner.dirty.has(records.identity(source))
+          ? owner.readEntry(source)
+          : source.storedEntry)
       );
     },
-    readChildLinks(this: void, row: records.Row) {
+    readChildLinks(this: void, row: records.Row, residentOnly = false) {
       const links = [...records.dependents(row, owner.byParent)].flatMap((child) => {
         let value = owner.rows.get(child);
-        if (value && owner.dirty.has(child)) {
+        if (value && !residentOnly && owner.dirty.has(child)) {
           value = owner.acquireEntry(value, owner.readEntry(value));
         }
         return value?.entry && [...value.parents].some((ref) => owner.referenced(ref) === row)

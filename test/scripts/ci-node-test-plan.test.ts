@@ -14,6 +14,7 @@ import {
   createNodeTestShardBundles,
   createNodeTestShards,
   createSelectedNodeTestShardBundles,
+  createUiTestShardGroups,
   createVitestCacheWarmGroups,
   hasCompleteStartupCorpusCoverage,
   isExclusiveCompactShardName,
@@ -92,6 +93,50 @@ import { createWizardVitestConfig } from "../vitest/vitest.wizard.config.ts";
 import { listMatchedTestFiles, listTestFiles } from "./ci-node-test-plan.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+
+describe("Control UI release-only inventories", () => {
+  const sidebar = "ui/src/components/app-sidebar.stress.browser.test.ts";
+  const embed = "ui/src/e2e/native-embed-settings.e2e.test.ts";
+  const entry = "ui/src/e2e/chat-session-entry.e2e.test.ts";
+
+  it("omits only the named exhaustive matrices from ordinary UI owners", () => {
+    const groups = createUiTestShardGroups({ includeReleaseOnlyTests: false });
+    expect(groups.ui[0]?.includePatterns).not.toContain(sidebar);
+    expect(groups.e2e[0]?.includePatterns).not.toContain(embed);
+    expect(groups.e2e[0]?.includePatterns).not.toContain(entry);
+    expect(groups.ui[0]?.includePatterns).toContain(
+      "ui/src/components/app-sidebar-row-identity.browser.test.ts",
+    );
+    expect(groups.e2e[0]?.includePatterns).toContain(
+      "ui/src/e2e/chat-flow.navigation-presentation.e2e.test.ts",
+    );
+    expect(groups.ui[0]?.includePatterns?.some((file) => file.endsWith(".e2e.test.ts"))).toBe(
+      false,
+    );
+  });
+
+  it("retains directly edited matrices without widening from their source owner", () => {
+    const groups = createUiTestShardGroups({
+      includeReleaseOnlyTests: false,
+      changedPaths: [entry, "ui/src/components/app-sidebar.ts", "ui/src/e2e"],
+    });
+    expect(groups.e2e[0]?.includePatterns).toContain(entry);
+    expect(groups.e2e[0]?.includePatterns).not.toContain(embed);
+    expect(groups.ui[0]?.includePatterns).not.toContain(sidebar);
+  });
+
+  it("leaves the complete canonical config inventories in full release validation", () => {
+    expect(createUiTestShardGroups()).toEqual({
+      ui: [{ configs: ["ui/vitest.config.ts"], shard_name: "ui/vitest.config.ts" }],
+      e2e: [
+        {
+          configs: ["test/vitest/vitest.ui-e2e.config.ts"],
+          shard_name: "test/vitest/vitest.ui-e2e.config.ts",
+        },
+      ],
+    });
+  });
+});
 
 describe("startup corpus coverage", () => {
   const files = startupCorpusTestFiles;
@@ -1651,7 +1696,10 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
       configs: ["ui/vitest.config.ts"],
       env: { OPENCLAW_VITEST_MAX_WORKERS: "1" },
       includePatterns: [
-        "ui/src/components/app-sidebar.test.ts",
+        "ui/src/components/app-sidebar.catalog.test.ts",
+        "ui/src/components/app-sidebar.interactions.test.ts",
+        "ui/src/components/app-sidebar.people.test.ts",
+        "ui/src/components/app-sidebar.sessions.test.ts",
         "ui/src/pages/chat/chat-view.test.ts",
         "ui/src/pages/chat/chat-pane-lifecycle.test.ts",
         "ui/src/pages/usage/metrics.node.test.ts",
@@ -1666,7 +1714,7 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
 
     expect(groups.every((group) => (group.includePatterns?.length ?? 0) > 0)).toBe(true);
     const files = groups.flatMap((group) => group.includePatterns ?? []);
-    expect(files).toHaveLength(14);
+    expect(files).toHaveLength(17);
     expect(files.every((file) => existsSync(file))).toBe(true);
     expect(buildPrerequisites.resolveVitestPretestBuildMode(groups)).toBeUndefined();
     const tooling = expectDefined(

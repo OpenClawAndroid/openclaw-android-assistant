@@ -136,6 +136,15 @@ serveWorkerTasks(
           )),
         };
       }
+      if (request.kind === "session-row-facts") {
+        const { readSessionRowDatabaseFacts } = await import("./session-entry-read.worker.js");
+        return {
+          ok: true,
+          ...(await withHistoryDatabase(request.database, () =>
+            readSessionRowDatabaseFacts(request),
+          )),
+        };
+      }
       if (request.kind === "session-target-inventory") {
         const { readSessionStoreTargetInventory } =
           await import("./session-store-target-inventory.js");
