@@ -31,6 +31,7 @@ import {
 import { nodeHostConfigRuntimeEntrypoint } from "../../src/node-host/config-runtime.test-support.ts";
 import {
   mcpProviderCatalogEntrypoint,
+  mcpPluginToolsServeEntrypoint,
   publishedSdkBridgeEntrypoints,
 } from "../../src/plugins/loader-sdk-bridge-artifacts.test-support.ts";
 import { pluginRuntimeRetentionEntrypoint } from "../../src/plugins/runtime-retention-entrypoint.test-support.ts";
@@ -75,6 +76,7 @@ export const legacyFinalizerBuildSources = [
   "src/cli/daemon-cli/restart-health.ts",
   "src/commands/doctor/shared/legacy-config-binding-repair.runtime.ts",
   "src/cli/update-cli/update-command-legacy-finalize.test-support.ts",
+  "src/cli/update-cli/update-command-migrated-fixture.test-support.ts",
   "src/infra/update-migrated-finalize.worker.ts",
   "src/infra/runtime-process-entrypoints.ts",
   "src/cli/update-cli/update-command-service-plan.ts",
@@ -106,6 +108,7 @@ export const vitestWorkerBuildEntries = {
     ...Object.values(bashOutputSpillEntrypoints),
     ...publishedSdkBridgeEntrypoints,
     mcpProviderCatalogEntrypoint,
+    mcpPluginToolsServeEntrypoint,
     pluginRuntimeRetentionEntrypoint,
     ...groqSetupSdkEntrypoints,
     ...Object.values(cliRecoveryEntrypoints),
@@ -147,9 +150,8 @@ export const vitestWorkerBuildEntries = {
   "plugins/provider-hook-runtime": "src/plugins/provider-hook-runtime.ts",
   // Real provider preparation uses packaged JavaScript, avoiding per-child source transforms.
   "extensions/anthropic/index": "extensions/anthropic/index.ts",
-  // Candidate finalization runs the real mandatory post-plugin readiness surface.
-  "extensions/memory-core/doctor-health-api": "extensions/memory-core/doctor-health-api.ts",
   "test-support/anthropic-preparation": "test/scripts/anthropic-preparation-probe.ts",
+  "test-support/provider-hook-scope": "test/scripts/provider-hook-scope.test-support.ts",
   // Exercise native writes through the existing plugin facade in the private graph.
   "plugin-sdk/file-access-runtime": "src/plugin-sdk/file-access-runtime.ts",
 };

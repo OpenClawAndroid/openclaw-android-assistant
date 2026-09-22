@@ -150,6 +150,15 @@ warning when it has no explicit writer or migration refusal. The updater still
 validates the final config and readiness, then starts the Gateway. A child whose
 termination cannot be confirmed remains blocking because it may still write state.
 
+In the private migration rehearsal, Doctor lint defers optional core inspections
+until after activation. This includes per-agent model and tool-schema diagnostics;
+lint does not prepare their runtime metadata when those checks are deferred.
+Each omitted inspection records a warning with its check ID and a command to run
+after the update. Required migration, configuration, plugin, and Gateway readiness
+checks still run. Standalone Doctor lint and explicitly selected `--only` checks
+keep their normal scope. The candidate recognizes the private-copy markers already
+set by the published 2026.9.4 updater, so this reduces work on that first hop too.
+
 These checks do not run an agent turn or require a usable model-auth route.
 OAuth-only installations and installations without provider credentials can update.
 Auth diagnostics are advisory; optional inference repair runs through triage only
@@ -500,6 +509,20 @@ code, the updater asks that exact Gateway to drain work and close its services,
 databases, and listener. A foreground Gateway launches a fresh process only after
 the updater settles; it does not reopen its old module graph after replacement.
 Managed services restart through their existing service manager.
+
+Chat updates retain the requester's original person-access grant while staging
+and validation run. Revoking that grant stops the pending update and leaves the
+Gateway serving; issuing a new grant does not revive the original request. Before
+parking, the Gateway must confirm that the original grant and current admin
+authority still permit the update. A missing, failed, or timed-out confirmation
+does not authorize stopping the Gateway.
+
+After parking is authorized, the native updater owns completion or recovery of
+that same update, including Doctor and restart verification. Closing the original
+Gateway's access-policy service during shutdown does not cancel this accepted
+operation. The original profile link, role, configured authority, installation
+ownership, and config-write checks still apply. A new update or triage request
+requires fresh authorization.
 
 With `OPENCLAW_NO_RESPAWN` enabled, a foreground Gateway refuses `update.run`
 before starting the updater. Stop the Gateway, run `openclaw update`, and start

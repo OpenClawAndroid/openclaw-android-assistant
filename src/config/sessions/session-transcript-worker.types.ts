@@ -49,13 +49,13 @@ import type {
 } from "./session-transcript-search.types.js";
 import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
 
-export type SessionTranscriptSearchWorkerInput = {
+type SessionTranscriptSearchWorkerInput = {
   kind: "transcript-search";
   database: { agentId: string; path: string };
   params: SessionTranscriptSearchParams;
 };
 
-export type SessionTranscriptSearchWorkerResult = {
+type SessionTranscriptSearchWorkerResult = {
   kind: "transcript-search";
   result: SessionTranscriptSearchResult;
 };
@@ -103,12 +103,12 @@ export type SessionPreviewWorkerInput = {
   admission?: UserTurnTranscriptAdmissionReceipt;
 };
 
-export type SessionPreviewWorkerResult = {
+type SessionPreviewWorkerResult = {
   kind: "session-preview";
   items: SessionPreviewItem[];
 };
 
-export type SessionTitleFieldsWorkerInput = {
+type SessionTitleFieldsWorkerInput = {
   kind: "session-title-fields";
   database: { agentId: string; path: string };
   scope: SessionTranscriptReadScope;
@@ -116,7 +116,7 @@ export type SessionTitleFieldsWorkerInput = {
   admission?: UserTurnTranscriptAdmissionReceipt;
 };
 
-export type SessionTitleFieldsWorkerResult = {
+type SessionTitleFieldsWorkerResult = {
   kind: "session-title-fields";
   fields: SessionTitleFields;
 };
@@ -127,27 +127,27 @@ export type SessionRowPresenceWorkerInput = {
   scope: SessionAccessScope & { databaseAgentId: string };
 };
 
-export type SessionMembersWorkerInput = {
+type SessionMembersWorkerInput = {
   kind: "session-members";
   database: { agentId: string; path: string };
   sessionKey: string;
   env: NodeJS.ProcessEnv;
 };
 
-export type SessionUsageCacheWorkerInput = {
+type SessionUsageCacheWorkerInput = {
   kind: "usage-cache";
   database: { agentId: string; path: string };
   request: SessionCostUsageCacheRead;
   env: NodeJS.ProcessEnv;
 };
 
-export type SessionEntryListWorkerInput = {
+type SessionEntryListWorkerInput = {
   kind: "session-entry-list";
   database: { agentId: string; path: string };
   scope: SessionEntryListScope;
 };
 
-export type SessionEntryListWorkerResult = {
+type SessionEntryListWorkerResult = {
   kind: "session-entry-list";
   entries: SessionEntrySummary[];
 };
@@ -158,7 +158,7 @@ export type SessionExactEntriesWorkerInput = {
   env: NodeJS.ProcessEnv;
   sessionKeys: readonly string[];
   lifecycleSessionKey?: string;
-  projection?: "full" | "backing";
+  projection?: "full" | "backing" | "sharing";
   continuation?: CanonicalSessionReaderContinuation;
 };
 
@@ -166,19 +166,24 @@ export type SessionExactEntriesWorkerResult = {
   kind: "session-exact-entries";
   entries: SessionEntrySummary[];
   lifecycleTimestamps: SessionLifecycleTimestamps;
+  sharing?: {
+    source: { agentId: string; path: string };
+    databaseIdentity: string;
+    members: Array<{ sessionKey: string; identityIds: string[] }>;
+  };
 };
 
-export type SessionStoreTargetWorkerInput = {
+type SessionStoreTargetWorkerInput = {
   kind: "session-store-target";
   request: SessionStoreTargetReadRequest;
 };
 
-export type SessionTargetInventoryWorkerInput = {
+type SessionTargetInventoryWorkerInput = {
   kind: "session-target-inventory";
   request: SessionStoreTargetInventoryRequest;
 };
 
-export type SessionIdentityEvidenceWorkerInput = {
+type SessionIdentityEvidenceWorkerInput = {
   kind: "session-identity-evidence";
   database: { agentId: string; path: string };
   env: NodeJS.ProcessEnv;
@@ -186,7 +191,7 @@ export type SessionIdentityEvidenceWorkerInput = {
   continuation?: CanonicalSessionReaderContinuation;
 };
 
-export type SessionIdentityEvidenceWorkerResult = {
+type SessionIdentityEvidenceWorkerResult = {
   kind: "session-identity-evidence";
   evidence: SessionIdentityEvidenceResult[];
 };
@@ -195,6 +200,32 @@ export type SessionBranchSummaryWorkerInput = {
   kind: "branch-summaries";
   request: SessionBranchSummaryReadRequest;
 };
+
+export type SessionHistoryWorkerInput =
+  | SessionTranscriptHistoryWorkerInput
+  | SessionPreviewWorkerInput
+  | SessionTitleFieldsWorkerInput
+  | SessionRowPresenceWorkerInput
+  | SessionMembersWorkerInput
+  | SessionEntryListWorkerInput
+  | SessionExactEntriesWorkerInput
+  | SessionStoreTargetWorkerInput
+  | SessionTargetInventoryWorkerInput
+  | SessionIdentityEvidenceWorkerInput
+  | SessionUsageCacheWorkerInput
+  | SessionTranscriptSearchWorkerInput;
+
+export type SessionTranscriptWorkerInput =
+  | SessionHistoryWorkerInput
+  | SessionModelContextWorkerInput
+  | SessionEntryWorkerInput
+  | SessionBranchSummaryWorkerInput;
+
+type SessionHistoryDatabaseWorkerInput = Extract<SessionHistoryWorkerInput, { database: unknown }>;
+
+export type SessionHistoryWorkerPreparedInput = {
+  [Input in SessionHistoryDatabaseWorkerInput as Input["kind"]]: Omit<Input, "database">;
+}[SessionHistoryDatabaseWorkerInput["kind"]];
 
 export type SessionTranscriptWorkerValues = {
   "transcript-search": SessionTranscriptSearchWorkerResult;

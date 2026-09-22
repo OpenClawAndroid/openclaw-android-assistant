@@ -12,8 +12,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect } from "vitest";
+import { resolveVitestNodeArgs } from "../../scripts/lib/vitest-process-env.mts";
 import { requireNodeTool } from "../helpers/node-toolchain.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
+import { createFixtureGit } from "./pr-merge-fixture-git.test-support.js";
 import { landingSnapshotQuery } from "./pr-merge-snapshot.test-support.js";
 import { validReview, writeReviewArtifacts } from "./pr-review-artifact-fixture.js";
 
@@ -23,6 +25,7 @@ export function createMergeOutcomeFixtureHarness() {
   let fixtureTemplate: ReturnType<typeof createFixtureTemplate> | undefined;
   const scripts = join(process.cwd(), "scripts");
   const nodeExecutable = requireNodeTool("node");
+  const nodeArgs = resolveVitestNodeArgs();
   const outcomeRef = "refs/openclaw/pr-merge-outcomes/123";
   const lockRef = "refs/openclaw/pr-operation-locks/123";
   const describePosix = process.platform === "win32" ? describe.skip : describe;
@@ -42,52 +45,12 @@ export function createMergeOutcomeFixtureHarness() {
   const supportsNoLazyFetch =
     spawnSync("git", ["--no-lazy-fetch", "--version"], { env: gitEnv }).status === 0;
 
-  function createFixtureGit(repo: string) {
-    const git = (args: string[], input?: string, cwd = repo, env?: NodeJS.ProcessEnv) =>
-      execFileSync(
-        "git",
-        ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args],
-        {
-          cwd,
-          env: { ...gitEnv, ...env },
-          input,
-          encoding: "utf8",
-          stdio: ["pipe", "pipe", "pipe"],
-        },
-      ).trim();
-    const tree = (owner: string, sibling = "stable\n") => {
-      const a = git(["hash-object", "-w", "--stdin"], owner);
-      const b = git(["hash-object", "-w", "--stdin"], sibling);
-      return git(["mktree"], `100644 blob ${a}\towner.txt\n100644 blob ${b}\tsibling.txt\n`);
-    };
-    const commit = (
-      contents: string,
-      parents: string[],
-      message = "Fixture commit\n",
-      author?: { name: string; email: string },
-    ) =>
-      git(
-        ["commit-tree", contents, ...parents.flatMap((parent) => ["-p", parent])],
-        message,
-        repo,
-        author
-          ? {
-              GIT_AUTHOR_NAME: author.name,
-              GIT_AUTHOR_EMAIL: author.email,
-              GIT_COMMITTER_NAME: author.name,
-              GIT_COMMITTER_EMAIL: author.email,
-            }
-          : undefined,
-      );
-    return { git, tree, commit };
-  }
-
   function createFixtureTemplate(directory: string) {
     const root = realpathSync(directory);
     const repo = join(root, "repo");
     const remote = join(root, "remote.git");
     mkdirSync(repo);
-    const { git, tree, commit } = createFixtureGit(repo);
+    const { git, tree, commit } = createFixtureGit(repo, gitEnv);
     git(["init", "-q", "-b", "main"]);
     git(["config", "user.name", "Merge Fixture"]);
     git(["config", "user.email", "fixture@example.invalid"]);
@@ -115,7 +78,7 @@ export function createMergeOutcomeFixtureHarness() {
     cpSync(template.repo, repo, copyOptions);
     cpSync(template.remote, remote, copyOptions);
     const { base } = template;
-    const { git, tree, commit } = createFixtureGit(repo);
+    const { git, tree, commit } = createFixtureGit(repo, gitEnv);
     git(["remote", "add", "origin", remote]);
     const sourceCommits: string[] = [];
     let head = base;
@@ -282,6 +245,7 @@ export function createMergeOutcomeFixtureHarness() {
       }>,
       mainAdvances: [] as string[],
       calls: [] as string[][],
+      nodeArgs: [] as string[],
       mutations: 0,
       cancellations: 0,
       cancellation: "success",
@@ -367,6 +331,7 @@ if(route==="watch") {
   process.exit(s.ciExit);
 }
 if(route==="sleep") {s.settlementSleeps.push(Number(args[0]));save();process.exit(0);}
+s.nodeArgs=process.execArgv;
 s.calls.push([route,...args]);save();
 if(args.some(arg=>arg.includes("{owner}")||arg.includes("{repo}"))) fail("protected unresolved repository placeholder");
 const main=()=>git(["--git-dir="+process.env.FIXTURE_REMOTE,"rev-parse","refs/heads/main"]);
@@ -759,7 +724,14 @@ fi
     chmodSync(shell, 0o755);
     const bin = join(root, "bin");
     mkdirSync(bin);
-    writeFileSync(join(bin, "gh"), '#!/bin/sh\nexec "$FIXTURE_NODE" "$FIXTURE_GH" direct "$@"\n', {
+    // The fixture isolates its environment; carry the test runner's Node 24
+    // shutdown policy through shell-launched helpers as well as the supervisor.
+    writeFileSync(
+      join(bin, "node"),
+      `#!/bin/sh\nexec "$FIXTURE_NODE" ${nodeArgs.map((arg) => JSON.stringify(arg)).join(" ")} "$@"\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, "gh"), '#!/bin/sh\nexec node "$FIXTURE_GH" direct "$@"\n', {
       mode: 0o755,
     });
     const env = {
@@ -792,6 +764,7 @@ fi
       const result = spawnSync(
         nodeExecutable,
         [
+          ...nodeArgs,
           join(scripts, "pr-lib/process-group-runner.mjs"),
           repo,
           shell,
@@ -874,7 +847,7 @@ fi
       JSON.parse(
         execFileSync(
           nodeExecutable,
-          [gh, "path", "pr", "view", "123", "--json", "state,headRefOid,mergeCommit"],
+          [...nodeArgs, gh, "path", "pr", "view", "123", "--json", "state,headRefOid,mergeCommit"],
           { cwd: repo, env, encoding: "utf8" },
         ),
       );
