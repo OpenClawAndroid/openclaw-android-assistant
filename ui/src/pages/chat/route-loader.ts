@@ -608,7 +608,9 @@ export async function loadChatRoute(
   }
   const resolved = resolvedSessionRouteData({
     context,
-    isResolutionSourceCurrent,
+    // RPC resolution owns the connection acquired after a cold route waited for hello.
+    isResolutionSourceCurrent:
+      "isCurrent" in resolution ? resolution.isCurrent : isResolutionSourceCurrent,
     location: routeLocation,
     face,
     row: resolution.session,
