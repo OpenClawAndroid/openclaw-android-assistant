@@ -1,5 +1,11 @@
 // These consumers need the host-owned SQLite broker, which runs in forked processes.
 export const databaseWorkerCoreTestFiles = [
+  "src/trajectory/runtime-store-writer.test.ts",
+  "src/trajectory/runtime.test.ts",
+  "src/infra/outbound/bound-delivery-router.test.ts",
+  "src/infra/outbound/current-conversation-bindings.worker.test.ts",
+  "src/auto-reply/reply/dispatch-acp.owner.test.ts",
+  "test/subagent-announce-origin.integration.test.ts",
   "src/agents/tools/pdf-tool.auth-routing.test.ts",
   "src/agents/embedded-agent-runner/run/attempt-system-prompt.test.ts",
   "src/agents/embedded-agent-runner/run/attempt-system-prompt.sandbox-info.test.ts",
@@ -22,6 +28,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/agents/mcp-oauth-writes.test.ts",
   "src/infra/sqlite-worker-operation-attachment.test.ts",
   "src/state/openclaw-state-lease-async.test.ts",
+  "src/state/openclaw-state-db.coordinator.test.ts",
   "src/state/openclaw-state-lease-heartbeat.activation.test.ts",
   "src/plugins/diffs-cleanup.lifecycle.test.ts",
   "src/agents/agent-tools-agent-config.exec.test.ts",
@@ -401,6 +408,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/state/openclaw-agent-worker-store.test.ts",
   "src/state/openclaw-agent-db.integrity-lease.test.ts",
   "src/state/openclaw-agent-execution.integrity.test.ts",
+  "src/state/openclaw-agent-execution.creation-witness.test.ts",
   "src/state/openclaw-agent-execution-cleanup.test.ts",
   "src/sessions/session-state-events.test.ts",
   "src/sessions/session-created.test.ts",
@@ -695,6 +703,7 @@ const databaseWorkerCoreTestFileSet = new Set(databaseWorkerCoreTestFiles);
 
 // Preserve watch admission for consumers previously inferred into fast lanes.
 export const databaseWorkerCoreFormerFastKinds = new Map([
+  ["src/infra/outbound/bound-delivery-router.test.ts", "unitFast"],
   ["src/agents/harness/agent-end-side-effects.no-verbatim-capture.test.ts", "unitFast"],
   ["src/agents/tools/skill-workshop-tool.history.test.ts", "unitFast"],
   ["src/agents/tools/skill-workshop-tool.support-paths.test.ts", "unitFast"],
