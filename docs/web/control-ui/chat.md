@@ -23,6 +23,14 @@ The Control UI keeps the latest 24 Side chat turns, including failed questions. 
 
 The question box wraps and grows like the main composer; Enter (or your configured send shortcut) asks the question, and Shift+Enter adds a line. Highlighting text in a chat message offers **Ask in side chat**, which opens the rail with a quoted draft ready to edit.
 
+Drop an image onto Side chat or paste one into its question box. You can send it
+with a written question or on its own. Side chat accepts image attachments, not
+other file types; its previews never add attachments to the main composer.
+Images are available only for the current question and are not retained in the
+restored text thread. Reattach an image when asking a later question about it.
+A failed question keeps its image for **Retry** while the current pane is retained;
+reloading the page discards that failed input.
+
 Highlight text and choose **Add to chat** to attach a comment to the main
 composer. The optional comment field starts on one line, grows to five lines,
 then scrolls internally. Confirm or press Enter to save; Shift+Enter adds a line.
@@ -433,11 +441,15 @@ cancel native clipboard writes that the browser has already accepted.
 
 ### Markdown tables
 
-Markdown tables wrap headings and cell text to fit the conversation. On wide panes,
-top-level assistant tables can use extra space without widening the surrounding prose.
-Dense tables still scroll horizontally; ordinary inline tables grow with the conversation
-instead of adding a vertical scrollbar. **Copy table** copies tab-separated cells, and
-**Expand table** above the table opens a larger view with a sticky header. If copying fails, the button clears any earlier success checkmark. In Chat, workspace
+Markdown tables wrap headings and cell text to fit the conversation. On wide desktop
+panes, top-level assistant tables stay at the reading width when their content fits
+and use extra space only as needed, without widening the surrounding prose. Long
+cells wrap within the pane limit; genuinely dense tables still scroll horizontally.
+Wide desktop tables use compact icon-only controls above the header. Mobile and
+phone-landscape views retain larger touch controls and a visible **Expand table** label.
+Ordinary inline tables grow vertically instead of adding a vertical scrollbar.
+**Copy table** copies tab-separated cells, and **Expand table** opens a larger view
+with a sticky header. If copying fails, the button clears any earlier success checkmark. In Chat, workspace
 file and session links work in either view, including Enter and Space keyboard
 activation. Following a link closes the expanded view so you can use its destination.
 
