@@ -2252,7 +2252,6 @@ src/commands/doctor/shared/legacy-web-tools-migrate.ts	1
 src/commands/doctor/shared/open-policy-allowfrom.ts	2
 src/commands/doctor/shared/plugin-runtime-symlinks.ts	1
 src/commands/doctor/shared/plugin-tool-allowlist-warnings.ts	1
-src/commands/doctor/shared/pristine-startup-state.ts	3
 src/commands/doctor/shared/stale-agent-model-ref-repair.ts	3
 src/commands/doctor/shared/stale-auth-order-store.ts	3
 src/commands/doctor/shared/stale-auth-order.ts	4
@@ -2475,8 +2474,7 @@ src/gateway/chat-display-projection.helpers.ts	10
 src/gateway/chat-display-projection.history.ts	1
 src/gateway/chat-display-projection.sanitize.ts	13
 src/gateway/chat-sanitize.ts	3
-src/gateway/cli-session-history.claude-activity.ts	1
-src/gateway/cli-session-history.claude.ts	8
+src/gateway/cli-session-history.claude.ts	7
 src/gateway/cli-session-history.merge.ts	6
 src/gateway/control-ui-plugin-auth-cookie.ts	1
 src/gateway/control-ui-session-pr-subscriptions.ts	2
@@ -2487,7 +2485,7 @@ src/gateway/desktop/managed-linux.ts	1
 src/gateway/desktop/node-source-context.ts	1
 src/gateway/gateway-cli-backend.live-helpers.ts	2
 src/gateway/gateway-cli-backend.live-probe-helpers.ts	4
-src/gateway/health/collector.ts	3
+src/gateway/health/collector.ts	1
 src/gateway/hooks-mapping.ts	2
 src/gateway/hooks.ts	1
 src/gateway/live-agent-probes.ts	1
@@ -2495,7 +2493,6 @@ src/gateway/local-request-context.ts	2
 src/gateway/managed-image-attachments.ts	3
 src/gateway/mcp-app-operations.ts	1
 src/gateway/mcp-app-reconstruction.ts	1
-src/gateway/mcp-grant-store.ts	2
 src/gateway/mcp-http.handlers.ts	4
 src/gateway/mcp-http.schema.ts	3
 src/gateway/method-scopes.ts	10
@@ -2528,7 +2525,6 @@ src/gateway/server-methods.ts	3
 src/gateway/server-methods/agent-run-handler.ts	1
 src/gateway/server-methods/agent-session-patch.ts	1
 src/gateway/server-methods/agent-session-reset.ts	1
-src/gateway/server-methods/agent-wait.ts	1
 src/gateway/server-methods/approval-publication.ts	4
 src/gateway/server-methods/approval-request-delivery.ts	1
 src/gateway/server-methods/approval-shared.ts	1
@@ -2538,16 +2534,14 @@ src/gateway/server-methods/base-hash.ts	1
 src/gateway/server-methods/channel-pairing.ts	3
 src/gateway/server-methods/channels.ts	12
 src/gateway/server-methods/chat-abort-authorization.ts	3
-src/gateway/server-methods/chat-abort-handler.ts	2
 src/gateway/server-methods/chat-assistant-content.ts	1
 src/gateway/server-methods/chat-broadcast.ts	1
-src/gateway/server-methods/chat-history-handler.ts	1
 src/gateway/server-methods/chat-send-attachments.ts	1
 src/gateway/server-methods/chat-send-reply-dispatch.ts	2
 src/gateway/server-methods/chat-send-request.ts	1
 src/gateway/server-methods/chat-server-timing.ts	1
 src/gateway/server-methods/chat-transcript-inject.ts	1
-src/gateway/server-methods/chat-transcript-persistence.ts	7
+src/gateway/server-methods/chat-transcript-persistence.ts	4
 src/gateway/server-methods/chat-tts-markers.ts	1
 src/gateway/server-methods/config-write-flow.ts	1
 src/gateway/server-methods/config.ts	4
@@ -2579,16 +2573,14 @@ src/gateway/server-methods/session-recovery-continuation.ts	1
 src/gateway/server-methods/sessions-abort.ts	3
 src/gateway/server-methods/sessions-compact.ts	1
 src/gateway/server-methods/sessions-create.ts	1
-src/gateway/server-methods/sessions-messaging.ts	11
+src/gateway/server-methods/sessions-messaging.ts	3
 src/gateway/server-methods/sessions-patch-engine.ts	1
-src/gateway/server-methods/sessions-read.ts	1
 src/gateway/server-methods/skills-workspace-handler.ts	1
 src/gateway/server-methods/skills.ts	3
 src/gateway/server-methods/system-agent-chat-params.ts	2
 src/gateway/server-methods/system-changes.ts	9
 src/gateway/server-methods/task-suggestions.ts	5
 src/gateway/server-methods/terminal-upload.ts	1
-src/gateway/server-methods/tools-catalog.ts	2
 src/gateway/server-methods/web.ts	1
 src/gateway/server-methods/wizard.ts	1
 src/gateway/server-node-events.ts	2
@@ -2629,7 +2621,6 @@ src/gateway/session-transcript-title-reader.ts	1
 src/gateway/sessions-history-http.ts	1
 src/gateway/stale-install.ts	1
 src/gateway/system-ca-warmup.ts	1
-src/gateway/talk/agent-consult.ts	2
 src/gateway/talk/handlers/index.ts	3
 src/gateway/talk/relay/forced-consults.ts	1
 src/gateway/talk/relay/session-create.ts	1
@@ -2638,7 +2629,7 @@ src/gateway/terminal/node-relay.ts	1
 src/gateway/test-http-response.ts	4
 src/gateway/test-temp-config.ts	1
 src/gateway/tools-invoke-http.ts	1
-src/gateway/tools-invoke-shared.ts	6
+src/gateway/tools-invoke-shared.ts	3
 src/gateway/watch-node-http.ts	3
 src/gateway/worker-environments/bundle.ts	6
 src/gateway/worker-environments/inference-control.ts	1
@@ -2647,7 +2638,7 @@ src/gateway/worker-environments/live-event-projection.ts	1
 src/gateway/worker-environments/node-worker-workspace-fallback.ts	2
 src/gateway/worker-environments/placement-state.ts	3
 src/gateway/worker-environments/placement-store.ts	1
-src/gateway/worker-environments/service-validation.ts	3
+src/gateway/worker-environments/service-validation.ts	2
 src/gateway/worker-environments/state.ts	1
 src/gateway/worker-environments/worker-session-tool-executor.ts	1
 src/gateway/worker-environments/worker-turn-admission.ts	3
@@ -2698,7 +2689,7 @@ src/infra/diagnostic-semantic-run-progress.ts	1
 src/infra/diagnostic-trace-context.ts	2
 src/infra/diagnostic-trace-propagation.ts	3
 src/infra/directory-durability.ts	3
-src/infra/exec-approval-channel-runtime.ts	9
+src/infra/exec-approval-channel-runtime.ts	5
 src/infra/exec-approval-policy-snapshot.ts	2
 src/infra/exec-approval-reply.ts	2
 src/infra/exec-approvals-allowlist.ts	7
@@ -2709,7 +2700,7 @@ src/infra/exec-argv-analysis.ts	1
 src/infra/exec-host.ts	3
 src/infra/exec-safe-bin-policy-profiles.ts	1
 src/infra/fetch-headers.ts	4
-src/infra/fetch.ts	7
+src/infra/fetch.ts	5
 src/infra/file-lock-manager.ts	1
 src/infra/file-lock-sync.ts	1
 src/infra/fs-safe-remove.ts	4
@@ -2721,7 +2712,6 @@ src/infra/heartbeat-outcome-store.ts	1
 src/infra/heartbeat-runner-config.ts	1
 src/infra/heartbeat-visibility.ts	1
 src/infra/install-package-dir.ts	2
-src/infra/install-source-utils.ts	2
 src/infra/json-utf8-bytes.ts	4
 src/infra/kysely-sync-cache-state.ts	1
 src/infra/kysely-sync.ts	7
@@ -2763,7 +2753,7 @@ src/infra/package-dist-inventory.ts	2
 src/infra/pairing-files.ts	1
 src/infra/ports.ts	2
 src/infra/private-mode.ts	2
-src/infra/provider-usage.auth.ts	2
+src/infra/provider-usage.auth.ts	1
 src/infra/provider-usage.fetch.codex.ts	1
 src/infra/provider-usage.fetch.deepseek.ts	1
 src/infra/provider-usage.fetch.minimax.ts	1
@@ -2781,9 +2771,9 @@ src/infra/restart-stale-pids.ts	3
 src/infra/retry-policy.ts	3
 src/infra/session-cost-usage-cache.sqlite.ts	1
 src/infra/session-cost-usage-collection.ts	3
-src/infra/session-cost-usage-pricing.ts	6
+src/infra/session-cost-usage-pricing.ts	4
 src/infra/session-cost-usage-reporting.ts	5
-src/infra/session-sqlite-migration-readers.ts	5
+src/infra/session-sqlite-migration-readers.ts	2
 src/infra/shell-env.ts	1
 src/infra/sqlite-coordinator.ts	2
 src/infra/sqlite-file-generation.ts	9
@@ -2795,7 +2785,6 @@ src/infra/sqlite-schema-contract.ts	8
 src/infra/sqlite-snapshot.ts	2
 src/infra/sqlite-strict.ts	7
 src/infra/sqlite-wal.ts	4
-src/infra/startup-migration-checkpoint.ts	1
 src/infra/state-migrations.acp-replay.ts	1
 src/infra/state-migrations.audit-backup.ts	1
 src/infra/state-migrations.audit-records.ts	4
