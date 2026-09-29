@@ -150,13 +150,20 @@ struct DashboardWindowOwnershipTests {
             routeRevision: 2)
         let manager = DashboardManager._testMake(
             authTokenProvider: { _ in await gate.authToken() },
+            legacyCredentialsProvider: { _, _ in
+                guard await gate.authToken() != nil else { throw CancellationError() }
+                return .init(credentials: [:], isCurrent: { true }, waitForInvalidation: nil)
+            },
             endpointStateProvider: { readyState })
         manager._testSetController(controller)
         defer { manager.close() }
 
         await manager.handleEndpointState(readyState)
         let failureController = try #require(manager._testController())
-        #expect(failureController !== controller)
+        #expect(failureController.isShowingFailurePage)
+        #expect(!failureController.canDeliverNativeCommands)
+        #expect(failureController.auth.token == nil)
+        #expect(failureController.documentHost.nativeGatewayAuthProvider == nil)
         #expect(failureController.window === originalWindow)
         #expect(failureController.isWindowOpen)
         #expect(failureController.currentURL == URL(string: "about:blank"))
@@ -259,7 +266,7 @@ struct DashboardWindowOwnershipTests {
         defer { controller.closeDashboard() }
         controller.show()
         let originalWindow = try #require(controller.window)
-        let originalDocument = controller._testDashboardWebViewIdentity
+        let originalDocument = ObjectIdentifier(controller.webView)
         originalWindow.orderOut(nil)
         let endpointURL = server.websocketURL("/")
 
@@ -279,7 +286,7 @@ struct DashboardWindowOwnershipTests {
         let replacement = try #require(manager._testController())
         #expect(replacement !== controller)
         #expect(replacement.window === originalWindow)
-        #expect(replacement._testDashboardWebViewIdentity != originalDocument)
+        #expect(ObjectIdentifier(replacement.webView) != originalDocument)
         let bootstrap = try await dashboardNativeAuthSnapshot(replacement)
         #expect(bootstrap["nativeConnectAuth"] as? Bool == true)
         #expect(bootstrap["token"] == nil)
@@ -325,7 +332,7 @@ struct DashboardWindowOwnershipTests {
 
         let replacement = try #require(manager._testController())
         let responder = try #require(originalWindow.firstResponder as? NSView)
-        #expect(ObjectIdentifier(responder) == replacement._testDashboardWebViewIdentity)
+        #expect(ObjectIdentifier(responder) == ObjectIdentifier(replacement.webView))
     }
 
     @Test func `stale async presentation cannot overwrite a newer endpoint`() async throws {
@@ -648,8 +655,8 @@ struct DashboardWindowOwnershipTests {
 
         let autosaveName = try #require(controller.window?.frameAutosaveName)
         #expect(autosaveName.hasPrefix("OpenClawDashboardWindow-Test-"))
-        #expect(controller._testDashboardDataStore === dataStore)
-        #expect(!controller._testDashboardDataStore.isPersistent)
+        #expect(controller.webView.configuration.websiteDataStore === dataStore)
+        #expect(!controller.webView.configuration.websiteDataStore.isPersistent)
         try controller.nativeBrowser.open(tabId: "mac-first", url: server.url("/reader/first"), sessionKey: "")
         #expect(try #require(controller.nativeBrowser.webView(for: "mac-first"))
             .configuration.websiteDataStore === dataStore)
@@ -657,7 +664,7 @@ struct DashboardWindowOwnershipTests {
         await manager.handleEndpointState(.connecting(mode: .remote, detail: "Reconnecting"))
         let failure = try #require(manager._testController())
         #expect(failure !== controller)
-        #expect(failure._testDashboardDataStore === dataStore)
+        #expect(failure.webView.configuration.websiteDataStore === dataStore)
         #expect(failure.window?.frameAutosaveName == autosaveName)
 
         await manager.handleEndpointState(.ready(
@@ -668,7 +675,7 @@ struct DashboardWindowOwnershipTests {
             routeRevision: 2))
         let recovered = try #require(manager._testController())
         #expect(recovered !== failure)
-        #expect(recovered._testDashboardDataStore === dataStore)
+        #expect(recovered.webView.configuration.websiteDataStore === dataStore)
         #expect(recovered.window?.frameAutosaveName == autosaveName)
         try recovered.nativeBrowser.open(tabId: "mac-recovered", url: server.url("/reader/recovered"), sessionKey: "")
         #expect(try #require(recovered.nativeBrowser.webView(for: "mac-recovered"))
