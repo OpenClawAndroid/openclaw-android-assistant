@@ -77,7 +77,7 @@ Runtime topology checks inherit the existing [Go memory defaults](/ci/local-proo
 
 Android native resource preparation uses the Mermaid renderer's filtered dependency install, including optional build tooling. Pnpm retains root dependencies but omits unrelated plugin packages; Gradle still builds the assets and runs the selected native tests and lint. Historical targets keep their compatibility path.
 
-Android phone tests use up to two isolated JVMs on Blacksmith and retain [Gradle-owned cache expiry](/ci/runners#runner-backend-modes). The same four normal rows keep third-party phone lint with its unit tests so they reuse compilation and build metadata. Wear owns Wear tests and lint, and Kotlin lint owns Play/shared lint. Normal same-repository Blacksmith runs overlap all four rows; other routes retain two. All test and lint tasks remain selected.
+Android phone tests use up to four isolated JVMs on Blacksmith and retain [Gradle-owned cache expiry](/ci/runners#runner-backend-modes). The same four normal rows split phone tests from app lint: Wear owns Wear tests and lint plus third-party app lint, and Kotlin lint owns Play/shared lint. Normal same-repository Blacksmith runs overlap all four rows; other routes retain two. All test and lint tasks remain selected.
 
 macOS Swift CI runs the app and independent package suites in separate [native phases](/ci/pipeline#macos-swift-phases), retaining every test and the existing concurrency and timeout limits.
 
@@ -219,9 +219,9 @@ jobs or Blacksmith registrations and falls back to fresh work on a miss.
 
 Auto-reply reply tests run files in parallel with two workers per compact group. Their planner uses separate parallel timing identities; until those have measurements, serial group costs are divided by the effective worker count, with single-file groups retaining their full cost.
 
-The measured Gateway isolated/database-worker cohort uses at most eight workers
-on those hosts with at least 28 GiB total memory; other packed groups retain
-their existing caps.
+The Gateway isolated/database-worker cohort keeps its two-worker budget, including
+roomy serial Blacksmith and hybrid jobs, to leave cold startup headroom within
+existing test deadlines. Other packed groups retain their existing caps.
 
 Commands tests share the existing worker budget across independent files. The
 Doctor session SQLite cases are split by operation while preserving the complete
