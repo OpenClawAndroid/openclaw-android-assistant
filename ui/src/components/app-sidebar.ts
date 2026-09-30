@@ -57,6 +57,7 @@ import {
   setStoredSessionCatalogHidden,
   storeSidebarCatalogGrouping,
   type SidebarRecentSession,
+  type SidebarToolActivity,
 } from "./app-sidebar-session-types.ts";
 import { renderCommunityInviteCard } from "./community-invite-card.ts";
 import {
@@ -74,6 +75,7 @@ import { SidebarPeopleController } from "./sidebar-people-controller.ts";
 class AppSidebar extends AppSidebarSessionNavigationElement implements SessionListHost {
   @state() teamOnlineExpanded = false;
   @state() override sidebarNarrationLines: ReadonlyMap<string, string> = new Map();
+  @state() override sidebarTools: ReadonlyMap<string, SidebarToolActivity> = new Map();
   @state() override sidebarObserverDigests: ReadonlyMap<string, SessionObserverDigest> = new Map();
 
   override readonly sessionOrganizer = new SessionOrganizerController(this);
@@ -135,23 +137,13 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
       () => this.context?.gateway,
       (gateway) => gateway.subscribeEvents((event) => this.narration?.handleEvent(event)),
     )
-    .watch(
-      () => this.context?.agentIdentity,
-      (agentIdentity, notify) => agentIdentity.subscribe(notify),
-    )
-    .watch(
-      () => this.context?.theme,
-      (theme, notify) => theme.subscribe(notify),
-    )
-    .watch(
+    .watchStore(() => this.context?.agentIdentity)
+    .watchStore(() => this.context?.theme)
+    .watchStore(
       () => this.context?.config,
-      (config, notify) => config.subscribe(notify),
       () => this.syncCommunityInviteState(),
     )
-    .watch(
-      () => this.context?.plugins,
-      (plugins, notify) => plugins.subscribe(notify),
-    );
+    .watchStore(() => this.context?.plugins);
   private readonly nativeGatewaysChanged = () => this.sidebarMenus.closeSessionMenu();
   private readonly hiddenSessionCatalogsChanged = () => {
     this.hiddenSessionCatalogIds = loadStoredHiddenSessionCatalogIds();
@@ -293,6 +285,9 @@ class AppSidebar extends AppSidebarSessionNavigationElement implements SessionLi
         },
         (digests) => {
           this.sidebarObserverDigests = digests;
+        },
+        (tools) => {
+          this.sidebarTools = tools;
         },
       );
       this.narration.sync(this.narrationSyncInput());

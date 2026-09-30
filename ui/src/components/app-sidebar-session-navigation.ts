@@ -66,6 +66,7 @@ import {
   storeSidebarSessionSortMode,
   type SidebarEmptyGroupsMode,
   type SidebarRecentSession,
+  type SidebarToolActivity,
   type SidebarSessionSortMode,
   type SidebarSessionStatusFilter,
 } from "./app-sidebar-session-types.ts";
@@ -233,6 +234,7 @@ export class AppSidebarSessionNavigationElement extends AppSidebarBase {
   private readonly attention = new SessionAttentionController(this);
 
   declare readonly sidebarNarrationLines: ReadonlyMap<string, string>;
+  declare readonly sidebarTools: ReadonlyMap<string, SidebarToolActivity>;
   declare readonly sidebarObserverDigests: ReadonlyMap<string, SessionObserverDigest>;
   declare readonly sessionOrganizer: SessionOrganizerController;
   declare readonly sidebarMenus: SidebarMenusController;

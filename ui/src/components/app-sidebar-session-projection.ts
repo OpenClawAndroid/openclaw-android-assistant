@@ -385,6 +385,11 @@ export class SidebarSessionProjection {
     }
     // While a run is live the held value is the display: observeSubtitle
     // refreshed it this update pass, applying the minimum-display floor.
+    // Tool identity and its prepared progress must advance together; the
+    // ambient narration hold must not pair a new glyph with an old tool label.
+    if (params.toolActivity) {
+      return resolveSidebarSessionSubtitle(params);
+    }
     const held = this.heldSubtitles.get(params.session.key);
     if (!held) {
       return resolveSidebarSessionSubtitle(params);
