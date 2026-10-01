@@ -81,6 +81,7 @@ packages/normalization-core/src/code-points.ts
 packages/normalization-core/src/error-coercion.ts
 packages/normalization-core/src/expect.ts
 packages/normalization-core/src/format.ts
+packages/normalization-core/src/grapheme.ts
 packages/normalization-core/src/home-dir.ts
 packages/normalization-core/src/index.ts
 packages/normalization-core/src/json-coercion.ts
@@ -788,6 +789,7 @@ src/infra/sqlite-backup.ts
 src/infra/sqlite-busy-timeout.ts
 src/infra/sqlite-error-diagnostics.ts
 src/infra/sqlite-existing-database.ts
+src/infra/sqlite-file-copy.ts
 src/infra/sqlite-file-generation.ts
 src/infra/sqlite-files.ts
 src/infra/sqlite-handle-lifecycle.ts
@@ -1241,6 +1243,7 @@ src/process/supervisor/cancellation-policy.ts
 src/process/supervisor/darwin-process-command.ts
 src/process/supervisor/service-child-group-ownership.ts
 src/process/supervisor/service-child-windows-job-native.ts
+src/process/windows-command-line.ts
 src/process/windows-command.ts
 src/proxy-capture/env.ts
 src/proxy-capture/header-redaction.ts

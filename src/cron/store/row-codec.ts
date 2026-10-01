@@ -1,5 +1,6 @@
 /** Converts cron jobs between public store shape and normalized SQLite rows. */
 import type { DatabaseSync } from "node:sqlite";
+import { safeParseJsonRecord } from "@openclaw/normalization-core/json-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { sha256Hex } from "../../infra/crypto-digest.js";
@@ -8,6 +9,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   sqliteStringSet,
 } from "../../infra/kysely-sync.js";
+import { normalizeSqliteNumber } from "../../infra/sqlite-number.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import { tableExists } from "../../state/openclaw-state-db-schema-helpers.js";
 import { hashCronJobDefinition } from "../definition-hash.js";
@@ -23,7 +25,6 @@ import {
 } from "../scheduled-tool-policy.js";
 import type { CronJobState, CronStoredJob, CronStoreFile } from "../types.js";
 import { deliveryFromJson, deliveryToJson } from "./delivery-codec.js";
-import { normalizeNumber, tryParseJsonObject } from "./scalar-codec.js";
 import type {
   CronJobGenerationReadRow,
   CronJobInsert,
@@ -67,7 +68,7 @@ function stripJobRuntimeFields(job: CronStoreFile["jobs"][number]): Record<strin
 export function resolveCronJobGrantDefinitionRevision(job: CronStoredJob): string {
   // Match job_json: drop ordinary undefined fields after deliveryToJson has
   // encoded meaningful explicit destination clears as null.
-  const storedDefinition = tryParseJsonObject(JSON.stringify(stripJobRuntimeFields(job)));
+  const storedDefinition = safeParseJsonRecord(JSON.stringify(stripJobRuntimeFields(job)));
   if (!storedDefinition) {
     throw new Error(`Cannot canonicalize cron job ${job.id} for grant revision`);
   }
@@ -136,13 +137,12 @@ function normalizeCronJobForSqlite(job: CronStoreFile["jobs"][number]): CronStor
   } as CronStoredJob;
 }
 
-function countUnpersistableCronJobs(store: CronStoreFile): number {
-  return store.jobs.reduce((count, job) => count + (normalizeCronJobForSqlite(job) ? 0 : 1), 0);
-}
-
 /** Fails before replacing SQLite rows when any config job cannot round-trip. */
 export function assertCronStoreCanPersist(store: CronStoreFile): void {
-  const invalidJobs = countUnpersistableCronJobs(store);
+  const invalidJobs = store.jobs.reduce(
+    (count, job) => count + (normalizeCronJobForSqlite(job) ? 0 : 1),
+    0,
+  );
   if (invalidJobs > 0) {
     throw new Error(`Cannot persist cron store with ${invalidJobs} invalid job(s)`);
   }
@@ -158,7 +158,7 @@ export function rowToCronJob(
   jobJson: Record<string, unknown>,
   createdAtMsFallback?: number,
 ): CronStoredJob | null {
-  const state = tryParseJsonObject(row.state_json);
+  const state = safeParseJsonRecord(row.state_json);
   if (!state || getInvalidPersistedCronJobReason(jobJson)) {
     return null;
   }
@@ -200,7 +200,9 @@ export function rowToCronJob(
     ...(toolsAllowExecTargetRequirement ? { toolsAllowExecTargetRequirement } : {}),
     createdAtMs,
     updatedAtMs:
-      normalizeNumber(row.runtime_updated_at_ms) ?? normalizeNumber(row.updated_at) ?? createdAtMs,
+      normalizeSqliteNumber(row.runtime_updated_at_ms) ??
+      normalizeSqliteNumber(row.updated_at) ??
+      createdAtMs,
     state,
   } as CronStoredJob;
 }
@@ -218,7 +220,7 @@ export function projectCronJobThroughStorageCodec(job: CronStoredJob): CronStore
     state_json: serializeCronJobState(normalized.state ?? {}),
     runtime_updated_at_ms: normalized.updatedAtMs,
   };
-  const projected = rowToCronJob(row, tryParseJsonObject(jobJson) ?? {});
+  const projected = rowToCronJob(row, safeParseJsonRecord(jobJson) ?? {});
   if (!projected) {
     throw new Error(`cannot project cron job ${job.id} through storage codecs`);
   }
@@ -323,7 +325,7 @@ export function materializeCronRowAgentOwners(
   const agentId = normalizeAgentId(legacyDefaultAgentId);
   let rewritten = 0;
   for (const row of loadCronRows(db, storeKey)) {
-    const jobJson = tryParseJsonObject(row.job_json);
+    const jobJson = safeParseJsonRecord(row.job_json);
     const jsonSessionAgentId = parseAgentSessionKey(
       normalizeOptionalString(jobJson?.sessionKey),
     )?.agentId;
@@ -437,7 +439,7 @@ export function replaceCronRows(
   const legacyAuthorityJobIds = new Set<string>();
   for (const row of existingRows) {
     existingJobIds.add(row.job_id);
-    const storedJob = row.job_json === undefined ? undefined : tryParseJsonObject(row.job_json);
+    const storedJob = row.job_json === undefined ? undefined : safeParseJsonRecord(row.job_json);
     if (
       storedJob &&
       (Object.hasOwn(storedJob, "runtimeAuthority") ||
@@ -490,7 +492,7 @@ export function upsertCronJobRow(
     ...bindCronJobRow(storeKey, normalized, sortOrder),
     grant_definition_generation: retainedGrantGeneration + 1,
   };
-  const existingJobJson = existingRow ? tryParseJsonObject(existingRow.job_json) : null;
+  const existingJobJson = existingRow ? safeParseJsonRecord(existingRow.job_json) : null;
   const existingJob =
     existingRow && existingJobJson ? rowToCronJob(existingRow, existingJobJson) : null;
   const existingDefinitionRevision = existingJob
@@ -707,8 +709,8 @@ export function loadedCronStoreFromRows(
   const invalidConfigRows: LoadedCronStore["invalidConfigRows"] = [];
 
   for (const [index, row] of rows.entries()) {
-    const parsedJobJson = tryParseJsonObject(row.job_json);
-    const parsedStateJson = tryParseJsonObject(row.state_json);
+    const parsedJobJson = safeParseJsonRecord(row.job_json);
+    const parsedStateJson = safeParseJsonRecord(row.state_json);
     if (!parsedJobJson || !parsedStateJson) {
       invalidConfigRows.push({
         sourceIndex: index,
@@ -721,7 +723,8 @@ export function loadedCronStoreFromRows(
     const job = rowToCronJob(row, parsedJobJson, createdAtMsFallback);
     const configJob = decodeCronJobConfig(parsedJobJson);
     const runtimeEntry = {
-      updatedAtMs: normalizeNumber(row.runtime_updated_at_ms) ?? normalizeNumber(row.updated_at),
+      updatedAtMs:
+        normalizeSqliteNumber(row.runtime_updated_at_ms) ?? normalizeSqliteNumber(row.updated_at),
       scheduleIdentity: row.schedule_identity ?? undefined,
       state: parsedStateJson,
     };

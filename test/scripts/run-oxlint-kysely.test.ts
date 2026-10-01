@@ -99,17 +99,41 @@ const striped = [
 
 describe("typed lint Kysely prerequisites", () => {
   it.each([
+    { name: "direct", args: direct, sparse: false },
+    { name: "striped", args: striped, sparse: false },
+    { name: "sparse direct", args: direct, sparse: true },
+    { name: "sparse striped", args: striped, sparse: true },
+  ])(
+    "prepares cold declarations before $name core lint without plugin artifacts",
+    ({ args, sparse }) => {
+      const fixture = createLintFixture();
+      const agentProjection = ".artifacts/kysely/openclaw-agent-db.generated.ts";
+      if (sparse) {
+        fs.unlinkSync(path.join(fixture.root, "src/state/openclaw-agent-schema.sql"));
+        fixture.write(agentProjection, "export interface Stale {}\n");
+      }
+      expect(fs.existsSync(fixture.output)).toBe(false);
+      const result = fixture.run(args);
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(fs.readFileSync(fixture.output, "utf8")).toContain("title: string;");
+      expect(fs.existsSync(path.join(fixture.root, agentProjection))).toBe(!sparse);
+      expect(fs.existsSync(path.join(fixture.root, ".artifacts/extension-package-boundary"))).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each([
     { name: "direct", args: direct },
     { name: "striped", args: striped },
-  ])("prepares cold declarations before $name core lint without plugin artifacts", ({ args }) => {
+  ])("reports schema generation failures before $name core lint", ({ args }) => {
     const fixture = createLintFixture();
-    expect(fs.existsSync(fixture.output)).toBe(false);
+    fixture.write("src/state/openclaw-state-schema.sql", "not valid SQL");
+    fixture.write("src/state/consumer.ts", "export const valid = true;\n");
     const result = fixture.run(args);
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(fs.readFileSync(fixture.output, "utf8")).toContain("title: string;");
-    expect(fs.existsSync(path.join(fixture.root, ".artifacts/extension-package-boundary"))).toBe(
-      false,
-    );
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    expect(result.stdout + result.stderr).toContain("syntax error");
+    expect(fs.existsSync(path.join(fixture.root, ".artifacts/kysely"))).toBe(false);
   });
 
   it("leaves preparation to skip-prepare callers and skips syntax-only and metadata commands", () => {
