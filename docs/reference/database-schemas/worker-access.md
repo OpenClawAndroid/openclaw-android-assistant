@@ -16,6 +16,21 @@ paths are migration debt, not a pattern to extend. The
 [migration inventory](/reference/database-schemas/worker-access-inventory) separates
 candidate main-thread paths from SQL already executing in workers.
 
+Inventory classifications describe counted operations, not whole-module runtime
+safety. Reviewed mixed modules use named operation paths rather than line numbers;
+unreviewed operations retain their conservative file classification. Trace every
+production caller before adding an operation exception, and update existing
+reviewed overrides instead of shadowing them with worker-module entries. The
+ratchet applies the same classification rules to the base and candidate sources,
+so metadata corrections alone do not offset unrelated T1 growth.
+
+Canonical-repair mutations are T2 Doctor work, but its exact-row reader remains
+runtime debt through the Gateway's legacy-main agent-creation check. Claw
+provenance's counted CLI writes do not cover its raw Gateway SQL reads. Shared
+incognito category readers and native approval SDK compatibility retain their
+existing classifications. A metadata reclassification changes neither execution
+nor update behavior.
+
 Runtime cache-TTL, bootstrap, prompt-error, and provider replay markers append
 through the existing transcript writer worker. Custom-message appends use the
 same worker and adopt their committed view before notifying observers. Bootstrap
@@ -136,9 +151,28 @@ with `INCOGNITO_SESSION_ENDED`, including accepted outbox work.
 
 These adapters remain inactive in production until P7. They do not change durable
 outbox behavior, schema, retention, the SessionManager API, or update behavior.
-Reset, deletion, reclamation, parent-fork callbacks, and native companion
-settlement remain P4b work. The 18 outbox/range inventory sites are prepared for
+The 18 outbox/range inventory sites are prepared for
 cutover; none is retired from main-thread exposure in this stage.
+
+### Incognito session lifecycle (P4b, inactive)
+
+Checked deletion, lifecycle-artifact reclamation, and parent-fork operations use
+the retained actor connection and its existing FIFO. Incognito reset deletes
+the selected session without an archive. Reclamation rechecks prepared entry
+and transcript snapshots, and preserves sibling references. Fork preparation
+returns detached source facts; same-actor commit rechecks the parent transcript
+version and child entry before publishing the copied lineage.
+
+The lifecycle owner retains hooks, run cleanup, and native companion callbacks.
+Only serializable checked operations cross the worker boundary. Companions enter
+at the final host grant and settle with the native receipt: confirmed rollback
+restores them, confirmed commit consumes initialization, and an unknown outcome
+never triggers replay or guessed compensation. Actor loss returns
+`INCOGNITO_SESSION_ENDED` through the existing per-agent lifetime owner.
+
+These adapters remain inactive until P7. Production incognito still uses the
+host owner; no flag selects competing writers. This stage changes no schema,
+retention, durability, session deadline, or update behavior and retires no T1 sites.
 
 ### Existing worker flows
 
@@ -522,6 +556,19 @@ receipts publish claim authority and release observers before callers continue,
 including when ordinary reply delivery fails. Local forced completion and final
 cleanup join the same pending release. Restart recovery, schemas, persisted
 fields, and update behavior are unchanged.
+
+Worker transcript replay-ledger begin, completion, and exact discard use typed
+`placementTranscript` commands in the existing shared-state registry. The
+placement mutation owner captures physical store identity before yielding,
+rechecks live host authority at transaction and commit admission, and returns
+acknowledged receipts through the existing keyed session queue. Pending records
+commit before agent transcript effects; terminal results commit before the RPC
+reply. Lost replies use native commit receipts, never write replay. Unknown
+outcomes retain pending recovery. Only the invocation holding a fresh claim may
+discard after a known rollback, using its original store and exact row identity
+even if request authority has since ended. Database close joins accepted work.
+The agent transcript writer, schema, stored bytes, retention, and update behavior
+are unchanged.
 
 Staged workspace-result pointers also commit through that placement worker. The
 same transaction checks the pending-result claim, immutable staged ref, and exact
@@ -928,6 +975,15 @@ current sharing and the captured store and session generation after awaited
 history reads, publishing the response in that synchronous frame. Cron run
 history keeps its recorded transcript when the live session advances. Responses
 own their nested metadata independently of resident rows.
+
+Durable RPC history pages resolve profile avatars, automation labels, and legacy
+compaction metrics before the worker serializes the bounded message array. Its
+owned UTF-8 buffer transfers once to the host; coalesced readers share those
+immutable bytes while retaining independent page metadata. The WebSocket owner
+embeds the array in its text frame without parsing it. Internal object consumers
+and current operator model restrictions retain their existing presentation
+contracts. Cursor deltas and HTTP history keep their existing readers. This
+changes no stored transcript bytes, schema, retention, or update behavior.
 
 Pending-input history and exact pending-message reads use the same history worker
 for durable stores. Pages retain the 20-item and payload byte limits, ordering,

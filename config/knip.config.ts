@@ -111,6 +111,9 @@ const repositoryScriptEntries = [
   "scripts/e2e/lib/fleet-cache/runtime-preflight.mjs!",
   // test:e2e:node-auto-update runs the installed-package proof against a frozen tarball.
   "scripts/e2e/lib/node-auto-update/scenario.mjs!",
+  // Installed-package authority proof runs by path and injects its worker preload via NODE_OPTIONS.
+  "scripts/e2e/lib/paired-node-skills-authority/scenario.mjs!",
+  "scripts/e2e/lib/paired-node-skills-authority/pause-worker.mjs!",
   "scripts/e2e/lib/npm-telegram-live/prepare-package.mts!",
   "scripts/e2e/lib/onboard/assert-config.mjs!",
   "scripts/e2e/lib/onboard/write-config.mjs!",
@@ -176,6 +179,8 @@ const repositoryScriptEntries = [
   "scripts/fixtures/packed-plugin-sdk-type-smoke.ts!",
   // Generates the native browser page scripts from their UI source modules.
   "scripts/generate-browser-inspect-script-swift.mts!",
+  // The diagnostics guide invokes the sustained Gateway heap rig by path.
+  "scripts/gateway-heap-rig.mjs!",
   // The diagnostics guide invokes this offline snapshot comparison CLI by path.
   "scripts/heap-snapshot-diff.mjs!",
   // CI executes screenshot evidence from the workflow-owned harness copy.
