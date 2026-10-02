@@ -611,9 +611,10 @@ the bounded delta. The main thread retains display/profile projection, byte
 budgets, and fresh sharing checks against the originally admitted sources. A
 failed visibility lookup joins worker retirement before its partial facts return;
 the host observes that failure only if projection reaches the lookup before a
-history reset. Pending inputs and receipts, retained
-transcript-session keys, and SSE inline subagent visibility reads remain migration
-debt. Process-held incognito databases and the existing
+history reset. SSE inline appends prepare source/run visibility in the same worker,
+retaining their numeric message sequence and rechecking source custody and stream
+authority before publication. Pending inputs and receipts and retained
+transcript-session keys remain migration debt. Process-held incognito databases and the existing
 CLI-import history path still need their owner/lifetime migration; they are not
 new synchronous exceptions or fallbacks for a failed durable worker read.
 
@@ -647,8 +648,11 @@ concurrent agent registration invalidates them. Retries retain the captured
 state admission and source paths; changed lifetimes, physical sources, or
 discovered topology still reject stale reads.
 
-Exact message membership reads for managed attachments also use the history
-worker. The worker validates the entire visible JSON range on every lookup,
+Managed attachment retrieval prepares durable store ownership and exact session
+entries in the history worker before matching messages. Requests retain the
+selected source through response publication and recheck caller authority after
+awaited reads. Scheduled cleanup and process-held incognito keep their existing
+owners. The worker validates the entire visible JSON range on every lookup,
 including unchanged projection revisions, and returns only matching messages.
 Cold archive decoding and restoration retain the existing archive worker and
 host generation/commit authorization; transcript read fences still bind the
