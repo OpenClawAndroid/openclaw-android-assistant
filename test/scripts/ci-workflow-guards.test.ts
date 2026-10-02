@@ -1676,7 +1676,16 @@ AFTER_CD
       [{ eventName: "push", runnerBackend: "github" }, 2],
       [{ eventName: "push", runnerBackend: "blacksmith", runAttempt: 2 }, 2],
       [{ eventName: "workflow_dispatch", runnerBackend: "blacksmith" }, 2],
-      [{ eventName: "pull_request", headRepository: "contributor/openclaw" }, 2],
+      [{ eventName: "pull_request", headRepository: "contributor/openclaw" }, 4],
+      [{ eventName: "schedule", runnerBackend: "blacksmith" }, 2],
+      [
+        {
+          eventName: "workflow_dispatch",
+          runnerBackend: "hybrid",
+          preflightOutputs: { ci_qualification: "true", qualification_runner_backend: "hybrid" },
+        },
+        2,
+      ],
       [{ eventName: "push", repository: "contributor/openclaw" }, 2],
     ] as const) {
       expect(
@@ -1688,6 +1697,62 @@ AFTER_CD
         JSON.stringify(context),
       ).toBe(expected);
     }
+    for (const runnerBackend of ["", "blacksmith", "hybrid", "runson", "github"] as const) {
+      for (const runAttempt of [1, 2]) {
+        const context = {
+          eventName: "pull_request" as const,
+          repository: "openclaw/openclaw",
+          headRepository: "contributor/openclaw",
+          authorAssociation: "FIRST_TIME_CONTRIBUTOR",
+          runnerBackend,
+          runAttempt,
+        };
+        const runner = evaluateWorkflowExpression(workflow.jobs.android["runs-on"], context);
+        const parallel = evaluateWorkflowExpression(
+          workflow.jobs.android.strategy["max-parallel"],
+          context,
+        );
+        const hosted = runnerBackend === "github" || runAttempt > 1;
+        expect(runner, JSON.stringify(context)).toBe(
+          hosted ? "ubuntu-24.04" : "blacksmith-8vcpu-ubuntu-2404",
+        );
+        expect(parallel, JSON.stringify(context)).toBe(hosted ? 2 : 4);
+      }
+    }
+  });
+
+  it("lets a PR label disable both fail-fast owners", () => {
+    const workflow = readCiWorkflow();
+    const preflight = workflow.jobs.preflight;
+    const nodeStrategy = workflow.jobs["checks-node-core-test-nondist-shard"].strategy;
+    const monitor = workflow.jobs["pr-fail-fast"];
+
+    expect(preflight.outputs.disable_fail_fast).toBe(
+      "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:no-fail-fast') && 'true' || 'false' }}",
+    );
+
+    const foreignPr = {
+      eventName: "pull_request" as const,
+      repository: "contributor/openclaw",
+      runAttempt: 1,
+      preflightOutputs: { disable_fail_fast: "false", run_checks_node_core_nondist: "true" },
+    };
+    expect(evaluateWorkflowExpression(nodeStrategy["fail-fast"], foreignPr)).toBe(true);
+    expect(
+      evaluateWorkflowExpression(nodeStrategy["fail-fast"], {
+        ...foreignPr,
+        preflightOutputs: { ...foreignPr.preflightOutputs, disable_fail_fast: "true" },
+      }),
+    ).toBe(false);
+
+    const canonicalPr = { ...foreignPr, repository: "openclaw/openclaw" };
+    expect(evaluateWorkflowExpression(monitor.if, canonicalPr)).toBe(true);
+    expect(
+      evaluateWorkflowExpression(monitor.if, {
+        ...canonicalPr,
+        preflightOutputs: { ...canonicalPr.preflightOutputs, disable_fail_fast: "true" },
+      }),
+    ).toBe(false);
   });
 
   it("runs the Docker seed tier with the published updater and a checked main/PR smoke package", () => {

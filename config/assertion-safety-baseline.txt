@@ -126,7 +126,7 @@ extensions/codex/src/app-server/attempt-notifications.ts	1
 extensions/codex/src/app-server/attempt-startup.ts	1
 extensions/codex/src/app-server/auth-bridge.ts	1
 extensions/codex/src/app-server/client-runtime.ts	1
-extensions/codex/src/app-server/client.ts	3
+extensions/codex/src/app-server/client.ts	2
 extensions/codex/src/app-server/compact.ts	1
 extensions/codex/src/app-server/computer-use-cache.ts	1
 extensions/codex/src/app-server/context-engine-projection.ts	1
@@ -289,7 +289,6 @@ extensions/discord/src/monitor/message-handler.preflight-helpers.ts	5
 extensions/discord/src/monitor/message-handler.preflight.ts	2
 extensions/discord/src/monitor/message-handler.process.ts	1
 extensions/discord/src/monitor/message-text.ts	3
-extensions/discord/src/monitor/model-picker-preferences-migrations.ts	5
 extensions/discord/src/monitor/model-picker-preferences.ts	1
 extensions/discord/src/monitor/model-picker.state.ts	3
 extensions/discord/src/monitor/native-command-reply.ts	2
@@ -1553,7 +1552,6 @@ src/agents/subagents/announce/subagent-announce-origin.ts	2
 src/agents/subagents/registry/subagent-recovery-state.ts	1
 src/agents/subagents/registry/subagent-registry-lifecycle-delivery.ts	2
 src/agents/subagents/registry/subagent-registry-restore.ts	1
-src/agents/subagents/registry/subagent-registry.store.sqlite.ts	2
 src/agents/subagents/registry/subagent-registry.ts	2
 src/agents/subagents/registry/subagent-session-cleanup.ts	2
 src/agents/subagents/spawn/acp-spawn-parent-stream.ts	1
@@ -2020,20 +2018,17 @@ src/config/runtime-overrides.ts	1
 src/config/runtime-source-projection.ts	4
 src/config/schema.ts	1
 src/config/sessions/cleanup-service.ts	3
-src/config/sessions/conversation-delivery-store.ts	2
 src/config/sessions/group.ts	1
 src/config/sessions/legacy-main-session-migration.ts	4
 src/config/sessions/metadata.ts	1
 src/config/sessions/session-accessor.entry-mutation.ts	2
 src/config/sessions/session-accessor.entry.ts	1
-src/config/sessions/session-accessor.sqlite-active-events.ts	1
 src/config/sessions/session-accessor.sqlite-archive-store.ts	1
 src/config/sessions/session-accessor.sqlite-canonical-inventory.ts	1
 src/config/sessions/session-accessor.sqlite-entry-availability.ts	1
 src/config/sessions/session-accessor.sqlite-entry.ts	1
 src/config/sessions/session-accessor.sqlite-message-cut.ts	1
 src/config/sessions/session-accessor.sqlite-read.ts	4
-src/config/sessions/session-accessor.sqlite-recovery.ts	1
 src/config/sessions/session-accessor.sqlite-reset-window.ts	2
 src/config/sessions/session-accessor.sqlite-transcript-message-append.ts	1
 src/config/sessions/session-accessor.sqlite-transcript-mirror.ts	1
@@ -2150,7 +2145,6 @@ src/gateway/live-agent-probes.ts	1
 src/gateway/local-request-context.ts	2
 src/gateway/managed-image-attachments.ts	2
 src/gateway/mcp-app-operations.ts	1
-src/gateway/mcp-app-reconstruction.ts	1
 src/gateway/mcp-http.handlers.ts	4
 src/gateway/mcp-http.schema.ts	2
 src/gateway/node-browser-proxy-policy.ts	1
@@ -2227,7 +2221,7 @@ src/gateway/server-methods/system-agent-chat-params.ts	2
 src/gateway/server-methods/system-changes.ts	9
 src/gateway/server-methods/task-suggestions.ts	5
 src/gateway/server-methods/web.ts	1
-src/gateway/server-node-events.ts	2
+src/gateway/server-node-events.ts	1
 src/gateway/server-plugin-in-process-dispatch.ts	3
 src/gateway/server-plugin-subagent-runtime.ts	1
 src/gateway/server-plugins-node-runtime.ts	1
@@ -2257,7 +2251,7 @@ src/gateway/server/ws-connection/connect-node-session.ts	1
 src/gateway/server/ws-connection/message-handler.ts	1
 src/gateway/session-history-state.ts	2
 src/gateway/session-lifecycle-state.ts	1
-src/gateway/session-recovery-service.ts	2
+src/gateway/session-recovery-service.ts	1
 src/gateway/session-transcript-derived-readers.ts	1
 src/gateway/session-transcript-title-reader.ts	1
 src/gateway/sessions-history-http.ts	1
@@ -2400,7 +2394,7 @@ src/infra/restart-handoff.ts	1
 src/infra/restart-sentinel.ts	1
 src/infra/restart-stale-pids.ts	2
 src/infra/retry-policy.ts	3
-src/infra/session-cost-usage-collection.ts	3
+src/infra/session-cost-usage-collection.ts	2
 src/infra/session-cost-usage-pricing.ts	4
 src/infra/session-cost-usage-reporting.ts	5
 src/infra/session-sqlite-migration-readers.ts	2
@@ -2412,7 +2406,7 @@ src/infra/sqlite-readonly-location.ts	3
 src/infra/sqlite-schema-contract.ts	8
 src/infra/sqlite-snapshot.ts	2
 src/infra/sqlite-strict.ts	6
-src/infra/sqlite-wal.ts	4
+src/infra/sqlite-wal.ts	3
 src/infra/state-migrations.acp-replay.ts	1
 src/infra/state-migrations.audit-backup.ts	1
 src/infra/state-migrations.audit-records.ts	4
@@ -2425,7 +2419,7 @@ src/infra/state-migrations.doctor.ts	3
 src/infra/state-migrations.exec-approvals.ts	1
 src/infra/state-migrations.fs.ts	1
 src/infra/state-migrations.legacy-session-store.ts	3
-src/infra/state-migrations.legacy-sessions.ts	2
+src/infra/state-migrations.legacy-sessions.ts	1
 src/infra/state-migrations.mcp-oauth.ts	2
 src/infra/state-migrations.meeting-transcripts-detection.ts	4
 src/infra/state-migrations.meeting-transcripts-files.ts	5
@@ -2433,7 +2427,7 @@ src/infra/state-migrations.meeting-transcripts-verify.ts	2
 src/infra/state-migrations.meeting-transcripts.ts	2
 src/infra/state-migrations.node-host.ts	2
 src/infra/state-migrations.runtime-state.ts	1
-src/infra/state-migrations.session-store.ts	9
+src/infra/state-migrations.session-store.ts	6
 src/infra/state-migrations.shared-auth-store.ts	1
 src/infra/state-migrations.state-dir.ts	1
 src/infra/state-migrations.storage.ts	2

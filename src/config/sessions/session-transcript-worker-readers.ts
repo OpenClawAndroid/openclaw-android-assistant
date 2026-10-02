@@ -168,6 +168,7 @@ export function createSessionHistoryWorkerReaders(
             value.kind !== "conversation-binding" &&
             value.kind !== "transcript-binding" &&
             value.kind !== "artifacts" &&
+            value.kind !== "summary" &&
             value.kind !== "message-page" &&
             value.kind !== "around-id" &&
             value.kind !== "source-messages" &&
@@ -252,6 +253,18 @@ export function createSessionHistoryWorkerReaders(
       (input) => ({ kind: "current-turn-entry", ...input }),
       (value) => value,
     ),
+    readRecentActiveEvents: reader(
+      "recent-active-events",
+      "recent active events",
+      (input) => ({ kind: "recent-active-events", ...input }),
+      (value) => value.events,
+    ),
+    readLatestActiveMessage: reader(
+      "latest-active-message",
+      "the latest active message",
+      (input) => ({ kind: "latest-active-message", ...input }),
+      (value) => value.message,
+    ),
     readUsageCache: reader(
       "usage-refresh-lock",
       "usage cache",
@@ -316,6 +329,12 @@ export function createSessionHistoryWorkerReaders(
       "pending input receipts",
       (input) => ({ kind: "session-pending-input-receipts", ...input }),
       (value) => value.receipts,
+    ),
+    readConversationDelivery: reader(
+      "conversation-delivery",
+      "a conversation delivery receipt",
+      (input) => ({ kind: "conversation-delivery", ...input }),
+      (value) => value.record,
     ),
     readGoalOperationReceipt: reader(
       "goal-operation-receipt",

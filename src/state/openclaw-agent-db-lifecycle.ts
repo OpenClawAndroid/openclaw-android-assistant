@@ -24,6 +24,7 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { VERSION } from "../version.js";
+import { releaseAgentCreationClaimHandle } from "./agent-creation-claim.js";
 import { releaseAgentDeletionDatabaseCleanup } from "./agent-deletion-cleanup.js";
 import type {
   OpenClawAgentDatabase,
@@ -326,7 +327,10 @@ export function refreshAgentDatabaseIdleTimer(database: OpenClawAgentDatabase): 
 }
 
 /** Dispose only this publication; a later admission at the same path is independent. */
-export function closeMaintenanceAgentDatabase(database: OpenClawAgentDatabase): void {
+export async function closeMaintenanceAgentDatabase(
+  database: OpenClawAgentDatabase,
+): Promise<void> {
+  await database.walMaintenance.stop();
   if (cache.databases.get(database.path) !== database) {
     return;
   }
@@ -389,6 +393,7 @@ export function closeCachedOpenClawAgentDatabase(
     cache.leases.delete(database.path);
   }
   releaseAgentDeletionDatabaseCleanup(database);
+  releaseAgentCreationClaimHandle(database);
   clearTimeout(cache.idleTimers.get(database.db));
   cache.idleTimers.delete(database.db);
 }
@@ -569,6 +574,11 @@ export async function closeOpenClawAgentDatabasesAsync(rootPath?: string): Promi
   }
   await drainAgentDatabaseResources({ rootPath }, async () => {
     await drainPendingAgentDatabaseOpens({ rootPath });
+    await Promise.all(
+      [...cache.databases.values()]
+        .filter((database) => rootPath === undefined || isPathInside(rootPath, database.path))
+        .map((database) => database.walMaintenance.stop()),
+    );
     closeOpenClawAgentDatabases(rootPath);
   });
 }
@@ -582,6 +592,10 @@ export async function closeOpenClawAgentDatabaseByPathAsync(
   revokePendingAgentDatabaseOpen(selection.path, expectedAgentId);
   return drainAgentDatabaseResources(selection, async () => {
     await drainPendingAgentDatabaseOpens(selection);
+    const database = cache.databases.get(selection.path);
+    if (database && (expectedAgentId === undefined || database.agentId === expectedAgentId)) {
+      await database.walMaintenance.stop();
+    }
     return closeOpenClawAgentDatabaseByPath(selection.path, expectedAgentId);
   });
 }
