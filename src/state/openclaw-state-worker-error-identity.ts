@@ -1,6 +1,12 @@
 import { DuplicateAgentError } from "../agents/agent-create-error.js";
 import { McpOAuthStoreCorruptionError } from "../agents/mcp-oauth-store-error.js";
 import { WorkspaceAliasRepointedError } from "../agents/workspace-state-identity.js";
+import {
+  SESSION_GOAL_OPERATION_ERROR_CODES,
+  SessionGoalOperationError,
+  type SessionGoalOperationErrorCode,
+} from "../config/sessions/goals-operations.types.js";
+import { SessionPendingInputCustodyError } from "../config/sessions/session-pending-input-custody-error.js";
 import { WorkerSessionAlreadyAttachedError } from "../gateway/worker-environments/session-attachment.js";
 import { GatewayStateOwnerContentionError } from "../infra/gateway-state-owner.js";
 import {
@@ -15,6 +21,10 @@ import {
   StartupMaintenanceRequiredError,
 } from "../infra/startup-maintenance-required.js";
 import { PluginBlobStoreError } from "../plugin-state/plugin-blob-store.types.js";
+import {
+  SecretStoreValidationError,
+  isSecretStoreValidationCode,
+} from "../secrets/store/secret-store-validation-error.js";
 import { SkillUploadRequestError } from "../skills/lifecycle/upload-store-error.js";
 import { OpenClawAgentDatabaseMediaMigrationRequiredError } from "./openclaw-agent-db-migration-required.js";
 import { OpenClawStateDatabaseSchemaMigrationRequiredError } from "./openclaw-state-db-schema-migration-required.js";
@@ -31,6 +41,8 @@ type StateMigrationKind = ConstructorParameters<
 >[0];
 
 export type ErrorIdentity =
+  | { type: "secret-store-validation"; secretCode: SecretStoreValidationError["code"] }
+  | { type: "session-goal-operation"; goalCode: SessionGoalOperationErrorCode }
   | { type: "worker-session-already-attached"; sessionId: string; environmentId: string }
   | {
       type: "workspace-alias-repointed";
@@ -50,7 +62,8 @@ export type ErrorIdentity =
         | "type-error"
         | "duplicate-agent"
         | "skill-upload-request"
-        | "mcp-oauth-corruption";
+        | "mcp-oauth-corruption"
+        | "session-pending-input-custody";
     }
   | { type: "state-owner-contention"; databasePath: string }
   | { type: "ownership-metadata"; databasePath: string }
@@ -72,6 +85,9 @@ export type ErrorIdentity =
   | { type: "agent-media-migration"; pathname: string; schemaVersion: number };
 
 export function identifyError(error: Error): ErrorIdentity {
+  if (error instanceof SecretStoreValidationError) {
+    return { type: "secret-store-validation", secretCode: error.code };
+  }
   if (error instanceof DuplicateAgentError) {
     return { type: "duplicate-agent" };
   }
@@ -100,6 +116,12 @@ export function identifyError(error: Error): ErrorIdentity {
   }
   if (error instanceof McpOAuthStoreCorruptionError) {
     return { type: "mcp-oauth-corruption" };
+  }
+  if (error instanceof SessionGoalOperationError) {
+    return { type: "session-goal-operation", goalCode: error.code };
+  }
+  if (error instanceof SessionPendingInputCustodyError) {
+    return { type: "session-pending-input-custody" };
   }
   if (error instanceof SessionMetadataUnavailableError) {
     return {
@@ -186,6 +208,10 @@ function isBlobOperation(value: unknown): value is PluginBlobStoreError["operati
 
 export function parseIdentity(node: Record<string, unknown>): ErrorIdentity | undefined {
   switch (node.type) {
+    case "secret-store-validation":
+      return isSecretStoreValidationCode(node.secretCode) && node.code === node.secretCode
+        ? { type: node.type, secretCode: node.secretCode }
+        : undefined;
     case "worker-session-already-attached":
       return typeof node.sessionId === "string" && typeof node.environmentId === "string"
         ? { type: node.type, sessionId: node.sessionId, environmentId: node.environmentId }
@@ -212,7 +238,12 @@ export function parseIdentity(node: Record<string, unknown>): ErrorIdentity | un
     case "duplicate-agent":
     case "skill-upload-request":
     case "mcp-oauth-corruption":
+    case "session-pending-input-custody":
       return { type: node.type };
+    case "session-goal-operation": {
+      const goalCode = SESSION_GOAL_OPERATION_ERROR_CODES.find((code) => code === node.goalCode);
+      return goalCode && node.code === goalCode ? { type: node.type, goalCode } : undefined;
+    }
     case "session-metadata":
       return (node.reason === "schema-missing" || node.reason === "table-missing") &&
         Array.isArray(node.missingTables) &&
@@ -271,12 +302,18 @@ function unreachableErrorNode(node: never): never {
 
 export function createError(node: ErrorIdentity & { message: string }): Error {
   switch (node.type) {
+    case "secret-store-validation":
+      return new SecretStoreValidationError(node.secretCode, node.message);
     case "duplicate-agent":
       return new DuplicateAgentError(node.message);
     case "worker-session-already-attached":
       return new WorkerSessionAlreadyAttachedError(node.sessionId, node.environmentId);
     case "workspace-alias-repointed":
       return new WorkspaceAliasRepointedError(node);
+    case "session-goal-operation":
+      return new SessionGoalOperationError(node.goalCode, node.message);
+    case "session-pending-input-custody":
+      return new SessionPendingInputCustodyError(node.message);
     case "session-metadata":
       return new SessionMetadataUnavailableError(node.reason, undefined, node.missingTables);
     case "error":

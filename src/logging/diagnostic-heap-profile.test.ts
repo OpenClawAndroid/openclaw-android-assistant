@@ -7,12 +7,19 @@ import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { diagnosticProfileEntrypoints } from "./diagnostic-profile-runtime.test-support.js";
 
 const hostBunVersion = Object.getOwnPropertyDescriptor(process.versions, "bun");
-const native = vi.hoisted(() => ({ post: vi.fn(), disconnect: vi.fn(), wait: vi.fn() }));
+const native = vi.hoisted(() => ({
+  post: vi.fn(),
+  disconnect: vi.fn(),
+  wait: vi.fn(),
+  resolveRoot: vi.fn(),
+  heapSpaces: vi.fn(),
+}));
+vi.mock("node:v8", () => ({ getHeapSpaceStatistics: native.heapSpaces }));
 vi.mock("node:timers/promises", () => ({ setTimeout: native.wait }));
 vi.mock("node:trace_events", () => ({ getEnabledCategories: () => undefined }));
 vi.mock("../infra/openclaw-root.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../infra/openclaw-root.js")>()),
-  resolveOpenClawPackageRoot: async () => "/fixture/openclaw",
+  resolveOpenClawPackageRoot: native.resolveRoot,
 }));
 vi.mock("node:inspector/promises", () => ({
   url: () => undefined,
@@ -32,18 +39,18 @@ function frame(functionName = "allocateRows") {
     columnNumber: 2,
   };
 }
-function profile() {
+function profile(allocationFrame = frame(), privateUrl = "eval://private-source") {
   return {
     head: {
       id: 1,
       selfSize: 0,
       callFrame: { ...frame("(root)"), url: "" },
       children: [
-        { id: 2, selfSize: 8192, callFrame: frame(), children: [] },
+        { id: 2, selfSize: 8192, callFrame: allocationFrame, children: [] },
         {
           id: 3,
           selfSize: 4096,
-          callFrame: { ...frame("private payload"), url: "eval://private-source" },
+          callFrame: { ...frame("private payload"), url: privateUrl },
           children: [],
         },
       ],
@@ -71,6 +78,8 @@ beforeEach(() => {
   vi.stubEnv("NODE_OPTIONS", "");
   vi.stubEnv("NODE_V8_COVERAGE", "");
   native.wait.mockResolvedValue(undefined);
+  native.heapSpaces.mockReturnValue([]);
+  native.resolveRoot.mockResolvedValue("/fixture/openclaw");
   native.post.mockImplementation(async (method) =>
     method === "HeapProfiler.stopSampling" ? { profile: profile() } : {},
   );
@@ -84,6 +93,17 @@ afterEach(() => {
 
 describe("diagnostic heap profile owner", () => {
   it("preserves allocation samples and redacts native data before returning memory readings", async () => {
+    const before = [
+      {
+        space_name: "old_space",
+        space_used_size: 100,
+        space_size: 200,
+        space_available_size: 50,
+        physical_space_size: 180,
+      },
+    ];
+    const after = [{ ...before[0], space_used_size: 150 }];
+    native.heapSpaces.mockReturnValueOnce(before).mockReturnValueOnce(after);
     const outcome = await capture();
     expect(outcome).toMatchObject({
       status: "complete",
@@ -94,6 +114,8 @@ describe("diagnostic heap profile owner", () => {
         includeObjectsCollectedByMinorGC: false,
         heapUsedBefore: expect.any(Number),
         heapUsedAfter: expect.any(Number),
+        heapSpacesBefore: before,
+        heapSpacesAfter: after,
         rssBefore: expect.any(Number),
         rssAfter: expect.any(Number),
         truncated: false,
@@ -138,6 +160,106 @@ describe("diagnostic heap profile owner", () => {
       },
     });
   });
+
+  it.each([
+    ["/fixture/node_modules/ws/lib/buffer-util.js", "ws"],
+    ["/fixture/openclaw/node_modules/undici/lib/core/util.js", "undici"],
+    ["/fixture/openclaw/src/node_modules/undici/lib/core/util.js", "undici"],
+    ["file:///fixture/node_modules/.pnpm/ws@8.18.0/node_modules/ws/lib/buffer-util.js", "ws"],
+    ["/fixture/node_modules/@scope/pkg/lib/private.js", "@scope/pkg"],
+    [
+      "/fixture/node_modules/.pnpm/@scope+pkg@1.2.3/node_modules/@scope/pkg/lib/private.js",
+      "@scope/pkg",
+    ],
+    ["/fixture/node_modules/outer/node_modules/inner/lib/private.js", "inner"],
+  ])("attributes dependency %s by package name only", async (url, dependency) => {
+    const value = profile({ ...frame("private payload"), url });
+    native.post.mockResolvedValue({ profile: value });
+    const outcome = await capture();
+    expect(outcome).toMatchObject({
+      status: "complete",
+      result: {
+        redactedNodeCount: 1,
+        profile: {
+          samples: value.samples,
+          head: {
+            children: [
+              {
+                id: 2,
+                selfSize: 8192,
+                callFrame: { ...frame(`[dep:${dependency}]`), url: `node_modules/${dependency}` },
+                children: [],
+              },
+              { id: 3 },
+            ],
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(outcome)).not.toMatch(
+      /fixture|private|\.pnpm|8\.18\.0|1\.2\.3|buffer-util/,
+    );
+  });
+
+  it.each([
+    "/fixture/node_modules/openclaw",
+    "/fixture/node_modules/.pnpm/openclaw@1.0.0/node_modules/openclaw",
+  ])("preserves OpenClaw code attribution when installed at %s", async (root) => {
+    native.resolveRoot.mockResolvedValue(root);
+    const value = profile({ ...frame(), url: `${root}/dist/rows.js` }, `${root}/private/secret.js`);
+    native.post.mockResolvedValue({ profile: value });
+    expect(await capture()).toMatchObject({
+      status: "complete",
+      result: {
+        profile: {
+          head: {
+            children: [
+              { callFrame: { ...frame(), url: "openclaw:dist/rows.js" } },
+              { id: 3, callFrame: { functionName: "[redacted]", url: "" } },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it.each([
+    [{ scriptId: "0", url: "", lineNumber: -1 }, "[native]"],
+    [{ scriptId: "0", url: "", lineNumber: 0 }, "[redacted]"],
+    [{ scriptId: "2", url: "", lineNumber: -1 }, "[redacted]"],
+    [{ scriptId: "0", url: "/private/user/secret.js", lineNumber: -1 }, "[redacted]"],
+    [{ url: "/private/user/secret.js" }, "[redacted]"],
+    [{ url: "https://private.example/node_modules/ws/secret.js" }, "[redacted]"],
+    [{ url: "/private/user/secret.js?next=/../node_modules/suffix-only/secret.js" }, "[redacted]"],
+    [{ url: "/private/user/secret.js#next=/node_modules/suffix-only/secret.js" }, "[redacted]"],
+    [
+      { url: "/fixture/openclaw/src/node_modules/ws/secret.js?next=/../suffix-only/secret.js" },
+      "[redacted]",
+    ],
+    [{ url: "file:///private/node_modules/ws/secret.js?private=query" }, "[redacted]"],
+    [{ url: "/private/node_modules/ws/../../user/secret.js" }, "[redacted]"],
+    [{ url: "/private/node_modules/.pnpm/ws@8.18.0/secret.js" }, "[redacted]"],
+  ])(
+    "labels native frames conservatively and preserves redaction for %j",
+    async (location, functionName) => {
+      const sourceFrame = { ...frame("private payload"), ...location };
+      const value = profile(sourceFrame);
+      native.post.mockResolvedValue({ profile: value });
+      const outcome = await capture();
+      expect(outcome).toMatchObject({
+        status: "complete",
+        result: {
+          redactedNodeCount: functionName === "[native]" ? 1 : 2,
+          profile: {
+            head: {
+              children: [{ callFrame: { ...sourceFrame, functionName, url: "" } }, { id: 3 }],
+            },
+          },
+        },
+      });
+      expect(JSON.stringify(outcome)).not.toMatch(/private|secret|node_modules/);
+    },
+  );
 
   it.each([
     { nodeId: -1, size: 4096, ordinal: 3 },
@@ -227,7 +349,7 @@ describe("diagnostic heap profile owner", () => {
     value.head.children = Array.from({ length: 9000 }, (_, index) => ({
       id: index + 2,
       selfSize: 8192,
-      callFrame: frame(),
+      callFrame: { ...frame("private payload"), url: "/fixture/node_modules/ws/lib/private.js" },
       children: [],
     }));
     value.samples = value.head.children.map((node, ordinal) => ({
@@ -242,10 +364,11 @@ describe("diagnostic heap profile owner", () => {
       status: "complete",
       result: {
         truncated: true,
+        redactedNodeCount: 0,
         summary: expect.arrayContaining([
           {
             stack: [
-              { ...frame(), url: "openclaw:src/rows.js" },
+              { ...frame("[dep:ws]"), url: "node_modules/ws" },
               { ...frame("(root)"), url: "" },
             ],
             selfBytes: 9000 * 8192,
