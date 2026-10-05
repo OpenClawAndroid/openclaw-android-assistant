@@ -1180,6 +1180,12 @@ Per-turn restart admission, runtime selection, and initial placement routing rea
 through the existing placement projection. Reads retain the original physical
 store; admission and initial routing also retain a revocable placement observation
 until their caller consumes the facts.
+If a placement publication overlaps read preparation, the owner joins its
+settlement and reads fresh facts from the same physical store. A preceding turn
+finishing or setup advancing cannot reject the next turn merely by superseding
+that read. Only read preparation repeats; consumer effects and writes never do.
+Unknown publication outcomes, cancellation, and store replacement still refuse
+the read, and an observation already handed to its consumer remains revocable.
 Chat admission reruns its session, reservation, and caller checks after preparation;
 reply admission rechecks its session and lifecycle after the worker read. Runtime
 selection is a prepared default that tolerates setup and preceding-turn publications;
@@ -1383,6 +1389,7 @@ Projected durable lifecycle upserts commit their entry snapshots, inventory coun
 and inline maintenance through the existing agent executor. Builders run before the
 synchronous transaction, which compares authoritative rows again; transaction and
 commit grants retain current host authority and prepared maintenance protection.
+Lifecycle commit grants reject newly protected maintenance targets; disappearing or unrelated protection does not invalidate the candidate, while reclamation/native-binding commits conservatively reject any added protection.
 Acknowledged results publish entry, identity, and reset facts before releasing the
 writer FIFO. Lost replies reconcile the native receipt without replaying the builder
 or mutation. The existing lifecycle worker reads the final inventory after maintenance
