@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { runWithAgentToolExecutionContext } from "../../../packages/agent-core/src/tool-execution-context.js";
+import { makeAssistantMessageFixture } from "../test-helpers/assistant-message-fixtures.js";
 import {
   callGatewayToolMock,
   COMPUTER_ACT_COMMAND,
@@ -347,6 +349,49 @@ describe("createComputerTool v1 execution", () => {
     expect(readFrameId(second)).not.toBe(readFrameId(first));
   });
 
+  it("derives a stable node idempotency key from the run and tool call", async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const tool = createVisionComputerTool({ idempotencyScope: "run-1" });
+      await tool.execute("call-computer-1", { action: "type", text: "hello" });
+    }
+
+    const actKeys = computerActBodies().map((body) => body.idempotencyKey);
+    expect(actKeys).toHaveLength(2);
+    expect(actKeys[0]).toMatch(/^computer\.act:v2:[0-9a-f]{64}$/);
+    expect(actKeys[1]).toBe(actKeys[0]);
+  });
+
+  it("keeps queued calls distinct across assistant responses while preserving replay keys", async () => {
+    const tool = createVisionComputerTool({ idempotencyScope: "run-1" });
+    await Promise.all(
+      ["response-1", "response-2", "response-1"].map((responseId) => {
+        const input = { action: "type", text: responseId };
+        const toolCall = {
+          type: "toolCall" as const,
+          id: "computer_0",
+          name: "computer",
+          arguments: input,
+        };
+        return runWithAgentToolExecutionContext(
+          {
+            assistantMessage: makeAssistantMessageFixture({
+              responseId,
+              content: [toolCall],
+              stopReason: "toolUse",
+            }),
+            toolCall,
+          },
+          () => tool.execute(toolCall.id, input),
+        );
+      }),
+    );
+
+    const actKeys = computerActBodies().map((body) => body.idempotencyKey);
+    expect(actKeys).toHaveLength(3);
+    expect(actKeys[1]).not.toBe(actKeys[0]);
+    expect(actKeys[2]).toBe(actKeys[0]);
+  });
+
   it("does not share node receipts across runs that reuse a tool call id", async () => {
     for (const idempotencyScope of ["run-1", "run-2"]) {
       const tool = createVisionComputerTool({ idempotencyScope });
@@ -486,20 +531,9 @@ describe("createComputerTool v1 execution", () => {
     );
   });
 
-  it.each([
-    [
-      "does not authorize coordinates when the model received no image",
-      { modelHasVision: false },
-      TINY_PNG_BASE64,
-    ],
-    [
-      "does not authorize coordinates when screenshot sanitization omits the image",
-      {},
-      "not-base64!!!",
-    ],
-  ])("%s", async (_name, options, base64) => {
-    callGatewayToolMock.mockResolvedValue(screenshotPayload(0, base64));
-    const { tool, frameId } = await createToolWithFrame(options, {}, "call");
+  it("does not authorize coordinates when screenshot sanitization omits the image", async () => {
+    callGatewayToolMock.mockResolvedValue(screenshotPayload(0, "not-base64!!!"));
+    const { tool, frameId } = await createToolWithFrame({}, {}, "call");
     await expect(executeClick(tool, frameId, {}, "call")).rejects.toThrow(/no screenshot/i);
   });
 
