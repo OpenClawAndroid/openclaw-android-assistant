@@ -255,7 +255,11 @@ joins final chat persistence, drains Memory's database borrows, and closes agent
 databases before exiting. It skips plugin and channel teardown that could retain
 the process until the deadline. Database admission stays fenced through lock
 release and log flushing, which have a final five-second exit window. Shutdown
-logs report the elapsed time for these steps. The supervisor deadline remains
+logs report each cleanup step that takes at least one second, including its name
+and elapsed milliseconds. Deadline exits list the currently pending cleanup steps
+and how long each has been waiting (up to eight, with a count of any others).
+These diagnostics are always enabled; `OPENCLAW_GATEWAY_RESTART_TRACE=1` adds
+begin/end timing for fast steps too. The supervisor deadline remains
 the hard upper bound. Clean database restart proof is published only after writer
 leases, checkpointing, and native connection closure settle; one database's idle
 receipt alone does not authorize process exit.
@@ -677,9 +681,11 @@ automatically without surviving authority. Missing or invalid provenance does no
 establish a human sender for an internal claim. Legacy channel and Control UI
 turns retain their existing recovery checks. Child-completion follow-ups still use
 their existing recovery and delivery ownership checks. If their agent database is
-still undergoing startup inspection or preparation, the pending completion wake
-retries after 30 seconds without consuming delivery attempts or changing its
-replay identity. The retained wake survives another restart. A confirmed
+still undergoing startup inspection or preparation, a child result changes while
+being read, or a preparation worker refuses work at capacity, the pending completion
+wake retries after 30 seconds without consuming delivery attempts or changing its
+batch, replay identity, or retry counters. Each retry reads fresh results under
+the same ownership checks. The retained wake survives another restart. A confirmed
 inspection failure or ownership mismatch remains a failure, not permission to
 bypass database admission; cancellation still retires the wake.
 
