@@ -52,8 +52,9 @@ Foreign commits invalidate readiness without resetting
 an in-progress cursor. Maintenance reaches later keys before starting another pass,
 and only a full pass at a stable foreign revision can certify a clean store.
 The planner consumes this owner's pending list.
-Search also verifies that its original reader connection and revision remain current
-after readiness returns; a changed hit snapshot keeps the indexing hint. Read-only
+Search keeps its hit read, host readiness exchange, and original-connection
+revision check in one worker task while independent searches remain parallel.
+A changed hit snapshot keeps the indexing hint. Read-only
 searches also retain their results with that conservative hint when writable
 maintenance is unavailable.
 Clean status reads reuse these facts without entering a write transaction or
@@ -1286,7 +1287,15 @@ No schema, stored format, migration, or updater behavior changes.
 
 Model-context reads and session transcript preparation use the session-transcript
 worker with separate bounded queues. Background preparation cannot occupy the
-foreground context queue. Session exports read events, statistics, and session
+foreground context queue. Foreground history and model-context pools each use up
+to eight read-only workers, each capped at half the host computation budget
+(rounded up). A single-CPU host keeps one worker in each pool. Each worker
+retains its own SQLite connections and snapshots; writer admission and final
+snapshot validation preserve ordered reads. Database closure joins every reader
+in the pool, and idle retirement releases their retained state. Background
+maintenance, exports, and SQLite writers keep their existing capacity. No schema,
+stored format, or update migration changes are required.
+Session exports read events, statistics, and session
 classification from one read-only SQLite snapshot, then prepare text and
 provenance off the Gateway thread. The caller carries its current exact-secret
 redaction snapshot and rejects results prepared against an obsolete registry.
