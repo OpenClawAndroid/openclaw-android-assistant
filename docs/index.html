@@ -730,74 +730,48 @@ bash scripts/build-server-bundle.sh && ./gradlew assembleDebug \
 <div class="section" id="release">
   <p class="section-label">Latest upstream release</p>
   <!-- RELEASE_START -->
-  <h2><em>openclaw 2026.9.7</em></h2>
-  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Sep 30, 2026</p>
+  <h2><em>openclaw 2026.9.9</em></h2>
+  <p class="release-date" style="font-family:var(--mono);font-size:.8rem;color:var(--text-dim);margin-bottom:2rem">Released Oct 08, 2026</p>
   <div class="release-body" style="color:var(--text-dim);font-size:.92rem;line-height:1.75;max-width:800px">
   <h3>Changes</h3>
     <ul>
-    <li>Worktree sessions: start a new chat in an isolated managed worktree from web, iOS, or Android so parallel sessions on one repository no longer collide</li>
-    <li>Voice: Talk, Discord voice, FaceTime, and Twilio voice calls share one agent context, so voice answers about other sessions delegate to the agent instead of denying that work, and read-only lookups no longer ask for spoken confirmation. (#159548, #159474, #156151) @VACInc, and @Peetiegonzalez</li>
-    <li>Role model limits: administrators can give named operator roles a model policy that native agents, Visitor Access, model pickers, and plugin completions enforce, with denials keeping their documented authorization error code. (#156346, #154893, #154839, #156604) and @obviyus</li>
-    <li>Chat-driven setup: owners can hand their agent an API key, a config change, or an edit to a skill they own directly in chat, agents stop refusing or arguing over ordinary requested work while tool policy, sandboxing, and approvals still decide what needs confirmation, and OpenClaw change approvals now complete in the requesting chat with Allow once and Deny buttons or `/approve &lt;id&gt;`. (#158120, #157447, #157947) @jalehman, and @joshavant</li>
-    <li>Desktop audio: listen to managed desktop application sound from the docked desktop panel or the standalone desktop view, with isolated per-application audio on managed Linux desktops, playback tied to screen authorization, and setup warnings kept in a tooltip. (#157718, #157720, #157722, #157723, #157724, #157726, #159487)</li>
-    <li>Working status: show the agent&#x27;s latest commentary as a live status line while it works, clearing when the run ends and keeping approval and startup messages first</li>
-    <li>Chat media: preview PDF attachments inline, move between expanded videos within a chat turn, and copy your own messages as Markdown. (#148399, #154051, #156563) @vyctorbrzezowski, and @VACInc</li>
-    <li>New sessions: set `gateway.controlUi.newSessionModelDefaults: &quot;configured&quot;` to start fresh sessions from the agent&#x27;s configured model, runtime, and thinking defaults instead of the last-used choices; the default stays `&quot;last-used&quot;`</li>
-    <li>Sidebar and presence: organize session filters in one panel, show GitHub merge and closure dates beside sidebar badges, see Open and Running session counts beside online people, and show active collaborators below typing previews. Fixes #150456. (#150605, #158081, #160022, #159263) @vincentkoc, and @shakkernerd</li>
-    <li>Activity: open the Sessions tab with a Today pulse of hourly activity and counts that follow the current filters, highlight whole session rows on hover and focus, and quiet the row actions</li>
-    <li>Profile and preferences: see what your connection is allowed to do in plain language with a Reconnect action after access changes, and choose to open links in an external browser. Fixes #159884. (#156304, #159887) and @VACInc</li>
-    <li>Model pickers: group decision models by provider and drop the hover tooltip from the model picker. (#155301, #158697) and @vyctorbrzezowski</li>
-    <li>Chat tables: move table controls below the content, size desktop tables to their content, avoid unnecessary scrolling, and keep column order when expanding right-to-left tables. (#159924, #156874, #156750, #156947)</li>
-    <li>macOS app: let the macOS app embed the web conversation pane next to its native sidebar, with the chat header sitting in the native titlebar row. (#159739, #159932)</li>
-    <li>Channels: set `requireMentionInBotThreads: false` to accept unmentioned follow-ups only in threads the bot created, across Discord, Slack, Telegram, Matrix, Mattermost, Microsoft Teams, iMessage, Feishu, and other supported channels. Fixes #157698</li>
-    <li>Android chat: operate the agent browser inside chat with collapse and close controls, use a streamlined composer and attachment menu, find models despite typos or multiple search terms, see tool outcomes in collapsed work, and open context usage from the session menu. (#159767, #157799, #159725, #156950, #159733)</li>
-    <li>Android setup and Overview: give saved gateways persistent local names, grant optional setup permissions together, open Settings beside the gateway selector, and read clearer node availability and paired-device explanations with realigned icons that separate work pages from settings. (#159714, #159727, #159718, #157746, #159732, #159961)</li>
-    <li>macOS: renew a saved Gateway&#x27;s Cloudflare Access browser sign-in before it expires instead of signing the app out every session lifetime</li>
-    <li>CLI: `openclaw --help` returns faster, and commands that do not need channel options skip resolving them at startup. and @obviyus</li>
-    <li>Model pricing: price each route by whoever bills it, so an OpenRouter promotion no longer lowers cost estimates for OpenAI direct or other gateways, and download the smaller v2 hosted catalog with ordered model recommendations. (#156518, #156530, #156535, #158863) and @obviyus</li>
-    <li>Anthropic: bare `opus` and new Anthropic API, CLI, and media setup select Claude Opus 5.5 while explicit Opus 5 selections stay pinned, and thinking-display preferences reach Anthropic transports</li>
-    <li>Gemini: add an opt-in `google-interactions` API backend for Gemini Interactions text, image, reasoning, and tool-call workflows. and @RomneyDa</li>
-    <li>Telnyx: install Telnyx as an official external model provider through normal onboarding. and @jalehman</li>
-    <li>Codex: opt in to Ultrafast with `plugins.entries.codex.config.appServer.enableUltrafast`, used only when the selected model advertises it while other models keep their current speed. and @sjf</li>
-    <li>Crabbox: run applications inside a Crabbox lease with `openclaw crabbox run --model` using a protected model credential that never leaves its original host</li>
-    <li>Browser: try opt-in Lightpanda semantic profiles with a portable deployment, and verify the Chromium headless shell across platforms. (#154359, #154360, #154396)</li>
-    <li>Browser sessions: let session writers use an isolated dashboard browser for their own session, show only the current session&#x27;s tabs in the chat Browser panel, and use the Gateway `publicOrigin` as the default browser origin. (#156371, #159891, #157170)</li>
-    <li>Plugins: see declared plugin capabilities, setup guides, and tool inputs in detail previews, browse curated categories with a new Computer use shelf, and get consistent white icon tiles for bundled logos. (#157956, #157946, #158686, #155259)</li>
-    <li>Incognito sessions: expire Incognito sessions after 24 hours, keep their agent turns out of task records and logs, and stop their terminals when the session is reset. (#155596, #157543, #159207)</li>
-    <li>Uploads: let operators disable client file and image uploads to the Gateway. Fixes #158556</li>
-    <li>iOS connections: recognize when an external authorization provider requires browser sign-in before connecting, pause automatic reconnect, and offer a Retry action instead of treating it as a network failure. (#147070, #157454, #157457)</li>
-    <li>Subagents: clarify when research is worth delegating with `sessions_spawn` and how to follow up on a stalled child by checking execution and delivery status instead of loop-polling. and @jalehman</li>
-    <li>Decision models: add the `decision_evaluate` tool for Boolean, Choice, and Score questions against an agent&#x27;s configured decision model, with provider capabilities listed in `models.list`, and keep fallback working when a provider rejects the input. (#155134, #156746) and @jalehman</li>
-    <li>Portals: let collaborators open session-scoped interactive previews from dedicated worker attachments through a restricted `portal` tool, without global host-port access</li>
-    <li>Meetings: add experimental duplicate-safe Google Meet participation with retained caption context and speaker provenance</li>
-    <li>Faster sessions and history: speed up session lists, chat history pages, archived session search, transcript appends, new conversation creation, subagent context loading, and automatic maintenance on busy stores, with fewer repeated scans, reloads, and refresh storms. (#155995, #156055, #156665, #157043, #157572, #157582, #157622, #158397, #158648, #158809, #158961, #159153, #159155, #159309, #159328, #159449, #159456, #159585, #159742, #159900, #158394, #159994, #159647, #159152, #159475, #156830, #158771, #158433, #158559, #158660, #159286, #159710, #159780, #159898, #158859, #158326, #158345, #156400, #158073, #158878, #158885, #159083) and @chopin-op60</li>
-    <li>Faster multi-client Gateway: reduce CPU and traffic when many browsers connect, reconnect, or watch the same chats by spreading reconnect attempts, streaming append deltas, reusing prepared identities, avatars, auth status, and message encodings, sharing pending approval replay, and skipping unchanged roster publications. (#158497, #158536, #158942, #160150, #158555, #158587, #155997, #158552, #158649, #158595, #158597, #156335, #156784, #156358, #158627, #158586, #158803, #158833, #159595, #158643, #158572, #159460, #159457, #158591)</li>
-    <li>Faster agent turns: keep buffered Anthropic streams responsive, serialize large model requests once, reuse Code Mode workers and sandbox classification, stop per-evaluation watchdog threads, unblock session lanes after no-progress loops, and cut tool catalog and validation overhead. (#156054, #156066, #156872, #157021, #158410, #158428, #158610, #158805, #158837, #158872, #159082, #159464, #159574, #152066, #157233, #156800) and @vincentkoc</li>
-    <li>Faster startup, cloud, and automation work: reduce startup placement work, prepare first cloud dispatch artifacts in parallel, stop polling checkout and PR state for idle sessions, and reuse unchanged artifact list summaries, and speed up concurrent automation lists, new chat bursts, and pairing commits. (#157079, #158065, #158525, #159301, #159390, #159520, #159102, #158941, #157113, #156801, #158077, #158665, #156387, #158867, #158779, #157776, #159537)</li>
-    <li>Diagnostics: identify agents across message and model-call traces, trace completed harness commentary, and report blocked CPU profiler starts, waiting or failed lane tasks, live worker counts per pool, heap allocation attribution, and guarded heap snapshot diffs. (#156018, #156343, #158361, #158549, #158561, #159892, #160040) @ryan-dyer-sp, and @vincentkoc</li>
-    <li>Session access: people with session-only grants can read visible conversations, receive updates, copy history as Markdown, and rename, pin, archive, and restore their own sessions, while other people&#x27;s sessions stay read-only. Guests can now create and control their own sessions. (#155184, #155565)</li>
-    <li>Discord and Slack: accept bot-authored messages by default when `allowBots` is omitted, still subject to existing access and mention rules (explicit `false` and `&quot;mentions&quot;` are unchanged), and keep parent context when someone replies to a bot&#x27;s Discord message</li>
-    <li>People and presence: agents can use the `presence` tool to list who is online and which device produced a person&#x27;s latest activity, idle people stay shown as online, administrators can merge duplicate profiles with `openclaw users merge`, and members of multi-user Gateways can edit their personal `USER.md` in Profile settings. Fixes #159423 and #155255. (#159117, #159493, #159889, #155256)</li>
-    <li>Ultra mode: use Ultra as a turn-scoped harness mode on OpenClaw and Claude Code runtimes independently of the model&#x27;s maximum reasoning effort, while native Codex keeps its own Ultra behavior. Fixes #155391</li>
-    <li>Terminal access diagnostics: `openclaw exec-policy show` and the agent Tools panel explain why an agent profile hides `exec` and `process`, including configuration sources and the global-to-agent profile hierarchy. Fixes #155914. and @Pegorim</li>
-    <li>Managed updates: OCM-managed installations can request updates from the Control UI and `/update` and follow the OCM job through completion, and failed-update diagnosis now starts only after you click. (#158932, #157359) @fuller-stack-dev, and @vincentkoc</li>
-    <li>Subagents: scope subagent concurrency to each spawning session, report capacity waits as queued execution, and tell models the wait timeout limits. Fixes #156370. (#156381, #156681, #156542)</li>
-    <li>Background commands: show native background commands in Tasks, warn agents when a background command cannot wake them, and keep quiet heartbeats quiet after tool failures. (#158038, #158884, #156174) and @pash-openai</li>
-    <li>Cloud workers: show the live cloud worker pool in Settings and start warm cloud workers and snapshots faster. (#157200, #156380, #156767)</li>
-    <li>Agents API: run isolated restricted sessions so Memory dreaming can write real diary narratives through the Agents API backend. and @sjf</li>
-    <li>Side chat: remove automatic summaries, accept dropped images, and report instead of silently dropping images on text-only models. (#156892, #156840, #156900)</li>
-    <li>HTML widgets: allow widgets up to 10 MiB</li>
-    <li>Faster sessions: reduce Gateway CPU for session listing, concurrent viewers, activity broadcasts, chat history catch-up, streamed replies, and mention suggestions, and parse streamed SSE incrementally with CR-framed events accepted. (#156221, #157120, #158346, #158408, #158469, #159182, #158481, #158503, #157552, #154929, #158395, #158444, #156817, #156922, #158792)</li>
-    <li>Faster databases: reuse prepared statements and schema facts, shorten agent database admission checks, keep idle agent databases open for thirty minutes, preserve database witnesses across managed restarts, and reduce host CPU for agent worker writes. (#154946, #158973, #156643, #157030, #159445, #158405, #159753, #157666, #158750, #158843, #158763, #159876, #158385, #157333)</li>
-    <li>Faster tasks and tools: reduce CPU for task maintenance, trajectory tool-schema redaction, image discovery in text-heavy conversations, meeting transcript lookups, and frontmatter recovery, give swarm collector groups independent lanes, and defer TypeSafe evaluator startup until its first decision. (#156321, #157527, #159271, #156183, #158471, #158871, #158371, #159074, #158374, #158616, #157380, #159004) and @joshavant</li>
-    <li>Config: support `${VAR:-default}` fallback values in config environment substitution instead of passing the expression through unresolved. Fixes #149551. @jalehman, and @z2mi</li>
-    <li>Package updates: let the new release run its own read-only admission checks for configuration, database compatibility, and plugin availability, so an older installed updater no longer refuses an update the candidate can handle; `--admission installed` forces the installed checks, and Git/source updates are unchanged</li>
-    <li>Update status: show quiet per-step progress while staging Git runtimes and after the Gateway startup check, date recorded outcomes, report the preferred Git release target and known scheduler policy, and clear the applying status once a handed-off update finishes. (#153407, #155671, #156227, #157329, #158926, #158301, #158006) @vincentkoc, @shakkernerd, and @joshavant</li>
-    <li>System services: updates now refresh system-scope Gateway services and hand the final privileged restart to the operator instead of failing. Fixes #156409</li>
-    <li>Accounts: show the ChatGPT sign-in email and the selected account&#x27;s identity in provider settings and the composer, release deleted credentials from model defaults and conversations, and offer existing saved accounts during recovery. (#157629, #157745) and @vincentkoc</li>
+    <li>No intentional capability changes beyond enabling the already-advertised GPT-6.1 Sol model on the managed Codex runtime</li>
     </ul>
     <h3>Fixes</h3>
     <ul>
+    <li>**Codex:** ship the 0.160.0 managed app-server, synchronized protocol/catalog metadata, and a package-level regression that requires GPT-6.1 Sol in the bundled native catalog. (#161446, #163560) @fuller-stack-dev, @vincentkoc, and @RomneyDa</li>
+    <li>**Update and Gateway availability:** avoid unstable live-database copies during ownership admission, reuse prepared plugin/runtime facts for rooted work, preserve node work through metadata refreshes, and retain 2026.9.8 first-hop compatibility. (#162268, #164049, #164087, #163998)</li>
+    <li>**Windows:** restore junction-backed session creation, native empty-workspace initialization, and MXC sandbox readiness and wire compatibility. (#162033, #164202, #158303) @RomneyDa, @zhyx1996, and @paulcam206</li>
+    <li>**Delivery and scheduling:** restore ordinary iMessage finals, credit Discord thread deliveries, keep Telegram dashboard/control access separate, prevent stale cron cleanup from aborting a later run, and keep queued cancellation from stalling active turns. (#163742, #163756, #161369, #163704, #164230) @Kimiyu-186, @MertBasar0, @stuart-minion-ai, @mmaps, @joshavant, @jayzhou2309, @AXEG0, @vincentkoc, and @RomneyDa</li>
+    <li>**CLI lifecycle:** prevent Node 24 and 26 CLI, hook-relay, and Gateway processes from hanging after output</li>
+    <li>**PR #161446** and @fuller-stack-dev and @RomneyDa</li>
+    <li>**PR #163560** and @RomneyDa</li>
+    <li>**PR #163742** and @Kimiyu-186 and @RomneyDa</li>
+    <li>**PR #163788**</li>
+    <li>**PR #163704** Related #163568. and @RomneyDa and @AXEG0</li>
+    <li>**PR #158303** and @RomneyDa</li>
+    <li>**PR #161369** and @joshavant and @RomneyDa</li>
+    <li>**PR #163756** Related #163724. and @RomneyDa and @stuart-minion-ai</li>
+    <li>**PR #164087**</li>
+    <li>**PR #164202**</li>
+    <li>**PR #164230** and @RomneyDa</li>
+    <li>**PR #162268**</li>
+    <li>**PR #164049**</li>
+    <li>**PR #162033** Related #161953. and @RomneyDa and @zhyx1996</li>
+    <li>npm package: https://www.npmjs.com/package/openclaw/v/2026.9.9</li>
+    <li>registry tarball: https://registry.npmjs.org/openclaw/-/openclaw-2026.9.9.tgz</li>
+    <li>integrity: `sha512-3sB6ejq5smBozfBhVEDfK48wFpbkx+0f6PJ19qZjC3ab3RoFrYO58CnE2mAsbUy8sXdxdBtjQ3vkAqcW9BZXAw==`</li>
+    <li>release SHA: `bcfc88812a35243893585dbeca87ca41b48272ca`</li>
+    <li>full release CI report: https://github.com/openclaw/releases/blob/main/evidence/2026.9.9/release-evidence.md</li>
+    <li>release publish: https://github.com/openclaw/openclaw/actions/runs/37760358165</li>
+    <li>npm preflight: https://github.com/openclaw/openclaw/actions/runs/37737494191</li>
+    <li>full release validation: https://github.com/openclaw/openclaw/actions/runs/37736976027</li>
+    <li>plugin npm publish: https://github.com/openclaw/openclaw/actions/runs/37761210573</li>
+    <li>plugin ClawHub publish: no normal OIDC candidates</li>
+    <li>plugin ClawHub bootstrap: not needed</li>
+    <li>OpenClaw npm publish: https://github.com/openclaw/openclaw/actions/runs/37755950239/attempts/1</li>
+    <li>Telegram integration checks: waived by the release owner for 2026.9.9 (source QA, Package Acceptance, published-package E2E); not run</li>
+    <li>Android APK: skipped — apps/android/version.json is 2026.8.2, release train is 2026.9.9; run pnpm android:version:pin -- --from-gateway before the next tag</li>
     </ul>
   </div>
   <!-- RELEASE_END -->
